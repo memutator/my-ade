@@ -1,9 +1,18 @@
 export type PaneType = 'terminal' | 'browser' | 'editor' | 'todo'
 
+/** edge of a target pane a drop/insert lands on */
+export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
+
 export interface PaneBase {
   id: string
   type: PaneType
   title: string
+  /**
+   * Minimized panes keep their leaf in the layout tree but render hidden
+   * (mounted, so terminals/webviews keep running). A chip in the workspace's
+   * pane dock restores them to their exact slot.
+   */
+  minimized?: boolean
 }
 
 export interface TerminalTab {

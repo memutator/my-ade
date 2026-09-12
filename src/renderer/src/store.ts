@@ -4,6 +4,7 @@ import type {
   Bookmark,
   BrowserPaneState,
   BrowserTab,
+  DropEdge,
   EditorPaneState,
   EditorTab,
   LayoutNode,
@@ -41,22 +42,55 @@ function leaf(paneId: string): LayoutNode {
   return { kind: 'leaf', id: uid(), paneId }
 }
 
+// Insert a leaf for paneId into root: split `targetPaneId` at `edge` when the
+// target leaf exists, append at the end when target is null (n/(n+1) keeps the
+// existing panes' relative share), or become the sole leaf when root is null.
+function insertAt(
+  root: LayoutNode | null,
+  panes: Record<string, PaneState>,
+  paneId: string,
+  targetPaneId: string | null,
+  edge: DropEdge | null
+): LayoutNode {
+  if (root && targetPaneId && edge && leafPaneIds(root).includes(targetPaneId)) {
+    const dir: 'row' | 'col' = edge === 'left' || edge === 'right' ? 'row' : 'col'
+    const first = edge === 'left' || edge === 'top'
+    return mapLeaf(root, targetPaneId, (l) => ({
+      kind: 'split',
+      id: uid(),
+      dir,
+      ratio: 0.5,
+      a: first ? leaf(paneId) : l,
+      b: first ? l : leaf(paneId)
+    }))
+  }
+  if (root) {
+    const n = Math.max(1, visibleLeafIds(root, panes).length)
+    return {
+      kind: 'split',
+      id: uid(),
+      dir: 'row',
+      ratio: n / (n + 1),
+      a: root,
+      b: leaf(paneId)
+    }
+  }
+  return leaf(paneId)
+}
+
 // Insert a pane into a workspace: as the only leaf when empty, else split the
-// focused (or last) leaf to the right. Focus moves to the new pane.
+// focused (or last visible) leaf to the right. Focus moves to the new pane.
 function insertPane(w: Workspace, pane: PaneState): Workspace {
   const panes = { ...w.panes, [pane.id]: pane }
-  if (!w.root) return { ...w, panes, root: leaf(pane.id), focusedPaneId: pane.id }
+  const vis = visibleLeafIds(w.root, w.panes)
   const target =
-    w.focusedPaneId && w.panes[w.focusedPaneId] ? w.focusedPaneId : leafPaneIds(w.root).at(-1)!
-  const root = mapLeaf(w.root, target, () => ({
-    kind: 'split',
-    id: uid(),
-    dir: 'row' as const,
-    ratio: 0.5,
-    a: leaf(target),
-    b: leaf(pane.id)
-  }))
-  return { ...w, panes, root, focusedPaneId: pane.id }
+    w.focusedPaneId && vis.includes(w.focusedPaneId) ? w.focusedPaneId : (vis.at(-1) ?? null)
+  return {
+    ...w,
+    panes,
+    root: insertAt(w.root, panes, pane.id, target, 'right'),
+    focusedPaneId: pane.id
+  }
 }
 
 function mapLeaf(
@@ -109,6 +143,44 @@ export function leafPaneIds(node: LayoutNode | null): string[] {
   return [...leafPaneIds(node.a), ...leafPaneIds(node.b)]
 }
 
+// Leaf ids whose pane is not minimized — i.e. the actually visible layout.
+// Minimized panes keep their leaf (removing it would unmount the pane and kill
+// its pty/webview); SplitView hides fully-minimized subtrees with `hidden`.
+export function visibleLeafIds(
+  node: LayoutNode | null,
+  panes: Record<string, PaneState>
+): string[] {
+  return leafPaneIds(node).filter((id) => !panes[id]?.minimized)
+}
+
+// The sibling subtree of paneId's leaf — its nearest neighbor in the layout.
+function siblingOf(node: LayoutNode | null, paneId: string): LayoutNode | null {
+  if (!node || node.kind === 'leaf') return null
+  if (node.a.kind === 'leaf' && node.a.paneId === paneId) return node.b
+  if (node.b.kind === 'leaf' && node.b.paneId === paneId) return node.a
+  return siblingOf(node.a, paneId) ?? siblingOf(node.b, paneId)
+}
+
+// Clear a pane's minimized flag and focus it. Its leaf is still in the layout
+// so the pane pops back into its exact slot; defensively, a leaf missing from
+// root is re-inserted at the focused visible pane (or as the sole leaf).
+function restoreInWorkspace(w: Workspace, paneId: string): Workspace {
+  const pane = w.panes[paneId]
+  if (!pane?.minimized) return w
+  const panes = { ...w.panes, [paneId]: { ...pane, minimized: undefined } as PaneState }
+  if (w.root && leafPaneIds(w.root).includes(paneId)) {
+    return { ...w, panes, focusedPaneId: paneId }
+  }
+  const vis = visibleLeafIds(w.root, panes)
+  const target = w.focusedPaneId && vis.includes(w.focusedPaneId) ? w.focusedPaneId : null
+  return {
+    ...w,
+    panes,
+    root: insertAt(w.root, panes, paneId, target, 'right'),
+    focusedPaneId: paneId
+  }
+}
+
 // older saves predate internal tabs: browser panes had no `tabs` (seed one from
 // the stored url); terminal panes kept their single shell's cwd/shell/exited/
 // agent on the pane itself (migrated into a seeded tab, then stripped)
@@ -148,7 +220,14 @@ function normalizeWorkspace(w: Workspace): Workspace {
     panes[id] = normalizePane(p)
     if (panes[id] !== p) changed = true
   }
-  return changed ? { ...w, panes } : w
+  // a persisted focus on a minimized pane would be invisible — snap it back to
+  // the first visible leaf
+  let focusedPaneId = w.focusedPaneId
+  if (focusedPaneId && panes[focusedPaneId]?.minimized) {
+    focusedPaneId = visibleLeafIds(w.root, panes)[0] ?? null
+    changed = true
+  }
+  return changed ? { ...w, panes, focusedPaneId } : w
 }
 
 // todos: order is only meaningful within a sibling group (same parentId)
@@ -210,6 +289,8 @@ interface AdeState extends PersistedState {
   newPane: (type: PaneType, wsId?: string) => void
   splitPane: (paneId: string, dir: 'row' | 'col', type: PaneType, wsId?: string) => void
   closePane: (paneId: string, wsId?: string) => void
+  minimizePane: (paneId: string, wsId?: string) => void
+  restorePane: (paneId: string, wsId?: string) => void
   movePane: (
     paneId: string,
     fromWsId: string,
@@ -392,15 +473,17 @@ export const useStore = create<AdeState>((set, get) => {
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const panes = { ...w.panes, [pane.id]: pane }
-            if (!w.root) return { ...w, panes, root: leaf(pane.id), focusedPaneId: pane.id }
-            const root = mapLeaf(w.root, paneId, (l) => ({
-              kind: 'split',
-              id: uid(),
-              dir,
-              ratio: 0.5,
-              a: l,
-              b: leaf(pane.id)
-            }))
+            const vis = visibleLeafIds(w.root, w.panes)
+            // a minimized pane can't be split — retarget the last visible leaf
+            // so the new pane never lands in a hidden slot
+            const target = vis.includes(paneId) ? paneId : (vis.at(-1) ?? null)
+            const root = insertAt(
+              w.root,
+              panes,
+              pane.id,
+              target,
+              dir === 'row' ? 'right' : 'bottom'
+            )
             return { ...w, panes, root, focusedPaneId: pane.id }
           })
         }
@@ -412,14 +495,47 @@ export const useStore = create<AdeState>((set, get) => {
         if (!wsId) return s
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
-            if (!w.root) return w
-            const root = removeLeaf(w.root, paneId)
+            if (!w.panes[paneId]) return w
+            const root = w.root ? removeLeaf(w.root, paneId) : w.root
             const panes = { ...w.panes }
             delete panes[paneId]
             const focusedPaneId =
-              w.focusedPaneId === paneId ? (root ? leafPaneIds(root)[0] : null) : w.focusedPaneId
+              w.focusedPaneId === paneId
+                ? (visibleLeafIds(root, panes)[0] ?? null)
+                : w.focusedPaneId
             return { ...w, root, panes, focusedPaneId }
           })
+        }
+      }),
+
+    // Dock the pane: flag it minimized (the leaf stays in the layout so the
+    // mounted terminal/webview keeps running; SplitView hides the subtree)
+    // and hand focus to the nearest still-visible pane.
+    minimizePane: (paneId, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane || pane.minimized) return w
+            const panes = { ...w.panes, [paneId]: { ...pane, minimized: true } }
+            const focusedPaneId = visibleLeafIds(w.root, panes).includes(w.focusedPaneId ?? '')
+              ? w.focusedPaneId
+              : (visibleLeafIds(siblingOf(w.root, paneId), panes)[0] ??
+                visibleLeafIds(w.root, panes)[0] ??
+                null)
+            return { ...w, panes, focusedPaneId }
+          })
+        }
+      }),
+
+    restorePane: (paneId, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => restoreInWorkspace(w, paneId))
         }
       }),
 
@@ -482,38 +598,13 @@ export const useStore = create<AdeState>((set, get) => {
           const panes = { ...w.panes }
           delete panes[paneId]
           const focusedPaneId =
-            w.focusedPaneId === paneId ? (root ? leafPaneIds(root)[0] : null) : w.focusedPaneId
+            w.focusedPaneId === paneId ? (visibleLeafIds(root, panes)[0] ?? null) : w.focusedPaneId
           return { ...w, root, panes, focusedPaneId }
         }
 
         const graft = (w: Workspace): Workspace => {
           const panes = { ...w.panes, [paneId]: pane }
-          let root = w.root
-          if (root && targetPaneId && edge) {
-            const dir: 'row' | 'col' = edge === 'left' || edge === 'right' ? 'row' : 'col'
-            const first = edge === 'left' || edge === 'top'
-            root = mapLeaf(root, targetPaneId, (l) => ({
-              kind: 'split',
-              id: uid(),
-              dir,
-              ratio: 0.5,
-              a: first ? leaf(paneId) : l,
-              b: first ? l : leaf(paneId)
-            }))
-          } else if (root) {
-            // append at the end — n/(n+1) keeps existing panes' relative share
-            const n = leafPaneIds(root).length
-            root = {
-              kind: 'split',
-              id: uid(),
-              dir: 'row',
-              ratio: n / (n + 1),
-              a: root,
-              b: leaf(paneId)
-            }
-          } else {
-            root = leaf(paneId)
-          }
+          const root = insertAt(w.root, panes, paneId, targetPaneId, edge ?? null)
           return { ...w, panes, root, focusedPaneId: paneId }
         }
 
@@ -557,12 +648,18 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
+    // focusing a minimized pane (e.g. a notification click) restores it —
+    // otherwise the click would appear to do nothing
     focusPane: (paneId, wsIdArg) =>
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
         return {
-          workspaces: updWs(s.workspaces, wsId, (w) => ({ ...w, focusedPaneId: paneId }))
+          workspaces: updWs(s.workspaces, wsId, (w) =>
+            w.panes[paneId]?.minimized
+              ? restoreInWorkspace(w, paneId)
+              : { ...w, focusedPaneId: paneId }
+          )
         }
       }),
 
@@ -572,7 +669,7 @@ export const useStore = create<AdeState>((set, get) => {
         if (!wsId) return s
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
-            const ids = leafPaneIds(w.root)
+            const ids = visibleLeafIds(w.root, w.panes)
             if (ids.length === 0) return w
             const i = w.focusedPaneId ? ids.indexOf(w.focusedPaneId) : -1
             return { ...w, focusedPaneId: ids[(i + dir + ids.length) % ids.length] }
@@ -615,13 +712,16 @@ export const useStore = create<AdeState>((set, get) => {
           return { ...p, tabs: [...p.tabs, tab], activeTabId: tab.id }
         }
 
-        // prefer the focused editor pane, else first editor pane, else create one
+        // prefer the focused editor pane, else first editor pane, else create
+        // one — minimized editors are skipped so files never open in a hidden
+        // pane (their dock chip stays untouched)
         const panes = Object.values(ws.panes)
         const target =
           (ws.focusedPaneId &&
             (ws.panes[ws.focusedPaneId] as EditorPaneState | undefined)?.type === 'editor' &&
+            !ws.panes[ws.focusedPaneId]?.minimized &&
             ws.focusedPaneId) ||
-          panes.find((p) => p.type === 'editor')?.id
+          panes.find((p) => p.type === 'editor' && !p.minimized)?.id
 
         if (target) {
           return {
@@ -651,8 +751,9 @@ export const useStore = create<AdeState>((set, get) => {
         const target =
           (ws.focusedPaneId &&
             ws.panes[ws.focusedPaneId]?.type === 'browser' &&
+            !ws.panes[ws.focusedPaneId]?.minimized &&
             ws.focusedPaneId) ||
-          Object.values(ws.panes).find((p) => p.type === 'browser')?.id
+          Object.values(ws.panes).find((p) => p.type === 'browser' && !p.minimized)?.id
 
         if (target) {
           const bp = ws.panes[target] as BrowserPaneState

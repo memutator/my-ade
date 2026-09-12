@@ -1,7 +1,8 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { DropEdge } from './types'
 import { useStore } from './store'
 
-export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
+export type { DropEdge }
 
 type DropTarget =
   | { kind: 'pane'; wsId: string; paneId: string; edge: DropEdge | null }
