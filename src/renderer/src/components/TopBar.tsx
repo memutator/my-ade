@@ -14,7 +14,7 @@ import { useStore } from '../store'
 import WorkspaceStrip from './WorkspaceStrip'
 import NotificationBell from './NotificationBell'
 import FileTree from './FileTree'
-import appIcon from '../assets/icon.png'
+import AdeLogo from './AdeLogo'
 
 export default function TopBar(): React.JSX.Element {
   const settings = useStore((s) => s.settings)
@@ -56,7 +56,7 @@ export default function TopBar(): React.JSX.Element {
             setSidebarOpen(!sidebarOpen)
           }}
         >
-          <img src={appIcon} alt="ade" className="app-logo" />
+          <AdeLogo />
         </button>
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>

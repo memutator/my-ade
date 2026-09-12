@@ -574,13 +574,6 @@ webview.browser-view {
   width: 26px;
 }
 
-.tbtn .app-logo {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  display: block;
-}
-
 .tree-overlay {
   position: fixed;
   top: calc(var(--topbar-h) + 2px);
