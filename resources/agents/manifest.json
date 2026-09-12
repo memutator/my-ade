@@ -1,0 +1,64 @@
+{
+  "claude": {
+    "match": [
+      "claude"
+    ],
+    "label": "Claude"
+  },
+  "codex": {
+    "match": [
+      "codex"
+    ],
+    "label": "Codex"
+  },
+  "gemini": {
+    "match": [
+      "gemini"
+    ],
+    "label": "Gemini"
+  },
+  "grok": {
+    "match": [
+      "grok"
+    ],
+    "label": "Grok"
+  },
+  "devin": {
+    "match": [
+      "devin"
+    ],
+    "label": "Devin"
+  },
+  "cursor": {
+    "match": [
+      "cursor-agent",
+      "cursor"
+    ],
+    "label": "Cursor"
+  },
+  "copilot": {
+    "match": [
+      "copilot",
+      "gh copilot"
+    ],
+    "label": "GitHub Copilot"
+  },
+  "aider": {
+    "match": [
+      "aider"
+    ],
+    "label": "Aider"
+  },
+  "opencode": {
+    "match": [
+      "opencode"
+    ],
+    "label": "OpenCode"
+  },
+  "amp": {
+    "match": [
+      "amp"
+    ],
+    "label": "Amp"
+  }
+}
