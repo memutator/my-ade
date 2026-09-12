@@ -398,12 +398,21 @@ webview.browser-view {
 .file-body {
   position: absolute;
   inset: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   user-select: text;
 }
 
+/* stacked per-tab editor surfaces (hidden keeps unsaved buffers alive) */
+.editor-file {
+  position: absolute;
+  inset: 0;
+}
+
 .file-empty {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -429,47 +438,172 @@ webview.browser-view {
   border-color: var(--accent);
 }
 
-.file-code {
-  padding: 10px 14px;
+/* CodeMirror surface (non-markdown text files) */
+.cm-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cm-wrap > div {
+  height: 100%;
+}
+
+.cm-wrap .cm-editor {
+  height: 100%;
+  background: transparent;
   font-size: 12.5px;
+}
+
+.cm-wrap .cm-editor.cm-focused {
+  outline: none;
+}
+
+.cm-wrap .cm-scroller {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
   line-height: 1.55;
 }
 
-.file-code pre {
-  margin: 0;
-  background: transparent !important;
+.cm-wrap .cm-gutters {
+  background: var(--bg-pane);
+  color: var(--text-faint);
+  border-right: 1px solid var(--border);
 }
 
-.file-code code {
-  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+.cm-wrap .cm-activeLine {
+  background: var(--hover);
 }
 
-.file-md {
-  padding: 16px 22px;
-  font-size: 13.5px;
-  line-height: 1.65;
+.cm-wrap .cm-activeLineGutter {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+/* Milkdown live-markdown surface (Obsidian-style single view) */
+.md-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   user-select: text;
 }
 
-.file-md pre {
+.md-editor .milkdown {
+  height: 100%;
+}
+
+.md-editor .ProseMirror {
+  min-height: 100%;
+  padding: 14px 20px 48px;
+  outline: none;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.md-editor .ProseMirror p {
+  margin: 0 0 8px;
+}
+
+.md-editor .ProseMirror h1,
+.md-editor .ProseMirror h2,
+.md-editor .ProseMirror h3,
+.md-editor .ProseMirror h4 {
+  margin: 16px 0 6px;
+  line-height: 1.3;
+}
+
+.md-editor .ProseMirror h1 {
+  font-size: 1.7em;
+}
+
+.md-editor .ProseMirror h2 {
+  font-size: 1.4em;
+}
+
+.md-editor .ProseMirror h3 {
+  font-size: 1.15em;
+}
+
+.md-editor .ProseMirror a {
+  color: var(--accent);
+}
+
+.md-editor .ProseMirror pre {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
   overflow: auto;
+  margin: 8px 0;
 }
 
-.file-md code {
+.md-editor .ProseMirror code {
   font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
   font-size: 12px;
+  background: var(--bg-elev);
+  border-radius: 4px;
+  padding: 1px 4px;
 }
 
-.file-md img {
+.md-editor .ProseMirror pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.md-editor .ProseMirror img {
   max-width: 100%;
 }
 
+.md-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--border-strong);
+  margin: 8px 0;
+  padding: 2px 0 2px 12px;
+  color: var(--text-dim);
+}
+
+.md-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.md-editor .ProseMirror ul,
+.md-editor .ProseMirror ol {
+  padding-left: 22px;
+  margin: 0 0 8px;
+}
+
+.md-editor .ProseMirror li p {
+  margin: 0;
+}
+
+.md-editor .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 6px;
+}
+
+.md-editor .ProseMirror li[data-checked] > label,
+.md-editor .ProseMirror li[data-checked] input[type='checkbox'] {
+  margin-right: 6px;
+}
+
+.md-editor .ProseMirror table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.md-editor .ProseMirror th,
+.md-editor .ProseMirror td {
+  border: 1px solid var(--border-strong);
+  padding: 4px 10px;
+}
+
+.md-editor .ProseMirror .ProseMirror-selectednode {
+  outline: 2px solid var(--accent-soft);
+}
+
 .file-image {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -505,6 +639,14 @@ webview.browser-view {
   color: var(--text-faint);
   font-size: 10.5px;
   flex-shrink: 0;
+}
+
+.file-meta .file-dirty-note {
+  color: var(--accent);
+}
+
+.file-meta .file-err {
+  color: #e5534b;
 }
 
 /* ── empty state ─────────────────────────── */
@@ -806,6 +948,14 @@ webview.browser-view {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+}
+
+.ctab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .ctab-sub {

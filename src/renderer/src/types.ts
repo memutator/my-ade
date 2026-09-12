@@ -23,6 +23,7 @@ export interface EditorTab {
   id: string
   path: string
   name: string
+  dirty?: boolean
 }
 
 export interface EditorPaneState extends PaneBase {

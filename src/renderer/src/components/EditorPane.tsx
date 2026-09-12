@@ -15,6 +15,7 @@ export default function EditorPane({
   wsId: string
 }): React.JSX.Element {
   const updatePane = useStore((s) => s.updatePane)
+  const notify = useStore((s) => s.notify)
   const t = useT()
 
   const openDialog = async (): Promise<void> => {
@@ -30,14 +31,26 @@ export default function EditorPane({
     }
   }
 
-  const tabs: TabItem[] = pane.tabs.map((t) => ({ id: t.id, label: t.name }))
-  const active = pane.tabs.find((t) => t.id === pane.activeTabId)
+  const tabs: TabItem[] = pane.tabs.map((t) => ({ id: t.id, label: t.name, dirty: t.dirty }))
 
   const closeTab = (tabId: string): void => {
     const tabs = pane.tabs.filter((t) => t.id !== tabId)
     const activeTabId =
       pane.activeTabId === tabId ? (tabs.at(-1)?.id ?? undefined) : pane.activeTabId
     updatePane(pane.id, { tabs, activeTabId }, wsId)
+  }
+
+  const markDirty = (tabId: string, dirty: boolean): void => {
+    updatePane(
+      pane.id,
+      { tabs: pane.tabs.map((t) => (t.id === tabId ? { ...t, dirty: dirty || undefined } : t)) },
+      wsId
+    )
+  }
+
+  const saveFailed = (tabId: string, msg: string): void => {
+    const name = pane.tabs.find((t) => t.id === tabId)?.name ?? 'file'
+    notify({ workspaceId: wsId, paneId: pane.id, title: `save failed: ${name}`, body: msg })
   }
 
   return (
@@ -63,15 +76,24 @@ export default function EditorPane({
         </Tooltip>
       }
     >
-      {active ? (
-        <FileView path={active.path} />
-      ) : (
+      {pane.tabs.length === 0 ? (
         <div className="file-body">
           <div className="file-empty">
             <span>{t('noFileOpen')}</span>
             <button onClick={openDialog}>{t('openFile')}</button>
           </div>
         </div>
+      ) : (
+        // every open tab keeps a mounted FileView so unsaved buffers survive tab switches
+        pane.tabs.map((t) => (
+          <div key={t.id} className="editor-file" hidden={t.id !== pane.activeTabId}>
+            <FileView
+              path={t.path}
+              onDirtyChange={(d) => markDirty(t.id, d)}
+              onSaveError={(msg) => saveFailed(t.id, msg)}
+            />
+          </div>
+        ))
       )}
     </PaneFrame>
   )

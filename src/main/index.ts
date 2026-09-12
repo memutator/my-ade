@@ -100,6 +100,17 @@ function registerFileIpc(): void {
       return { ok: false, error: String(e instanceof Error ? e.message : e) }
     }
   })
+
+  ipcMain.handle('file:write', async (_e, filePath: string, content: string) => {
+    try {
+      if (typeof filePath !== 'string' || typeof content !== 'string')
+        return { ok: false, error: 'invalid args' }
+      await writeFile(filePath, content, 'utf8')
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e instanceof Error ? e.message : e) }
+    }
+  })
 }
 
 function registerWindowIpc(): void {
