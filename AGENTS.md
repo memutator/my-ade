@@ -132,8 +132,9 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
   builds; prefer prebuilt binaries.
 * Preload changes are NOT hot-reloaded — restart `npm run dev` after editing
   `src/preload/*` or `src/main/*`.
-* Vite may cache an intermediate CSS state across rapid consecutive edits —
-  `touch` the file + reload if a style looks stale.
+* Vite may cache a stale transform across rapid consecutive edits (CSS AND tsx
+  modules — it once served a mid-edit `t0 is not defined` build for minutes) —
+  `touch` the file + reload when live behavior doesn't match the source.
 * inotify limits were raised to `fs.inotify.max_user_instances=512` /
   `max_user_watches=524288` (`/etc/sysctl.d/99-inotify.conf`); stray dev processes
   still waste instances — kill stale `electron-vite dev` before restarting.

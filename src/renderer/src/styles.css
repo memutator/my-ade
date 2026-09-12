@@ -1126,9 +1126,28 @@ webview.browser-view {
   display: flex;
   align-items: flex-end;
   min-width: 0;
-  overflow-x: clip;
+  overflow-x: auto;
   overflow-y: visible;
   padding: 6px 10px 0;
+  /* thin scrollbar — the strip lives in the window-drag region so it needs
+     no-drag for the scrollbar (and wheel) to work */
+  -webkit-app-region: no-drag;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.tstrip::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tstrip::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+.tstrip::-webkit-scrollbar-track,
+.tstrip::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .ws-strip {
@@ -1166,13 +1185,16 @@ webview.browser-view {
   background: var(--tab-hover);
 }
 
-/* active tab: fills with its surface color and merges into it (no border) */
+/* active tab: fills with its surface color and merges into it (no border).
+   flex-shrink:0 — the current tab never squeezes below its content width
+   when the strip overflows; inactive tabs absorb the shrink instead */
 .ctab.active {
   --tab-fill: var(--tab-active);
   background: var(--tab-fill);
   color: var(--text);
   z-index: 2;
   margin-bottom: -1px;
+  flex-shrink: 0;
 }
 
 /* curved wings on active tab — one shared shape, fill via --tab-fill */
