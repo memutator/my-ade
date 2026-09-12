@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
 import { join, basename, extname, isAbsolute, resolve } from 'path'
+import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { readFile, writeFile, stat, readdir } from 'fs/promises'
 import { readFileSync } from 'fs'
@@ -228,6 +229,21 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // A focused <webview> guest keeps its own keydown events — the host
+  // document never sees them, which would kill every app shortcut while
+  // typing in a browser pane. resources/webview-preload.cjs forwards
+  // Alt+* / Ctrl+Tab to the host via ipc-message; this hands the renderer
+  // the file:// path to give the webview's `preload` attribute.
+  ipcMain.handle(
+    'webview:preloadPath',
+    () =>
+      pathToFileURL(
+        is.dev
+          ? join(app.getAppPath(), 'resources', 'webview-preload.cjs')
+          : join(process.resourcesPath, 'webview-preload.cjs')
+      ).href
+  )
 
   registerPtyIpc()
   registerFileIpc()

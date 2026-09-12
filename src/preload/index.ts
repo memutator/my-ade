@@ -143,6 +143,11 @@ const ade = {
     maximize: (): void => ipcRenderer.send('win:maximize'),
     close: (): void => ipcRenderer.send('win:close')
   },
+  webview: {
+    // file:// URL of resources/webview-preload.cjs — set as the webview
+    // `preload` attribute so guest keydowns for app shortcuts reach the host.
+    preloadPath: (): Promise<string> => ipcRenderer.invoke('webview:preloadPath')
+  },
   openExternal: (url: string): void => ipcRenderer.send('shell:openExternal', url)
 }
 

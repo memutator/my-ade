@@ -106,6 +106,10 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
   `<webview>` swallows all mouse events, so an armed drag sets
   `body.pane-dragging` which forces `pointer-events: none` on every webview,
   keeping `elementFromPoint` hit-testing and window pointermove/up alive.
+- A focused `<webview>` also keeps its keydowns — `resources/webview-preload.cjs`
+  runs inside every guest (`preload` attr) and relays Alt+* / Ctrl+Tab via
+  `ipc-message` → `ade:key` to `applyShortcut` in `shortcuts.ts` — the same
+  dispatch the window keydown listener uses.
 - No build tools (make/gcc) on this machine — never add deps that require node-gyp
   builds; prefer prebuilt binaries.
 - Preload changes are NOT hot-reloaded — restart `npm run dev` after editing

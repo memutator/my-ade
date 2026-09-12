@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, ChevronDown, Globe, Plus, RotateCw, Star, X } fr
 import type { Bookmark, BrowserPaneState, BrowserTab } from '../types'
 import { useStore } from '../store'
 import { useT, translate } from '../i18n'
+import { applyShortcut } from '../shortcuts'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
@@ -104,6 +105,21 @@ function BrowserTabView({
   // src is frozen at mount — later navigations use loadURL only, so the
   // webview never double-loads when tab.url changes
   const [initialSrc] = useState(() => toLoad(tab.url))
+  // guest preload (app-shortcut key forwarding) — resolve before mounting the
+  // webview since `preload` is only read when the element attaches
+  const [preload, setPreload] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    window.ade.webview
+      .preloadPath()
+      .then((p) => {
+        if (live) setPreload(p)
+      })
+      .catch(() => setPreload(''))
+    return () => {
+      live = false
+    }
+  }, [])
 
   const desiredUrl = useCallback((): string | null => {
     const t = browserPane(wsId, paneId)?.tabs.find((x) => x.id === tab.id)
@@ -121,24 +137,51 @@ function BrowserTabView({
     report(tab.id, m)
   }, [report, tab.id])
 
-  // stable callback ref — bind/unbind the element exactly on mount/unmount
+  // stable binding — bind/unbind the element exactly on mount/unmount
   const onFocusPaneRef = useRef(onFocusPane)
   useEffect(() => {
     onFocusPaneRef.current = onFocusPane
   })
-  const refCb = useCallback(
+  // the webview element itself lives in state so dependent effects (nav
+  // listeners, url sync) re-run when it attaches after the preload resolves
+  const [wvEl, setWvEl] = useState<Electron.WebviewTag | null>(null)
+  const attachWebview = useCallback(
     (el: Electron.WebviewTag | null): void => {
       wvRef.current = el
+      setWvEl(el)
       // clicking inside the guest focuses the webview element — that's our
       // only signal, so it also marks the pane focused
       el?.addEventListener('focus', () => onFocusPaneRef.current())
+      // guest preload relays app-shortcut keydowns as ipc-message 'ade:key'
+      const onIpc = (e: Electron.IpcMessageEvent): void => {
+        if (e.channel === 'ade:key') applyShortcut(e.args[0])
+      }
+      el?.addEventListener('ipc-message', onIpc)
       bind(tab.id, el)
     },
     [bind, tab.id]
   )
 
+  // create the webview imperatively — `preload` must be set before the element
+  // attaches, and JSX can't express it (React drops unknown webview props)
+  const hostRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const wv = wvRef.current
+    const host = hostRef.current
+    if (!host || preload === null) return
+    const el = document.createElement('webview') as Electron.WebviewTag
+    el.className = 'browser-view'
+    if (preload) el.setAttribute('preload', preload)
+    el.setAttribute('src', initialSrc)
+    host.appendChild(el)
+    attachWebview(el)
+    return () => {
+      attachWebview(null)
+      el.remove()
+    }
+  }, [preload, initialSrc, attachWebview])
+
+  useEffect(() => {
+    const wv = wvEl
     if (!wv) return
 
     // all loadURL calls funnel through syncUrl: they throw before dom-ready, so
@@ -230,7 +273,7 @@ function BrowserTabView({
       wv.removeEventListener('render-process-gone', onGone)
       wv.removeEventListener('new-window', onNewWindow as EventListener)
     }
-  }, [wsId, paneId, tab.id, desiredUrl, reportNav])
+  }, [wsId, paneId, tab.id, desiredUrl, reportNav, wvEl])
 
   // desired url lives in the store — re-sync the webview when it changes
   useEffect(() => {
@@ -238,8 +281,7 @@ function BrowserTabView({
   }, [tab.url])
 
   return (
-    <div className={`browser-tabview${active ? '' : ' off'}`}>
-      <webview ref={refCb} className="browser-view" src={initialSrc} />
+    <div className={`browser-tabview${active ? '' : ' off'}`} ref={hostRef}>
       {error && (
         <div className="browser-err">
           <Globe size={20} />
