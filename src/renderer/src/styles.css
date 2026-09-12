@@ -1127,8 +1127,15 @@ webview.browser-view {
   align-items: flex-end;
   min-width: 0;
   overflow-x: auto;
-  overflow-y: visible;
+  /* overflow-y:clip — `visible` is forbidden next to a scrollable axis (it
+     computes to auto → vertical scroll) and `hidden` still lets wheel events
+     nudge the tabs. clip kills vertical scrolling outright. */
+  overflow-y: clip;
   padding: 6px 10px 0;
+  /* the strip reaches 1px into the parent's bottom border so the active tab's
+     fill covers it (the old margin-bottom:-1px on .ctab is dead — vertical
+     overflow is clipped now, so the overlap lives on the strip instead) */
+  margin-bottom: -1px;
   /* thin scrollbar — the strip lives in the window-drag region so it needs
      no-drag for the scrollbar (and wheel) to work */
   -webkit-app-region: no-drag;

@@ -51,9 +51,10 @@ export default function TabStrip({
     const el = stripRef.current
     if (!el) return
     const onWheel = (e: WheelEvent): void => {
-      if (el.scrollWidth <= el.clientWidth || e.deltaY === 0) return
+      // never let the strip scroll vertically — even overflow:hidden answers
+      // to the wheel (a few px of dead range nudges the tabs up/down)
       e.preventDefault()
-      el.scrollLeft += e.deltaY
+      if (el.scrollWidth > el.clientWidth) el.scrollLeft += e.deltaY + e.deltaX
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
