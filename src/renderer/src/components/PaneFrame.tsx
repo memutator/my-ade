@@ -30,6 +30,7 @@ export default function PaneFrame({
   return (
     <div
       className={`pane${focused ? ' focused' : ''}`}
+      data-pane-id={pane.id}
       onPointerDownCapture={() => focusPane(pane.id, wsId)}
     >
       <div className="pane-titlebar">

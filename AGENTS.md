@@ -92,7 +92,11 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 | Alt+D / Alt+S | split focused pane right / down |
 | Alt+W | close focused pane |
 | Alt+] / Alt+[ | cycle focus |
+| Alt+Arrow keys | move focus to the pane in that direction |
 | Alt+M | toggle dark/light theme |
+| Alt+1 … Alt+9 | activate workspace N (clamped to last) |
+| Ctrl+Alt+→ / Ctrl+Alt+← | next / previous workspace (wraps) |
+| Ctrl+Tab / Ctrl+Shift+Tab | next / previous tab inside the focused pane |
 
 ## Gotchas
 

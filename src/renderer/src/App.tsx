@@ -73,6 +73,37 @@ function resolveHookTarget(
   return { ws, paneId }
 }
 
+// Directional focus move: among the active workspace's rendered .pane rects,
+// pick the pane whose center lies in `dir` from the focused pane's center,
+// scored by axial + orthogonal distance. Null when nothing lies that way.
+function paneIdInDirection(
+  st: ReturnType<typeof useStore.getState>,
+  dir: 'left' | 'right' | 'up' | 'down'
+): string | null {
+  const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
+  const host = document.querySelector('.ws-host:not([hidden])')
+  if (!ws?.focusedPaneId || !host) return null
+  const els = [...host.querySelectorAll<HTMLElement>('.pane[data-pane-id]')]
+  const from = els.find((el) => el.dataset.paneId === ws.focusedPaneId)
+  if (!from) return null
+  const fr = from.getBoundingClientRect()
+  const fx = fr.left + fr.width / 2
+  const fy = fr.top + fr.height / 2
+  let best: { id: string; score: number } | null = null
+  for (const el of els) {
+    if (el === from) continue
+    const r = el.getBoundingClientRect()
+    const dx = r.left + r.width / 2 - fx
+    const dy = r.top + r.height / 2 - fy
+    const axial = dir === 'left' ? -dx : dir === 'right' ? dx : dir === 'up' ? -dy : dy
+    if (axial <= 0) continue
+    const score = axial + Math.abs(dir === 'left' || dir === 'right' ? dy : dx)
+    const id = el.dataset.paneId
+    if (id && (!best || score < best.score)) best = { id, score }
+  }
+  return best?.id ?? null
+}
+
 export default function App(): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
@@ -168,8 +199,20 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.altKey) return
+      if (e.metaKey) return
       const st = useStore.getState()
+
+      // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs inside the focused pane.
+      // Deliberately window-level (not gated on target): inputs, CodeMirror and
+      // xterm must not keep it; panes without internal tabs simply no-op.
+      if (e.ctrlKey && !e.altKey && e.key === 'Tab') {
+        st.cyclePaneTab(e.shiftKey ? -1 : 1)
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+
+      if (!e.altKey) return
       const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
       const key = e.key.toLowerCase()
       switch (key) {
@@ -205,7 +248,28 @@ export default function App(): React.JSX.Element {
         case 'm':
           st.updateSettings({ theme: st.resolvedTheme === 'dark' ? 'light' : 'dark' })
           break
+        case 'arrowright':
+        case 'arrowleft':
+        case 'arrowdown':
+        case 'arrowup': {
+          const dir = key.slice('arrow'.length) as 'right' | 'left' | 'down' | 'up'
+          if (e.ctrlKey) {
+            // Ctrl+Alt+←/→ = previous/next workspace; up/down stays unbound
+            if (dir === 'up' || dir === 'down') return
+            st.cycleWorkspace(dir === 'right' ? 1 : -1)
+          } else {
+            const paneId = paneIdInDirection(st, dir)
+            if (paneId) st.focusPane(paneId)
+          }
+          break
+        }
         default:
+          // Alt+1 … Alt+9 → workspace N, clamped to the last existing one
+          if (key >= '1' && key <= '9' && st.workspaces.length > 0) {
+            const i = Math.min(Number(key) - 1, st.workspaces.length - 1)
+            st.activateWorkspace(st.workspaces[i].id)
+            break
+          }
           return
       }
       e.preventDefault()

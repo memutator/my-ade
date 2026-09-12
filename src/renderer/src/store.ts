@@ -161,6 +161,7 @@ interface AdeState extends PersistedState {
 
   createWorkspace: (projectId: string, name?: string) => void
   activateWorkspace: (id: string) => void
+  cycleWorkspace: (dir: 1 | -1) => void
   renameWorkspace: (id: string, name: string) => void
   closeWorkspace: (id: string) => void
   moveWorkspace: (from: number, to: number) => void
@@ -172,6 +173,7 @@ interface AdeState extends PersistedState {
   updatePane: (paneId: string, patch: Partial<PaneState>, wsId?: string) => void
   focusPane: (paneId: string, wsId?: string) => void
   cycleFocus: (dir: 1 | -1, wsId?: string) => void
+  cyclePaneTab: (dir: 1 | -1, wsId?: string) => void
 
   openFileInEditor: (path: string, name: string, wsId?: string) => void
   openUrlInBrowser: (url: string, wsId?: string) => void
@@ -292,6 +294,14 @@ export const useStore = create<AdeState>((set, get) => {
       }),
 
     activateWorkspace: (id) => set({ activeWorkspaceId: id }),
+
+    cycleWorkspace: (dir) =>
+      set((s) => {
+        const n = s.workspaces.length
+        if (n === 0) return s
+        const i = s.workspaces.findIndex((w) => w.id === s.activeWorkspaceId)
+        return { activeWorkspaceId: s.workspaces[(Math.max(0, i) + dir + n) % n].id }
+      }),
 
     renameWorkspace: (id, name) =>
       set((s) => ({
@@ -416,6 +426,27 @@ export const useStore = create<AdeState>((set, get) => {
           })
         }
       }),
+
+    // Ctrl+Tab target: advance activeTabId inside the focused pane when it has
+    // internal tabs (browser/editor); terminal/todo panes are a no-op.
+    cyclePaneTab: (dir, wsIdArg) => {
+      const wsId = wid(wsIdArg)
+      if (!wsId) return
+      const ws = get().workspaces.find((w) => w.id === wsId)
+      const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
+      if (!p || (p.type !== 'browser' && p.type !== 'editor') || p.tabs.length < 2) return
+      const i = Math.max(
+        0,
+        p.tabs.findIndex((t) => t.id === p.activeTabId)
+      )
+      const next = p.tabs[(i + dir + p.tabs.length) % p.tabs.length]
+      // browser panes mirror the active tab's url on the pane itself
+      get().updatePane(
+        p.id,
+        'url' in next ? { activeTabId: next.id, url: next.url } : { activeTabId: next.id },
+        wsId
+      )
+    },
 
     openFileInEditor: (path, name, wsIdArg) =>
       set((s) => {
