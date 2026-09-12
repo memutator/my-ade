@@ -36,9 +36,16 @@ const LANGS: Record<string, string> = {
   '.lua': 'lua',
   '.vim': 'vim',
   '.diff': 'diff',
+  '.patch': 'diff',
   '.ini': 'ini',
+  '.cfg': 'ini',
+  '.conf': 'ini',
+  '.properties': 'properties',
+  '.mk': 'makefile',
+  '.csv': 'csv',
+  '.env': 'dotenv',
   '.txt': 'text',
-  '.log': 'text'
+  '.log': 'log'
 }
 
 let hlPromise: Promise<Highlighter> | null = null
@@ -54,6 +61,20 @@ function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
+// Extensionless / dotfile basenames → shiki language.
+const NAME_LANGS: Record<string, string> = {
+  dockerfile: 'dockerfile',
+  containerfile: 'dockerfile',
+  makefile: 'makefile',
+  'cmakelists.txt': 'cmake',
+  '.env': 'dotenv',
+  '.envrc': 'dotenv',
+  '.gitignore': 'ini',
+  '.dockerignore': 'ini',
+  '.npmignore': 'ini',
+  '.editorconfig': 'ini'
+}
+
 const MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -63,14 +84,28 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.bmp': 'image/bmp',
-  '.avif': 'image/avif'
+  '.avif': 'image/avif',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.ogv': 'video/ogg',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.opus': 'audio/ogg',
+  '.pdf': 'application/pdf'
 }
 
 interface Loaded {
-  kind: 'image' | 'text' | 'binary'
+  kind: 'image' | 'text' | 'binary' | 'video' | 'audio' | 'pdf'
   html?: string
   md?: string
-  imageUrl?: string
+  mediaUrl?: string
   meta?: string
   error?: string
 }
@@ -93,13 +128,13 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
       const bytes = fromBase64(r.data!)
       const meta = `${r.name} · ${(r.size! / 1024).toFixed(1)} KB`
 
-      if (r.kind === 'image') {
+      if (r.kind === 'image' || r.kind === 'video' || r.kind === 'audio' || r.kind === 'pdf') {
         if (imgUrlRef.current) URL.revokeObjectURL(imgUrlRef.current)
         const url = URL.createObjectURL(
           new Blob([bytes], { type: MIME[r.ext!] ?? 'application/octet-stream' })
         )
         imgUrlRef.current = url
-        setLoaded({ kind: 'image', imageUrl: url, meta })
+        setLoaded({ kind: r.kind, mediaUrl: url, meta })
         return
       }
       if (r.kind === 'binary') {
@@ -115,7 +150,12 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
 
       try {
         const hl = await getHighlighter()
-        const lang = LANGS[r.ext!] ?? 'text'
+        const lname = (r.name ?? '').toLowerCase()
+        const lang =
+          LANGS[r.ext!] ??
+          NAME_LANGS[lname] ??
+          NAME_LANGS[lname.split('.')[0]] ??
+          (lname.startsWith('.env') ? 'dotenv' : 'text')
         if (lang !== 'text') {
           try {
             await hl.loadLanguage(lang as never)
@@ -158,8 +198,18 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
         </div>
       ) : loaded.kind === 'image' ? (
         <div className="file-image">
-          <img src={loaded.imageUrl} alt={path} />
+          <img src={loaded.mediaUrl} alt={path} />
         </div>
+      ) : loaded.kind === 'video' ? (
+        <div className="file-media">
+          <video src={loaded.mediaUrl} controls />
+        </div>
+      ) : loaded.kind === 'audio' ? (
+        <div className="file-media">
+          <audio src={loaded.mediaUrl} controls />
+        </div>
+      ) : loaded.kind === 'pdf' ? (
+        <embed className="file-pdf" src={loaded.mediaUrl} type="application/pdf" />
       ) : loaded.md !== undefined ? (
         <div className="file-md">
           <Markdown remarkPlugins={[remarkGfm]}>{loaded.md}</Markdown>
