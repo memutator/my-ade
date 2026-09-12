@@ -80,7 +80,8 @@ export default function App(): React.JSX.Element {
           workspaces: s.workspaces,
           activeWorkspaceId: s.activeWorkspaceId,
           settings: s.settings,
-          sidebarOpen: s.sidebarOpen
+          sidebarOpen: s.sidebarOpen,
+          bookmarks: s.bookmarks
         })
       }, 400)
     })
