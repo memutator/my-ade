@@ -135,6 +135,9 @@ function buildEvent(provider, argEvent, payload) {
     cwd: cwd || undefined,
     sessionId: sessionId || undefined,
     message: message || undefined,
+    // stamped by the shell env chain (pty spawn → agent → hook) so ade can
+    // tell our sessions' events apart from agents running elsewhere
+    adeSession: process.env.ADE_SESSION || undefined,
     ts: Date.now()
   }
 }

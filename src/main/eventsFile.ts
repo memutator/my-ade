@@ -18,6 +18,7 @@ export interface AgentHookEvent {
   cwd?: string
   sessionId?: string
   message?: string
+  adeSession?: string
   ts?: number
 }
 
@@ -136,6 +137,10 @@ export class EventLogTailer {
       return
     }
     if (!ev || typeof ev.provider !== 'string' || typeof ev.event !== 'string') return
+    // only our sessions: hooks are installed globally, so agents launched in
+    // other terminals (or another ade instance) also append here — drop them
+    const ours = process.env.ADE_SESSION
+    if (ours && ev.adeSession !== ours) return
     const ts = typeof ev.ts === 'number' ? ev.ts : Date.now()
     if (ev.event === 'turn-complete') {
       const key = `${ev.provider}|${ev.sessionId || ''}|${ev.cwd || ''}|${ev.event}`

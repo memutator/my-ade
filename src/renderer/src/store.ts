@@ -800,10 +800,12 @@ export const useStore = create<AdeState>((set, get) => {
     notify: (n) =>
       set((s) => {
         const now = Date.now()
-        // collapse duplicate signals for the same completion — e.g. a codex
-        // hook event plus the pty agent→idle transition firing together
+        // collapse duplicate signals for the same completion — a codex hook
+        // event and the pty agent→idle transition can resolve to different
+        // panes (cwd mismatch → focused-pane fallback), so key on the
+        // workspace, not the pane
         const dupe = s.notifications.some(
-          (x) => x.title === n.title && x.paneId === n.paneId && now - x.ts < 8000
+          (x) => x.title === n.title && x.workspaceId === n.workspaceId && now - x.ts < 15000
         )
         if (dupe) return s
         return {

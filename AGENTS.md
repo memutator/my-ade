@@ -53,6 +53,10 @@ splittable pane layout scoped to a project directory.
   (`~/.zcode/cli/config.json`), opencode (plugin). `hooks:test` writes a synthetic
   event through the real channel — the Settings "agent hooks" section has
   status/install/test per provider. Process-detection idle is the fallback.
+  Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run UUID set in
+  main): the env chain is pty-host → spawned shell → agent → hook, so the
+  tailer drops events from agents launched outside ade — hooks are global, so
+  without this every codex run on the machine would notify here.
 - **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,

@@ -45,6 +45,7 @@ export function registerHookIpc(): void {
         event: 'turn-complete',
         cwd: process.cwd(),
         sessionId: `ade-test-${Date.now()}`,
+        adeSession: process.env.ADE_SESSION,
         message: 'test notification from ade'
       })
       return { ok: true }

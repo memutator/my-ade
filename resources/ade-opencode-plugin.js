@@ -22,6 +22,7 @@ export const AdeEventsPlugin = async ({ directory }) => ({
           event: 'turn-complete',
           cwd: directory,
           sessionId: event.properties?.sessionID,
+          adeSession: process.env.ADE_SESSION || undefined,
           ts: Date.now()
         }) + '\n',
         { flag: 'a' }

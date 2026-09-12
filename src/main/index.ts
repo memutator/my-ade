@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electr
 import { join, basename, extname, isAbsolute, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
+import { randomUUID } from 'crypto'
 import { readFile, writeFile, stat, readdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -10,6 +11,12 @@ import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+
+// Per-run session tag: pty-host inherits it, every spawned shell and agent
+// CLI carries it, and hook scripts stamp it onto each event. The tailer drops
+// events from foreign sessions (agents running outside ade, or another ade
+// instance) so notifications only fire for OUR terminals.
+process.env.ADE_SESSION ??= randomUUID()
 
 const IMAGE_EXTS = new Set([
   '.png',
