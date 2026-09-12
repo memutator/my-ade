@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronRight, ListTodo } from 'lucide-react'
 import type { TodoItem } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
 import FileTree from './FileTree'
 import TodoList from './TodoList'
 
@@ -13,9 +14,10 @@ export default function Sidebar(): React.JSX.Element | null {
   const project = useStore((s) => s.projects.find((p) => p.id === activeWs?.projectId))
   const todos = useStore((s) => (project ? (s.todos[project.id] ?? EMPTY_TODOS) : EMPTY_TODOS))
   const [todosOpen, setTodosOpen] = useState(true)
+  const t = useT()
 
   if (!open || !project) return null
-  const done = todos.filter((t) => t.status === 'done').length
+  const done = todos.filter((x) => x.status === 'done').length
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -27,7 +29,7 @@ export default function Sidebar(): React.JSX.Element | null {
         <button className="sidebar-todos-head" onClick={() => setTodosOpen(!todosOpen)}>
           <ChevronRight size={11} className={`tchev${todosOpen ? ' open' : ''}`} />
           <ListTodo size={12} className="ticon" />
-          todos
+          {t('todos')}
           <span className="todo-count">
             {done}/{todos.length}
           </span>

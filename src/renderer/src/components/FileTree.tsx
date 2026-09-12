@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import type { DirEntry } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
 import { useFileIcon } from '../fileIcons'
 
 function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.JSX.Element {
@@ -47,6 +48,7 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.J
 
 export default function FileTree({ rootPath }: { rootPath: string }): React.JSX.Element {
   const [entries, setEntries] = useState<DirEntry[] | null>(null)
+  const t = useT()
 
   useEffect(() => {
     let on = true
@@ -59,9 +61,9 @@ export default function FileTree({ rootPath }: { rootPath: string }): React.JSX.
   return (
     <div className="filetree">
       {entries === null ? (
-        <div className="tree-status">loading…</div>
+        <div className="tree-status">{t('loading')}</div>
       ) : entries.length === 0 ? (
-        <div className="tree-status">empty</div>
+        <div className="tree-status">{t('empty')}</div>
       ) : (
         entries.map((e) => <TreeNode key={e.path} entry={e} depth={0} />)
       )}

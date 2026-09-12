@@ -12,6 +12,8 @@ import {
 } from 'lucide-react'
 import type { TodoItem, TodoStatus } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 
 const EMPTY: TodoItem[] = []
 const DND_TYPE = 'application/x-ade-todo'
@@ -72,6 +74,7 @@ function TodoRow({
   list: TodoItem[]
 }): React.JSX.Element {
   const { item, depth, canIndent } = row
+  const t = useT()
   const cycleTodo = useStore((s) => s.cycleTodo)
   const updateTodo = useStore((s) => s.updateTodo)
   const removeTodo = useStore((s) => s.removeTodo)
@@ -84,12 +87,12 @@ function TodoRow({
   const depWrapRef = useRef<HTMLDivElement>(null)
 
   const blockers = item.dependsOn
-    .map((d) => list.find((t) => t.id === d))
-    .filter((t): t is TodoItem => !!t && t.status !== 'done')
+    .map((d) => list.find((x) => x.id === d))
+    .filter((x): x is TodoItem => !!x && x.status !== 'done')
   const blocked = blockers.length > 0
   // dep picker: exclude self and descendants (a todo can't depend on its own subtree)
   const depRows = depsOpen
-    ? buildRows(list.filter((t) => t.id !== item.id && !descendantIds(list, item.id).has(t.id)))
+    ? buildRows(list.filter((x) => x.id !== item.id && !descendantIds(list, item.id).has(x.id)))
     : []
 
   useEffect(() => {
@@ -153,15 +156,17 @@ function TodoRow({
       }}
       onDragEnd={() => setDrop(null)}
     >
-      <button
-        className="todo-check"
-        title={
-          blocked ? `blocked by: ${blockers.map((t) => t.text).join(', ')}` : 'todo → doing → done'
+      <Tooltip
+        label={
+          blocked
+            ? t('blockedBy', { list: blockers.map((x) => x.text).join(', ') })
+            : t('todoCycle')
         }
-        onClick={() => cycleTodo(projectId, item.id)}
       >
-        {statusIcon(item.status)}
-      </button>
+        <button className="todo-check" onClick={() => cycleTodo(projectId, item.id)}>
+          {statusIcon(item.status)}
+        </button>
+      </Tooltip>
       {draft === null ? (
         <span className="todo-text" onClick={() => setDraft(item.text)}>
           {item.text || ' '}
@@ -185,35 +190,38 @@ function TodoRow({
           }}
         />
       )}
-      {blocked && <span className="todo-badge">blocked</span>}
+      {blocked && <span className="todo-badge">{t('blocked')}</span>}
       <div className="todo-actions">
-        <button
-          className="pbtn"
-          title="Indent"
-          disabled={!canIndent}
-          onClick={() => indentTodo(projectId, item.id)}
-        >
-          <IndentIncrease />
-        </button>
-        <button
-          className="pbtn"
-          title="Outdent"
-          disabled={!item.parentId}
-          onClick={() => outdentTodo(projectId, item.id)}
-        >
-          <IndentDecrease />
-        </button>
-        <div className="todo-dep-wrap" ref={depWrapRef}>
+        <Tooltip label={t('indent')}>
           <button
-            className={`pbtn${item.dependsOn.length ? ' has-deps' : ''}`}
-            title="Dependencies"
-            onClick={() => setDepsOpen(!depsOpen)}
+            className="pbtn"
+            disabled={!canIndent}
+            onClick={() => indentTodo(projectId, item.id)}
           >
-            <Link2 />
+            <IndentIncrease />
           </button>
+        </Tooltip>
+        <Tooltip label={t('outdent')}>
+          <button
+            className="pbtn"
+            disabled={!item.parentId}
+            onClick={() => outdentTodo(projectId, item.id)}
+          >
+            <IndentDecrease />
+          </button>
+        </Tooltip>
+        <div className="todo-dep-wrap" ref={depWrapRef}>
+          <Tooltip label={t('dependencies')}>
+            <button
+              className={`pbtn${item.dependsOn.length ? ' has-deps' : ''}`}
+              onClick={() => setDepsOpen(!depsOpen)}
+            >
+              <Link2 />
+            </button>
+          </Tooltip>
           {depsOpen && (
             <div className="todo-deps">
-              {depRows.length === 0 && <div className="todo-deps-empty">no other todos</div>}
+              {depRows.length === 0 && <div className="todo-deps-empty">{t('noOtherTodos')}</div>}
               {depRows.map((r) => (
                 <button
                   key={r.item.id}
@@ -224,16 +232,18 @@ function TodoRow({
                   <span className={`todo-dep-ic st-${r.item.status}`}>
                     {statusIcon(r.item.status)}
                   </span>
-                  <span className="tname">{r.item.text || '(empty)'}</span>
+                  <span className="tname">{r.item.text || t('unnamedTodo')}</span>
                   {item.dependsOn.includes(r.item.id) && <Check className="dep-check" />}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <button className="pbtn" title="Delete" onClick={() => removeTodo(projectId, item.id)}>
-          <Trash2 />
-        </button>
+        <Tooltip label={t('deleteTodo')}>
+          <button className="pbtn" onClick={() => removeTodo(projectId, item.id)}>
+            <Trash2 />
+          </button>
+        </Tooltip>
       </div>
     </div>
   )
@@ -242,20 +252,21 @@ function TodoRow({
 export default function TodoList({ projectId }: { projectId: string }): React.JSX.Element {
   const list = useStore((s) => s.todos[projectId] ?? EMPTY)
   const addTodo = useStore((s) => s.addTodo)
+  const t = useT()
   const [text, setText] = useState('')
   const rows = buildRows(list)
 
   const add = (): void => {
-    const t = text.trim()
-    if (!t) return
-    addTodo(projectId, t)
+    const txt = text.trim()
+    if (!txt) return
+    addTodo(projectId, txt)
     setText('')
   }
 
   return (
     <div className="todo-list">
       <div className="todo-scroll">
-        {rows.length === 0 && <div className="todo-empty">no todos yet</div>}
+        {rows.length === 0 && <div className="todo-empty">{t('noTodosYet')}</div>}
         {rows.map((r) => (
           <TodoRow key={r.item.id} projectId={projectId} row={r} list={list} />
         ))}
@@ -264,7 +275,7 @@ export default function TodoList({ projectId }: { projectId: string }): React.JS
         <Plus />
         <input
           value={text}
-          placeholder="add a todo…"
+          placeholder={t('addTodoItem')}
           spellCheck={false}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && add()}

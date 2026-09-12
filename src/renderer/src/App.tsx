@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
 import { useStore } from './store'
-import { useT } from './i18n'
+import { useT, translate } from './i18n'
 import { agentProviders, agentLabel } from './agents'
 import type { AgentHookEvent, Workspace } from './types'
 
@@ -34,7 +34,7 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
         </button>
         <button onClick={() => newPane('todo', wsId)}>
           <ListTodo />
-          todos
+          {t('todos')}
           <kbd>Alt+L</kbd>
         </button>
       </div>
@@ -148,7 +148,11 @@ export default function App(): React.JSX.Element {
       const { ws, paneId } = resolveHookTarget(st, ev.cwd)
       const wsId = ws?.id ?? st.activeWorkspaceId
       const label = agentLabel(ev.provider)
-      const title = ev.event === 'needs-input' ? `${label} needs input` : `${label} finished`
+      const title = translate(
+        st.settings.language,
+        ev.event === 'needs-input' ? 'agentNeedsInput' : 'agentFinished',
+        { agent: label }
+      )
       const body = ev.message || ws?.name || ev.cwd || ''
       if (wsId) st.notify({ workspaceId: wsId, paneId, title, body })
       if (st.settings.osNotifications) {

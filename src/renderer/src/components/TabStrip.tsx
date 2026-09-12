@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { useT } from '../i18n'
 import Tooltip from './Tooltip'
 
 export interface TabItem {
@@ -30,6 +31,7 @@ export default function TabStrip({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const dragIdx = useRef(-1)
+  const t = useT()
 
   const commit = (id: string): void => {
     onRename?.(id, editValue)
@@ -38,11 +40,11 @@ export default function TabStrip({
 
   return (
     <div className="tstrip" onPointerDown={(e) => e.stopPropagation()}>
-      {tabs.map((t, i) => (
-        <Tooltip key={t.id} label={t.sub ? `${t.label} — ${t.sub}` : t.label}>
+      {tabs.map((tab, i) => (
+        <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
           <div
-            className={`ctab${t.id === activeId ? ' active' : ''}`}
-            draggable={!!onReorder && editingId !== t.id}
+            className={`ctab${tab.id === activeId ? ' active' : ''}`}
+            draggable={!!onReorder && editingId !== tab.id}
             onDragStart={() => (dragIdx.current = i)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => {
@@ -50,38 +52,42 @@ export default function TabStrip({
                 onReorder(dragIdx.current, i)
               dragIdx.current = -1
             }}
-            onClick={() => onActivate(t.id)}
+            onClick={() => onActivate(tab.id)}
             onDoubleClick={() => {
               if (!onRename) return
-              setEditingId(t.id)
-              setEditValue(t.label)
+              setEditingId(tab.id)
+              setEditValue(tab.label)
             }}
           >
-            {t.icon}
-            {editingId === t.id ? (
+            {tab.icon}
+            {editingId === tab.id ? (
               <input
                 className="ctab-rename"
                 autoFocus
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
-                onBlur={() => commit(t.id)}
+                onBlur={() => commit(tab.id)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') commit(t.id)
+                  if (e.key === 'Enter') commit(tab.id)
                   if (e.key === 'Escape') setEditingId(null)
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className="ctab-label">{t.label}</span>
+              <span className="ctab-label">{tab.label}</span>
             )}
-            {t.sub && <span className="ctab-sub">{t.sub}</span>}
-            {t.dirty && <span className="ctab-dot" title="unsaved changes" />}
+            {tab.sub && <span className="ctab-sub">{tab.sub}</span>}
+            {tab.dirty && (
+              <Tooltip label={t('unsavedChanges')}>
+                <span className="ctab-dot" />
+              </Tooltip>
+            )}
             {onClose && (
               <button
                 className="ctab-close"
                 onClick={(e) => {
                   e.stopPropagation()
-                  onClose(t.id)
+                  onClose(tab.id)
                 }}
               >
                 <X size={11} />

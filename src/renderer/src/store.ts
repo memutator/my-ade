@@ -126,6 +126,7 @@ function isDescendantOf(list: TodoItem[], id: string, ancestorId: string): boole
 }
 
 const DEFAULT_SETTINGS: Settings = {
+  homeUrl: '',
   theme: 'dark',
   accent: '#7aa2f7',
   uiFont: "'Inter', system-ui, sans-serif",
@@ -218,6 +219,14 @@ function updWs(
 export const useStore = create<AdeState>((set, get) => {
   // helper: resolve wsId (default: active)
   const wid = (wsId?: string): string | null => wsId ?? get().activeWorkspaceId
+
+  // new browser panes/tabs start on the configured home page (empty = blank)
+  const withHome = (p: PaneState): PaneState => {
+    const home = get().settings.homeUrl.trim()
+    if (p.type !== 'browser' || !home) return p
+    const bp = p as BrowserPaneState
+    return { ...bp, url: home, tabs: bp.tabs.map((t) => ({ ...t, url: home })) }
+  }
 
   return {
     projects: [],
@@ -313,7 +322,7 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
-        const pane = makePane(type)
+        const pane = withHome(makePane(type))
         return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
       }),
 
@@ -321,7 +330,7 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
-        const pane = makePane(type)
+        const pane = withHome(makePane(type))
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const panes = { ...w.panes, [pane.id]: pane }

@@ -49,8 +49,8 @@ export default function EditorPane({
   }
 
   const saveFailed = (tabId: string, msg: string): void => {
-    const name = pane.tabs.find((t) => t.id === tabId)?.name ?? 'file'
-    notify({ workspaceId: wsId, paneId: pane.id, title: `save failed: ${name}`, body: msg })
+    const name = pane.tabs.find((x) => x.id === tabId)?.name ?? 'file'
+    notify({ workspaceId: wsId, paneId: pane.id, title: t('saveFailed', { name }), body: msg })
   }
 
   return (

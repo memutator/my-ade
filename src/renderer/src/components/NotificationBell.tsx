@@ -27,8 +27,17 @@ export default function NotificationBell(): React.JSX.Element {
     const onDown = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) setNotifOpen(false)
     }
+    // webview clicks never reach this document — catch the focus theft instead
+    // (webview focus produces no focusin, only a capture-phase focus event)
+    const onFocus = (e: FocusEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setNotifOpen(false)
+    }
     window.addEventListener('mousedown', onDown, true)
-    return () => window.removeEventListener('mousedown', onDown, true)
+    window.addEventListener('focus', onFocus, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('focus', onFocus, true)
+    }
   }, [open, setNotifOpen])
 
   const wsName = (id: string): string => workspaces.find((w) => w.id === id)?.name ?? ''
@@ -42,39 +51,42 @@ export default function NotificationBell(): React.JSX.Element {
         </button>
       </Tooltip>
       {open && (
-        <div className="notif-panel">
-          <div className="notif-head">
-            <span>{t('notifications')}</span>
-            <Tooltip label={t('markAllRead')}>
-              <button className="tbtn" onClick={markAllRead}>
-                <CheckCheck size={13} />
-              </button>
-            </Tooltip>
-            <Tooltip label={t('clearAll')}>
-              <button className="tbtn" onClick={clearNotifications}>
-                <Trash2 size={13} />
-              </button>
-            </Tooltip>
+        <>
+          <div className="click-catcher" onMouseDown={() => setNotifOpen(false)} />
+          <div className="notif-panel">
+            <div className="notif-head">
+              <span>{t('notifications')}</span>
+              <Tooltip label={t('markAllRead')}>
+                <button className="tbtn" onClick={markAllRead}>
+                  <CheckCheck size={13} />
+                </button>
+              </Tooltip>
+              <Tooltip label={t('clearAll')}>
+                <button className="tbtn" onClick={clearNotifications}>
+                  <Trash2 size={13} />
+                </button>
+              </Tooltip>
+            </div>
+            <div className="notif-list">
+              {notifications.length === 0 && (
+                <div className="notif-empty">{t('noNotifications')}</div>
+              )}
+              {notifications.map((n) => (
+                <button
+                  key={n.id}
+                  className={`notif-item${n.read ? '' : ' unread'}`}
+                  onClick={() => goToNotification(n.id)}
+                >
+                  <div className="notif-title">{n.title}</div>
+                  <div className="notif-sub">
+                    {wsName(n.workspaceId)}
+                    {n.body ? ` · ${n.body}` : ''} · {timeAgo(n.ts)}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="notif-list">
-            {notifications.length === 0 && (
-              <div className="notif-empty">{t('noNotifications')}</div>
-            )}
-            {notifications.map((n) => (
-              <button
-                key={n.id}
-                className={`notif-item${n.read ? '' : ' unread'}`}
-                onClick={() => goToNotification(n.id)}
-              >
-                <div className="notif-title">{n.title}</div>
-                <div className="notif-sub">
-                  {wsName(n.workspaceId)}
-                  {n.body ? ` · ${n.body}` : ''} · {timeAgo(n.ts)}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+        </>
       )}
     </div>
   )

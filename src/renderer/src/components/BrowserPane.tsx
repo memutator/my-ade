@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ChevronDown, Globe, Plus, RotateCw, Star, X } from 'lucide-react'
 import type { Bookmark, BrowserPaneState, BrowserTab } from '../types'
 import { useStore } from '../store'
-import { useT } from '../i18n'
+import { useT, translate } from '../i18n'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
@@ -14,8 +14,13 @@ function normalizeUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(v)}`
 }
 
-// 'https://' is the "empty address" sentinel for a fresh tab
-const toLoad = (url: string): string => (url === 'https://' ? 'about:blank' : url)
+// 'https://' is the "empty address" sentinel for a fresh tab; scheme-less
+// home pages like "example.com" get https:// prepended so loadURL never throws
+const toLoad = (url: string): string => {
+  if (url === 'https://') return 'about:blank'
+  if (url && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return `https://${url}`
+  return url
+}
 const toInput = (url: string): string => (url === 'https://' ? '' : url)
 
 interface TabNavMeta {
@@ -44,13 +49,20 @@ function useDismiss(
     const onDown = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) close()
     }
+    // clicks inside a <webview> never reach this document — but the webview
+    // steals focus, which we can observe via a capture-phase focus listener
+    const onFocus = (e: FocusEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close()
+    }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') close()
     }
     window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('focus', onFocus, true)
     window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('focus', onFocus, true)
       window.removeEventListener('keydown', onKey, true)
     }
   }, [open, ref, close])
@@ -72,7 +84,8 @@ function BrowserTabView({
   tab,
   active,
   report,
-  bind
+  bind,
+  onFocusPane
 }: {
   wsId: string
   paneId: string
@@ -80,7 +93,9 @@ function BrowserTabView({
   active: boolean
   report: (tabId: string, m: TabNavMeta) => void
   bind: (tabId: string, el: Electron.WebviewTag | null) => void
+  onFocusPane: () => void
 }): React.JSX.Element {
+  const t = useT()
   const wvRef = useRef<Electron.WebviewTag | null>(null)
   const retriesRef = useRef(0)
   const retryTimerRef = useRef<number | undefined>(undefined)
@@ -107,9 +122,16 @@ function BrowserTabView({
   }, [report, tab.id])
 
   // stable callback ref — bind/unbind the element exactly on mount/unmount
+  const onFocusPaneRef = useRef(onFocusPane)
+  useEffect(() => {
+    onFocusPaneRef.current = onFocusPane
+  })
   const refCb = useCallback(
     (el: Electron.WebviewTag | null): void => {
       wvRef.current = el
+      // clicking inside the guest focuses the webview element — that's our
+      // only signal, so it also marks the pane focused
+      el?.addEventListener('focus', () => onFocusPaneRef.current())
       bind(tab.id, el)
     },
     [bind, tab.id]
@@ -171,7 +193,8 @@ function BrowserTabView({
       setError(null)
       reportNav()
     }
-    const onGone = (): void => setError('page crashed')
+    const onGone = (): void =>
+      setError(translate(useStore.getState().settings.language, 'pageCrashed'))
     const onNewWindow = (e: Event): void => {
       window.ade.openExternal((e as unknown as { url: string }).url)
     }
@@ -220,7 +243,7 @@ function BrowserTabView({
       {error && (
         <div className="browser-err">
           <Globe size={20} />
-          <span className="err-title">page failed to load</span>
+          <span className="err-title">{t('pageFailed')}</span>
           <span className="err-detail">{error}</span>
           <button
             onClick={() => {
@@ -232,7 +255,7 @@ function BrowserTabView({
               }
             }}
           >
-            retry
+            {t('retry')}
           </button>
         </div>
       )}
@@ -268,44 +291,47 @@ function TabMenu({
         </button>
       </Tooltip>
       {open && (
-        <div className="pdrop">
-          {tabs.map((t) => (
-            <div key={t.id} className={`pdrop-row${t.id === activeTabId ? ' active' : ''}`}>
-              <button
-                className="pdrop-main"
-                onClick={() => {
-                  onActivate(t.id)
-                  close()
-                }}
-              >
-                <span className="pdrop-title">
-                  {t.title || (t.url === 'https://' ? 'new tab' : t.url)}
-                </span>
-                <span className="pdrop-sub">{toInput(t.url)}</span>
-              </button>
-              <button
-                className="pdrop-x"
-                aria-label="Close tab"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onClose(t.id)
-                }}
-              >
-                <X size={11} />
-              </button>
-            </div>
-          ))}
-          <div className="pdrop-sep" />
-          <button
-            className="pdrop-action"
-            onClick={() => {
-              onNew()
-              close()
-            }}
-          >
-            <Plus size={11} /> new tab
-          </button>
-        </div>
+        <>
+          <div className="click-catcher" onMouseDown={close} />
+          <div className="pdrop">
+            {tabs.map((tab) => (
+              <div key={tab.id} className={`pdrop-row${tab.id === activeTabId ? ' active' : ''}`}>
+                <button
+                  className="pdrop-main"
+                  onClick={() => {
+                    onActivate(tab.id)
+                    close()
+                  }}
+                >
+                  <span className="pdrop-title">
+                    {tab.title || (tab.url === 'https://' ? t('newTab') : tab.url)}
+                  </span>
+                  <span className="pdrop-sub">{toInput(tab.url)}</span>
+                </button>
+                <button
+                  className="pdrop-x"
+                  aria-label="Close tab"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onClose(tab.id)
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+            <div className="pdrop-sep" />
+            <button
+              className="pdrop-action"
+              onClick={() => {
+                onNew()
+                close()
+              }}
+            >
+              <Plus size={11} /> {t('newTab')}
+            </button>
+          </div>
+        </>
       )}
     </div>
   )
@@ -387,32 +413,43 @@ function BookmarkMenu({
         </button>
       </Tooltip>
       {open && (
-        <div className="pdrop right">
-          {canSave && projectId && (
-            <button className="pdrop-action" onClick={() => save(projectId)}>
-              <Star size={11} /> save to {projectName ?? 'project'}
+        <>
+          <div className="click-catcher" onMouseDown={close} />
+          <div className="pdrop right">
+            {projectId && (
+              <button className="pdrop-action" disabled={!canSave} onClick={() => save(projectId)}>
+                <Star size={11} /> {t('saveTo', { name: projectName ?? t('project') })}
+              </button>
+            )}
+            <button className="pdrop-action" disabled={!canSave} onClick={() => save('global')}>
+              <Star size={11} /> {t('saveTo', { name: t('global') })}
             </button>
-          )}
-          {canSave && (
-            <button className="pdrop-action" onClick={() => save('global')}>
-              <Star size={11} /> save to global
-            </button>
-          )}
-          {canSave && visible.length > 0 && <div className="pdrop-sep" />}
-          {projectBms.length > 0 && (
-            <>
-              <div className="pdrop-label">{projectName ?? 'project'}</div>
-              {projectBms.map(item)}
-            </>
-          )}
-          {globalBms.length > 0 && (
-            <>
-              <div className="pdrop-label">global</div>
-              {globalBms.map(item)}
-            </>
-          )}
-          {visible.length === 0 && <div className="pdrop-empty">no bookmarks</div>}
-        </div>
+            {saved && (
+              <button
+                className="pdrop-action"
+                onClick={() => {
+                  visible.filter((b) => b.url === curUrl).forEach((b) => removeBookmark(b.id))
+                }}
+              >
+                <X size={11} /> {t('removeBookmark')}
+              </button>
+            )}
+            {visible.length > 0 && <div className="pdrop-sep" />}
+            {projectBms.length > 0 && (
+              <>
+                <div className="pdrop-label">{projectName ?? t('project')}</div>
+                {projectBms.map(item)}
+              </>
+            )}
+            {globalBms.length > 0 && (
+              <>
+                <div className="pdrop-label">{t('global')}</div>
+                {globalBms.map(item)}
+              </>
+            )}
+            {visible.length === 0 && <div className="pdrop-empty">{t('noBookmarks')}</div>}
+          </div>
+        </>
       )}
     </div>
   )
@@ -426,6 +463,8 @@ export default function BrowserPane({
   wsId: string
 }): React.JSX.Element {
   const updatePane = useStore((s) => s.updatePane)
+  const focusPane = useStore((s) => s.focusPane)
+  const homeUrl = useStore((s) => s.settings.homeUrl).trim()
   const t = useT()
   const project = useStore((s) => {
     const w = s.workspaces.find((x) => x.id === wsId)
@@ -501,7 +540,7 @@ export default function BrowserPane({
   }
 
   const newTab = (): void => {
-    const t: BrowserTab = { id: crypto.randomUUID(), url: 'https://', title: '' }
+    const t: BrowserTab = { id: crypto.randomUUID(), url: homeUrl || 'https://', title: '' }
     updatePane(pane.id, { tabs: [...tabs, t], activeTabId: t.id, url: t.url }, wsId)
   }
 
@@ -514,7 +553,8 @@ export default function BrowserPane({
   const closeTab = (tabId: string): void => {
     let next = tabs.filter((t) => t.id !== tabId)
     // never leave the pane tab-less — closing the last tab opens a fresh one
-    if (next.length === 0) next = [{ id: crypto.randomUUID(), url: 'https://', title: '' }]
+    if (next.length === 0)
+      next = [{ id: crypto.randomUUID(), url: homeUrl || 'https://', title: '' }]
     if (tabId === activeTabId) {
       const t = next[next.length - 1]
       updatePane(pane.id, { tabs: next, activeTabId: t.id, url: t.url }, wsId)
@@ -602,6 +642,7 @@ export default function BrowserPane({
           active={t.id === activeTabId}
           report={report}
           bind={bind}
+          onFocusPane={() => focusPane(pane.id, wsId)}
         />
       ))}
     </PaneFrame>

@@ -17,8 +17,17 @@ function AddWorkspaceButton(): React.JSX.Element {
     const onDown = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    // webview clicks never reach this document — catch the focus theft instead
+    // (webview focus produces no focusin, only a capture-phase focus event)
+    const onFocus = (e: FocusEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
     window.addEventListener('mousedown', onDown, true)
-    return () => window.removeEventListener('mousedown', onDown, true)
+    window.addEventListener('focus', onFocus, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('focus', onFocus, true)
+    }
   }, [open])
 
   const pickDirectory = async (): Promise<void> => {
@@ -37,24 +46,27 @@ function AddWorkspaceButton(): React.JSX.Element {
         </button>
       </Tooltip>
       {open && (
-        <div className="ws-menu">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              className="ws-menu-item"
-              onClick={() => {
-                createWorkspace(p.id, t('workspace'))
-                setOpen(false)
-              }}
-            >
-              {p.name}
-              <span className="ws-menu-path">{p.path}</span>
+        <>
+          <div className="click-catcher" onMouseDown={() => setOpen(false)} />
+          <div className="ws-menu">
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                className="ws-menu-item"
+                onClick={() => {
+                  createWorkspace(p.id, t('workspace'))
+                  setOpen(false)
+                }}
+              >
+                {p.name}
+                <span className="ws-menu-path">{p.path}</span>
+              </button>
+            ))}
+            <button className="ws-menu-item accent" onClick={pickDirectory}>
+              {t('addProjectItem')}
             </button>
-          ))}
-          <button className="ws-menu-item accent" onClick={pickDirectory}>
-            {t('addProjectItem')}
-          </button>
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

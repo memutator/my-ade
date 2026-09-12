@@ -127,6 +127,20 @@ export default function SettingsModal(): React.JSX.Element | null {
           </section>
 
           <section>
+            <h3>{t('browser')}</h3>
+            <div className="srow">
+              <label>{t('homeUrl')}</label>
+              <input
+                className="sinput"
+                value={settings.homeUrl}
+                placeholder="https://"
+                onChange={(e) => updateSettings({ homeUrl: e.target.value })}
+                spellCheck={false}
+              />
+            </div>
+          </section>
+
+          <section>
             <h3>{t('notifications')}</h3>
             <div className="srow">
               <label>{t('osNotifications')}</label>
@@ -162,14 +176,18 @@ export default function SettingsModal(): React.JSX.Element | null {
           </section>
 
           <section>
-            <h3>agent hooks</h3>
-            {hooks.length === 0 && <div className="srow dim">no hookable providers</div>}
+            <h3>{t('agentHooks')}</h3>
+            {hooks.length === 0 && <div className="srow dim">{t('noHookableProviders')}</div>}
             {hooks.map((h) => (
               <div className="srow" key={h.id}>
                 <label>{h.label}</label>
                 <div className="hook-meta">
                   <span className={`hook-state${h.installed ? ' ok' : ''}`}>
-                    {h.installed ? 'installed' : h.available ? 'not installed' : 'cli not found'}
+                    {h.installed
+                      ? t('hookInstalled')
+                      : h.available
+                        ? t('hookNotInstalled')
+                        : t('hookCliNotFound')}
                   </span>
                   <span className="hook-mech">{h.mechanism}</span>
                 </div>
@@ -182,12 +200,12 @@ export default function SettingsModal(): React.JSX.Element | null {
                         .then(() => window.ade.hooks.status().then(setHooks))
                     }
                   >
-                    install
+                    {t('install')}
                   </button>
                 )}
                 {h.installed && (
                   <button className="sbtn" onClick={() => window.ade.hooks.test(h.id)}>
-                    test
+                    {t('test')}
                   </button>
                 )}
               </div>

@@ -87,6 +87,7 @@ export interface Settings {
   termFont: string
   termFontSize: number
   language: Language
+  homeUrl: string
   osNotifications: boolean
   providers: Record<string, boolean>
 }

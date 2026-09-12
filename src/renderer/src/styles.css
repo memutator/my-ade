@@ -356,6 +356,12 @@ body {
   height: 100%;
 }
 
+/* xterm.css hard-codes the viewport to #000 — the screen only paints whole
+   rows, so the leftover strip showed as a black band. Match the pane bg. */
+.term-host .xterm .xterm-viewport {
+  background-color: var(--bg-pane);
+}
+
 .term-exited {
   position: absolute;
   inset: 0;
@@ -471,6 +477,15 @@ webview.browser-view {
   color: var(--text-faint);
 }
 
+/* transparent full-viewport click catcher rendered under an open dropdown —
+   * a focused <webview> swallows clicks without emitting any host event, so
+   * this layer is what closes the dropdown on webview clicks (VS Code pattern) */
+.click-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+}
+
 .pdrop {
   position: absolute;
   top: calc(100% + 5px);
@@ -579,8 +594,12 @@ webview.browser-view {
   text-align: left;
   cursor: pointer;
 }
-.pdrop-action:hover {
+.pdrop-action:hover:not(:disabled) {
   background: var(--hover);
+}
+.pdrop-action:disabled {
+  color: var(--text-faint);
+  cursor: default;
 }
 .pdrop-empty {
   padding: 12px;
@@ -1850,4 +1869,18 @@ webview.browser-view {
 }
 .sidebar-todos .todo-scroll {
   max-height: 32vh;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 999;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
