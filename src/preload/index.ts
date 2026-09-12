@@ -29,7 +29,7 @@ export interface FileReadResult {
   path?: string
   ext?: string
   size?: number
-  kind?: 'image' | 'text' | 'binary'
+  kind?: 'image' | 'text' | 'binary' | 'video' | 'audio' | 'pdf'
   data?: string // base64
 }
 
@@ -66,7 +66,9 @@ const ade = {
   },
   fs: {
     list: (dirPath: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:list', dirPath),
-    pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory')
+    pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),
+    resolvePath: (p: string, cwd?: string): Promise<string | null> =>
+      ipcRenderer.invoke('fs:resolve', p, cwd)
   },
   state: {
     load: (): Promise<unknown> => ipcRenderer.invoke('state:load'),

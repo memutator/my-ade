@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
+import type { ILink, ILinkProvider } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { RotateCw, TerminalSquare } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import type { TerminalPaneState } from '../types'
@@ -42,6 +44,141 @@ function decode(b64: string): Uint8Array {
   return bytes
 }
 
+// ── terminal → pane links ────────────────────────────────────────────────
+
+// Whitespace-delimited candidate tokens; per-token rules in extractPath decide
+// what really looks like a file path.
+const PATH_TOKEN_RE = /[^\s'"`()[\]{}<>|;&*]+/g
+
+// Extensionless basenames worth linking.
+const KNOWN_BASENAMES = new Set([
+  'makefile',
+  'dockerfile',
+  'containerfile',
+  'vagrantfile',
+  'jenkinsfile',
+  'gemfile',
+  'rakefile',
+  'justfile',
+  'procfile',
+  'brewfile',
+  'license',
+  'licence',
+  'readme',
+  'changelog',
+  'copying',
+  'notice',
+  'authors',
+  'contributors'
+])
+
+function looksLikePath(p: string): boolean {
+  if (!p || /^(\/|~|~\/|\.{1,2}|\.{1,2}\/)$/.test(p)) return false
+  if (p.startsWith('/') || p.startsWith('~/') || p.startsWith('./') || p.startsWith('../'))
+    return true
+  if (p.includes('/')) return true
+  if (/^\.[\w@+-][\w@+.-]*$/.test(p)) return true // dotfiles: .env, .gitignore
+  // name.ext — single-char extensions need a stem of 2+ chars (skip "e.g")
+  const ext = /\.([A-Za-z][A-Za-z0-9]{0,14})$/.exec(p)
+  if (ext && (ext[1].length > 1 || p.length - ext[1].length >= 3)) return true
+  return KNOWN_BASENAMES.has(p.toLowerCase())
+}
+
+// Extract a linkable path from a raw token: strips leading/trailing junk and an
+// optional `:line[:col]` suffix. Returns the path text plus its bounds inside
+// `token` (bounds include the suffix), or null.
+function extractPath(token: string): { path: string; start: number; end: number } | null {
+  let lo = 0
+  let hi = token.length
+  const lead = /^[^~\w./-]+/.exec(token)
+  if (lead) lo = lead[0].length
+  const trail = /[,.;:!?]+$/.exec(token)
+  if (trail) hi -= trail[0].length
+  if (lo >= hi) return null
+  let p = token.slice(lo, hi)
+
+  // file:// URIs open in the editor; other schemes belong to the web-links addon
+  if (/^file:\/\//i.test(p)) {
+    try {
+      p = decodeURIComponent(new URL(p).pathname)
+    } catch {
+      return null
+    }
+    return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
+  }
+  if (/^[\w.+-]+:\/\//.test(p) || /^(mailto|tel|data|javascript):/i.test(p)) return null
+
+  const lm = /^(.*?):\d+(?::\d+)?$/.exec(p)
+  if (lm?.[1]) p = lm[1]
+  // `key=path` / `--flag=path` — prefer the part after '=' when it is pathy
+  const eq = p.lastIndexOf('=')
+  if (eq >= 0) {
+    const q = p.slice(eq + 1)
+    if (looksLikePath(q)) {
+      lo += eq + 1
+      p = q
+    }
+  }
+  return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
+}
+
+// Resolve against the terminal's live cwd and open in the workspace's editor.
+function openLinkedPath(raw: string, wsId: string, paneId: string): void {
+  const st = useStore.getState()
+  const p = st.workspaces.find((w) => w.id === wsId)?.panes[paneId]
+  const cwd = p?.type === 'terminal' ? p.cwd : undefined
+  window.ade.fs
+    .resolvePath(raw, cwd)
+    .then((abs) => {
+      if (!abs) return
+      useStore.getState().openFileInEditor(abs, abs.split('/').pop() ?? abs, wsId)
+    })
+    .catch(() => {})
+}
+
+function makePathLinkProvider(term: Terminal, wsId: string, paneId: string): ILinkProvider {
+  return {
+    provideLinks: (bufferLineNumber, callback) => {
+      const buf = term.buffer.active
+      const line = buf.getLine(bufferLineNumber - 1) // provider lines are 1-based
+      const text = line?.translateToString(true)
+      if (!line || !text) {
+        callback(undefined)
+        return
+      }
+
+      // string index → cell column (wide chars span multiple cells)
+      const col = new Array<number>(text.length)
+      const cell = buf.getNullCell()
+      let si = 0
+      for (let x = 0; x < line.length && si < text.length; x++) {
+        const c = line.getCell(x, cell)
+        if (!c || c.getWidth() === 0) continue
+        const n = c.getChars().length || 1
+        for (let k = 0; k < n && si + k < text.length; k++) col[si + k] = x
+        si += n
+      }
+
+      const links: ILink[] = []
+      for (const m of text.matchAll(PATH_TOKEN_RE)) {
+        const r = extractPath(m[0])
+        if (!r) continue
+        const s = (m.index ?? 0) + r.start
+        const e = (m.index ?? 0) + r.end - 1
+        links.push({
+          range: {
+            start: { x: (col[s] ?? s) + 1, y: bufferLineNumber },
+            end: { x: (col[e] ?? e) + 1, y: bufferLineNumber }
+          },
+          text: r.path,
+          activate: () => openLinkedPath(r.path, wsId, paneId)
+        })
+      }
+      callback(links.length ? links : undefined)
+    }
+  }
+}
+
 export default function TerminalPane({
   pane,
   wsId,
@@ -80,6 +217,10 @@ export default function TerminalPane({
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // click a URL → a browser pane in this workspace; click a file path → an
+    // editor pane (resolved against the pane's live cwd at click time)
+    term.loadAddon(new WebLinksAddon((_e, uri) => useStore.getState().openUrlInBrowser(uri, wsId)))
+    term.registerLinkProvider(makePathLinkProvider(term, wsId, pane.id))
     term.open(host)
     try {
       fit.fit()

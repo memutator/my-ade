@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   AppNotification,
+  BrowserPaneState,
   EditorPaneState,
   EditorTab,
   LayoutNode,
@@ -27,6 +28,24 @@ function makePane(type: PaneType): PaneState {
 
 function leaf(paneId: string): LayoutNode {
   return { kind: 'leaf', id: uid(), paneId }
+}
+
+// Insert a pane into a workspace: as the only leaf when empty, else split the
+// focused (or last) leaf to the right. Focus moves to the new pane.
+function insertPane(w: Workspace, pane: PaneState): Workspace {
+  const panes = { ...w.panes, [pane.id]: pane }
+  if (!w.root) return { ...w, panes, root: leaf(pane.id), focusedPaneId: pane.id }
+  const target =
+    w.focusedPaneId && w.panes[w.focusedPaneId] ? w.focusedPaneId : leafPaneIds(w.root).at(-1)!
+  const root = mapLeaf(w.root, target, () => ({
+    kind: 'split',
+    id: uid(),
+    dir: 'row' as const,
+    ratio: 0.5,
+    a: leaf(target),
+    b: leaf(pane.id)
+  }))
+  return { ...w, panes, root, focusedPaneId: pane.id }
 }
 
 function mapLeaf(
@@ -112,7 +131,8 @@ interface AdeState extends PersistedState {
   focusPane: (paneId: string, wsId?: string) => void
   cycleFocus: (dir: 1 | -1, wsId?: string) => void
 
-  openFileInEditor: (path: string, name: string) => void
+  openFileInEditor: (path: string, name: string, wsId?: string) => void
+  openUrlInBrowser: (url: string, wsId?: string) => void
 
   setSidebarOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -223,25 +243,7 @@ export const useStore = create<AdeState>((set, get) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
         const pane = makePane(type)
-        return {
-          workspaces: updWs(s.workspaces, wsId, (w) => {
-            const panes = { ...w.panes, [pane.id]: pane }
-            if (!w.root) return { ...w, panes, root: leaf(pane.id), focusedPaneId: pane.id }
-            const target =
-              w.focusedPaneId && w.panes[w.focusedPaneId]
-                ? w.focusedPaneId
-                : leafPaneIds(w.root).at(-1)!
-            const root = mapLeaf(w.root, target, () => ({
-              kind: 'split',
-              id: uid(),
-              dir: 'row',
-              ratio: 0.5,
-              a: leaf(target),
-              b: leaf(pane.id)
-            }))
-            return { ...w, panes, root, focusedPaneId: pane.id }
-          })
-        }
+        return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
       }),
 
     splitPane: (paneId, dir, type, wsIdArg) =>
@@ -335,9 +337,9 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
-    openFileInEditor: (path, name) =>
+    openFileInEditor: (path, name, wsIdArg) =>
       set((s) => {
-        const wsId = s.activeWorkspaceId
+        const wsId = wsIdArg ?? s.activeWorkspaceId
         if (!wsId) return s
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
@@ -370,25 +372,37 @@ export const useStore = create<AdeState>((set, get) => {
         const pane = makePane('editor') as EditorPaneState
         pane.tabs = [tab]
         pane.activeTabId = tab.id
-        return {
-          workspaces: updWs(s.workspaces, wsId, (w) => {
-            const panes2 = { ...w.panes, [pane.id]: pane }
-            if (!w.root) return { ...w, panes: panes2, root: leaf(pane.id), focusedPaneId: pane.id }
-            const t =
-              w.focusedPaneId && w.panes[w.focusedPaneId]
-                ? w.focusedPaneId
-                : leafPaneIds(w.root).at(-1)!
-            const root = mapLeaf(w.root, t, () => ({
-              kind: 'split',
-              id: uid(),
-              dir: 'row',
-              ratio: 0.5,
-              a: leaf(t),
-              b: leaf(pane.id)
+        return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
+      }),
+
+    // Navigate a browser pane in the workspace: focused browser pane, else the
+    // first browser pane, else a new one (split off the focused pane).
+    openUrlInBrowser: (url, wsIdArg) =>
+      set((s) => {
+        const wsId = wsIdArg ?? s.activeWorkspaceId
+        if (!wsId) return s
+        const ws = s.workspaces.find((w) => w.id === wsId)
+        if (!ws) return s
+
+        const target =
+          (ws.focusedPaneId &&
+            ws.panes[ws.focusedPaneId]?.type === 'browser' &&
+            ws.focusedPaneId) ||
+          Object.values(ws.panes).find((p) => p.type === 'browser')?.id
+
+        if (target) {
+          return {
+            workspaces: updWs(s.workspaces, wsId, (w) => ({
+              ...w,
+              panes: { ...w.panes, [target]: { ...w.panes[target], url } as PaneState },
+              focusedPaneId: target
             }))
-            return { ...w, panes: panes2, root, focusedPaneId: pane.id }
-          })
+          }
         }
+
+        const pane = makePane('browser') as BrowserPaneState
+        pane.url = url
+        return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
       }),
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),

@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
-import { join, basename, extname } from 'path'
+import { join, basename, extname, isAbsolute, resolve } from 'path'
+import { homedir } from 'os'
 import { readFile, writeFile, stat, readdir } from 'fs/promises'
 import { readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -19,6 +20,8 @@ const IMAGE_EXTS = new Set([
   '.bmp',
   '.avif'
 ])
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.m4v', '.mov', '.ogv'])
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.oga', '.flac', '.m4a', '.aac', '.opus'])
 const MAX_FILE_BYTES = 20 * 1024 * 1024
 
 let mainWindow: BrowserWindow | null = null
@@ -73,14 +76,24 @@ function registerFileIpc(): void {
       const buf = await readFile(filePath)
       const ext = extname(filePath).toLowerCase()
       const head = buf.subarray(0, 8192)
-      const binary = !IMAGE_EXTS.has(ext) && head.includes(0)
+      const kind = IMAGE_EXTS.has(ext)
+        ? 'image'
+        : VIDEO_EXTS.has(ext)
+          ? 'video'
+          : AUDIO_EXTS.has(ext)
+            ? 'audio'
+            : ext === '.pdf'
+              ? 'pdf'
+              : head.includes(0)
+                ? 'binary'
+                : 'text'
       return {
         ok: true,
         name: basename(filePath),
         path: filePath,
         ext,
         size: st.size,
-        kind: IMAGE_EXTS.has(ext) ? 'image' : binary ? 'binary' : 'text',
+        kind,
         data: buf.toString('base64')
       }
     } catch (e) {
@@ -116,6 +129,13 @@ function registerFsIpc(): void {
     } catch {
       return []
     }
+  })
+
+  // Resolve a possibly-relative or ~ path (terminal link clicks) to absolute.
+  ipcMain.handle('fs:resolve', (_e, p: string, cwd?: string) => {
+    if (typeof p !== 'string' || !p) return null
+    if (p === '~' || p.startsWith('~/')) return join(homedir(), p.slice(2))
+    return isAbsolute(p) ? resolve(p) : resolve(cwd || homedir(), p)
   })
 
   ipcMain.handle('dialog:pickDirectory', async () => {
