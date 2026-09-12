@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { TerminalSquare, Globe, Code2, Sun, Moon, Minus, Square, X, Settings } from 'lucide-react'
+import {
+  TerminalSquare,
+  Globe,
+  Code2,
+  ListTodo,
+  Sun,
+  Moon,
+  Minus,
+  Square,
+  X,
+  Settings
+} from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
@@ -73,6 +84,11 @@ export default function TopBar(): React.JSX.Element {
       <Tooltip label={t('newEditor')}>
         <button className="tbtn" onClick={() => newPane('editor')}>
           <Code2 /> {t('editor')}
+        </button>
+      </Tooltip>
+      <Tooltip label={t('newTodo')}>
+        <button className="tbtn" onClick={() => newPane('todo')}>
+          <ListTodo /> {t('todos')}
         </button>
       </Tooltip>
 

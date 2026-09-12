@@ -8,12 +8,14 @@ const en = {
   terminal: 'terminal',
   browser: 'browser',
   editor: 'editor',
+  todos: 'todos',
 
   // top bar
   filesPeek: 'Files — hover to peek, click to pin',
   newTerminal: 'New terminal (Alt+T)',
   newBrowser: 'New browser (Alt+B)',
   newEditor: 'New editor (Alt+E)',
+  newTodo: 'New todo list (Alt+L)',
   settingsTooltip: 'Settings',
   toggleTheme: 'Toggle theme (Alt+M)',
   minimize: 'Minimize',
@@ -87,11 +89,13 @@ const ko: Record<TKey, string> = {
   terminal: '터미널',
   browser: '브라우저',
   editor: '에디터',
+  todos: '할 일',
 
   filesPeek: '파일 — 호버로 미리보기, 클릭으로 고정',
   newTerminal: '새 터미널 (Alt+T)',
   newBrowser: '새 브라우저 (Alt+B)',
   newEditor: '새 에디터 (Alt+E)',
+  newTodo: '새 할 일 목록 (Alt+L)',
   settingsTooltip: '설정',
   toggleTheme: '테마 전환 (Alt+M)',
   minimize: '최소화',

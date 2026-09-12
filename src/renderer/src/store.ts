@@ -11,6 +11,7 @@ import type {
   PaneType,
   Project,
   Settings,
+  TodoItem,
   Workspace
 } from './types'
 
@@ -27,6 +28,8 @@ function makePane(type: PaneType): PaneState {
     }
     case 'editor':
       return { id, type, title: 'editor', tabs: [] }
+    case 'todo':
+      return { id, type, title: 'todos' }
   }
 }
 
@@ -107,6 +110,21 @@ function normalizeWorkspace(w: Workspace): Workspace {
   return changed ? { ...w, panes } : w
 }
 
+// todos: order is only meaningful within a sibling group (same parentId)
+function todoSiblings(list: TodoItem[], parentId: string | undefined): TodoItem[] {
+  return list.filter((t) => t.parentId === parentId).sort((a, b) => a.order - b.order)
+}
+
+function isDescendantOf(list: TodoItem[], id: string, ancestorId: string): boolean {
+  let cur = list.find((t) => t.id === id)?.parentId
+  let guard = 0
+  while (cur && guard++ < 1000) {
+    if (cur === ancestorId) return true
+    cur = list.find((t) => t.id === cur)?.parentId
+  }
+  return false
+}
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   accent: '#7aa2f7',
@@ -125,6 +143,7 @@ export interface PersistedState {
   settings: Settings
   sidebarOpen: boolean
   bookmarks: Bookmark[]
+  todos: Record<string, TodoItem[]>
 }
 
 interface AdeState extends PersistedState {
@@ -155,6 +174,23 @@ interface AdeState extends PersistedState {
 
   openFileInEditor: (path: string, name: string, wsId?: string) => void
   openUrlInBrowser: (url: string, wsId?: string) => void
+
+  addTodo: (projectId: string, text?: string, parentId?: string) => string
+  updateTodo: (
+    projectId: string,
+    todoId: string,
+    patch: Partial<Pick<TodoItem, 'text' | 'status' | 'dependsOn'>>
+  ) => void
+  cycleTodo: (projectId: string, todoId: string) => void
+  removeTodo: (projectId: string, todoId: string) => void
+  indentTodo: (projectId: string, todoId: string) => void
+  outdentTodo: (projectId: string, todoId: string) => void
+  reorderTodo: (
+    projectId: string,
+    todoId: string,
+    targetId: string,
+    place: 'before' | 'after'
+  ) => void
 
   setSidebarOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -190,6 +226,7 @@ export const useStore = create<AdeState>((set, get) => {
     settings: DEFAULT_SETTINGS,
     sidebarOpen: false,
     bookmarks: [],
+    todos: {},
     notifications: [],
     settingsOpen: false,
     notifOpen: false,
@@ -203,7 +240,8 @@ export const useStore = create<AdeState>((set, get) => {
         activeWorkspaceId: s.activeWorkspaceId ?? s.workspaces?.[0]?.id ?? null,
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
         sidebarOpen: s.sidebarOpen ?? false,
-        bookmarks: s.bookmarks ?? []
+        bookmarks: s.bookmarks ?? [],
+        todos: s.todos ?? {}
       }),
 
     addProject: (path, name) => {
@@ -219,11 +257,16 @@ export const useStore = create<AdeState>((set, get) => {
     },
 
     removeProject: (id) =>
-      set((s) => ({
-        projects: s.projects.filter((p) => p.id !== id),
-        workspaces: s.workspaces.filter((w) => w.projectId !== id),
-        bookmarks: s.bookmarks.filter((b) => b.scope !== id)
-      })),
+      set((s) => {
+        const todos = { ...s.todos }
+        delete todos[id]
+        return {
+          projects: s.projects.filter((p) => p.id !== id),
+          workspaces: s.workspaces.filter((w) => w.projectId !== id),
+          bookmarks: s.bookmarks.filter((b) => b.scope !== id),
+          todos
+        }
+      }),
 
     createWorkspace: (projectId, name) =>
       set((s) => {
@@ -439,6 +482,138 @@ export const useStore = create<AdeState>((set, get) => {
         pane.url = url
         if (pane.tabs?.length) pane.tabs = pane.tabs.map((t) => ({ ...t, url }))
         return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
+      }),
+
+    addTodo: (projectId, text = '', parentId) => {
+      const sibs = todoSiblings(get().todos[projectId] ?? [], parentId)
+      const item: TodoItem = {
+        id: uid(),
+        text,
+        status: 'todo',
+        parentId,
+        dependsOn: [],
+        createdAt: Date.now(),
+        order: sibs.length ? sibs.at(-1)!.order + 1 : 0
+      }
+      set((s) => ({ todos: { ...s.todos, [projectId]: [...(s.todos[projectId] ?? []), item] } }))
+      return item.id
+    },
+
+    updateTodo: (projectId, todoId, patch) =>
+      set((s) => ({
+        todos: {
+          ...s.todos,
+          [projectId]: (s.todos[projectId] ?? []).map((t) =>
+            t.id === todoId ? { ...t, ...patch } : t
+          )
+        }
+      })),
+
+    cycleTodo: (projectId, todoId) =>
+      set((s) => ({
+        todos: {
+          ...s.todos,
+          [projectId]: (s.todos[projectId] ?? []).map((t) =>
+            t.id === todoId
+              ? {
+                  ...t,
+                  status: t.status === 'todo' ? 'doing' : t.status === 'doing' ? 'done' : 'todo'
+                }
+              : t
+          )
+        }
+      })),
+
+    removeTodo: (projectId, todoId) =>
+      set((s) => {
+        const list = s.todos[projectId] ?? []
+        const dead = new Set<string>([todoId])
+        let grew = true
+        while (grew) {
+          grew = false
+          for (const t of list) {
+            if (t.parentId && dead.has(t.parentId) && !dead.has(t.id)) {
+              dead.add(t.id)
+              grew = true
+            }
+          }
+        }
+        return {
+          todos: {
+            ...s.todos,
+            [projectId]: list
+              .filter((t) => !dead.has(t.id))
+              .map((t) =>
+                t.dependsOn.some((d) => dead.has(d))
+                  ? { ...t, dependsOn: t.dependsOn.filter((d) => !dead.has(d)) }
+                  : t
+              )
+          }
+        }
+      }),
+
+    indentTodo: (projectId, todoId) =>
+      set((s) => {
+        const list = s.todos[projectId] ?? []
+        const item = list.find((t) => t.id === todoId)
+        if (!item) return s
+        const sibs = todoSiblings(list, item.parentId)
+        const prev = sibs[sibs.findIndex((t) => t.id === todoId) - 1]
+        if (!prev) return s
+        const children = todoSiblings(list, prev.id)
+        const order = children.length ? children.at(-1)!.order + 1 : 0
+        return {
+          todos: {
+            ...s.todos,
+            [projectId]: list.map((t) => (t.id === todoId ? { ...t, parentId: prev.id, order } : t))
+          }
+        }
+      }),
+
+    outdentTodo: (projectId, todoId) =>
+      set((s) => {
+        const list = s.todos[projectId] ?? []
+        const item = list.find((t) => t.id === todoId)
+        if (!item?.parentId) return s
+        const parent = list.find((t) => t.id === item.parentId)
+        return {
+          todos: {
+            ...s.todos,
+            [projectId]: list.map((t) =>
+              t.id === todoId
+                ? { ...t, parentId: parent?.parentId, order: (parent?.order ?? t.order) + 0.5 }
+                : t
+            )
+          }
+        }
+      }),
+
+    reorderTodo: (projectId, todoId, targetId, place) =>
+      set((s) => {
+        const list = s.todos[projectId] ?? []
+        const item = list.find((t) => t.id === todoId)
+        const target = list.find((t) => t.id === targetId)
+        if (!item || !target || item.id === target.id) return s
+        if (isDescendantOf(list, targetId, todoId)) return s
+        const parentId = target.parentId
+        const sibs = list
+          .filter((t) => t.parentId === parentId && t.id !== todoId)
+          .sort((a, b) => a.order - b.order)
+        const idx = sibs.findIndex((t) => t.id === targetId)
+        sibs.splice(place === 'after' ? idx + 1 : idx, 0, item)
+        const orderOf = new Map(sibs.map((t, i) => [t.id, i]))
+        return {
+          todos: {
+            ...s.todos,
+            [projectId]: list.map((t) =>
+              t.id === todoId
+                ? { ...t, parentId, order: orderOf.get(t.id)! }
+                : orderOf.has(t.id)
+                  ? { ...t, order: orderOf.get(t.id)! }
+                  : t
+            )
+          }
+        }
       }),
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
