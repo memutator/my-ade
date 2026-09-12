@@ -9,6 +9,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
+import { registerFileWatchIpc } from './filewatch'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
@@ -103,6 +104,7 @@ function registerFileIpc(): void {
         ext,
         size: st.size,
         kind,
+        mtimeMs: st.mtimeMs,
         data: buf.toString('base64')
       }
     } catch (e) {
@@ -115,8 +117,26 @@ function registerFileIpc(): void {
       if (typeof filePath !== 'string' || typeof content !== 'string')
         return { ok: false, error: 'invalid args' }
       await writeFile(filePath, content, 'utf8')
-      return { ok: true }
+      // the save-guard in FileView records this mtime so a later external
+      // edit still detects the divergence
+      try {
+        const st = await stat(filePath)
+        return { ok: true, mtimeMs: st.mtimeMs }
+      } catch {
+        return { ok: true }
+      }
     } catch (e) {
+      return { ok: false, error: String(e instanceof Error ? e.message : e) }
+    }
+  })
+
+  ipcMain.handle('file:stat', async (_e, filePath: string) => {
+    try {
+      const st = await stat(filePath)
+      return { ok: true, exists: st.isFile(), mtimeMs: st.mtimeMs }
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: true, exists: false }
       return { ok: false, error: String(e instanceof Error ? e.message : e) }
     }
   })
@@ -254,6 +274,7 @@ app.whenReady().then(() => {
 
   registerPtyIpc()
   registerFileIpc()
+  registerFileWatchIpc()
   registerWindowIpc()
   registerFsIpc()
   registerStateIpc()

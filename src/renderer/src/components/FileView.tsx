@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { LanguageDescription } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
@@ -72,10 +72,18 @@ export default function FileView({
   const [dirty, setDirty] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [langExt, setLangExt] = useState<Extension | null>(null)
+  // external-change UI: banner while dirty (or file deleted), confirm on save
+  const [diskConflict, setDiskConflict] = useState<'changed' | 'deleted' | null>(null)
+  const [saveConfirm, setSaveConfirm] = useState<'overwrite' | 'recreate' | null>(null)
+  const [reloadKey, setReloadKey] = useState(0) // bumps to remount the editor on reload
+  const [reloadedFlash, setReloadedFlash] = useState(false)
   const imgUrlRef = useRef<string | null>(null)
   const savedRef = useRef('') // content as of last load/save
   const contentRef = useRef('') // current editor content
   const dirtyRef = useRef(false)
+  const mtimeRef = useRef<number | null>(null) // disk mtime as of last load/save; null = deleted
+  const lastWriteRef = useRef(0) // timestamp of our own save — suppresses the watch echo
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onDirtyChangeRef = useRef(onDirtyChange)
   const onSaveErrorRef = useRef(onSaveError)
 
@@ -84,15 +92,30 @@ export default function FileView({
     onSaveErrorRef.current = onSaveError
   })
 
-  const save = async (): Promise<void> => {
+  const save = async (force = false): Promise<void> => {
     if (!dirtyRef.current) return
+    // save guard: refuse to silently clobber a file that changed on disk
+    // since we loaded/saved it (or that vanished — offer to recreate)
+    if (!force) {
+      const st = await window.ade.file.stat(path)
+      const diskChanged =
+        !st.ok || !st.exists || mtimeRef.current === null || st.mtimeMs !== mtimeRef.current
+      if (diskChanged) {
+        setSaveConfirm(st.ok && !st.exists ? 'recreate' : 'overwrite')
+        return
+      }
+    }
+    setSaveConfirm(null)
     const r = await window.ade.file.write(path, contentRef.current)
     if (r.ok) {
+      lastWriteRef.current = Date.now()
+      mtimeRef.current = r.mtimeMs ?? mtimeRef.current
       savedRef.current = contentRef.current
       drafts.delete(path)
       dirtyRef.current = false
       setDirty(false)
       setSaveError(null)
+      setDiskConflict(null)
       onDirtyChangeRef.current?.(false)
     } else {
       const msg = r.error ?? 'save failed'
@@ -112,15 +135,11 @@ export default function FileView({
     }
   }
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const r = await window.ade.file.read(path)
-      if (cancelled) return
-      if (!r.ok) {
-        setLoaded({ kind: 'text', error: r.error })
-        return
-      }
+  // apply a file:read result to the buffer. useDraft restores the session
+  // draft on mount; reloads pass false to discard it and take disk contents.
+  const applyRead = useCallback(
+    (r: Awaited<ReturnType<typeof window.ade.file.read>>, useDraft: boolean): void => {
+      mtimeRef.current = r.mtimeMs ?? null
       const bytes = fromBase64(r.data!)
       const meta = `${r.name} · ${(r.size! / 1024).toFixed(1)} KB`
 
@@ -140,8 +159,14 @@ export default function FileView({
 
       const text = new TextDecoder().decode(bytes)
       // a draft survives remounts (pane drags) and tab close+reopen
-      const draft = drafts.get(path)
-      const text2 = draft !== undefined && draft !== text ? draft : text
+      let text2 = text
+      if (useDraft) {
+        const draft = drafts.get(path)
+        if (draft !== undefined && draft !== text) text2 = draft
+        else drafts.delete(path)
+      } else {
+        drafts.delete(path)
+      }
       const isDirty = text2 !== text
       savedRef.current = text
       contentRef.current = text2
@@ -149,11 +174,77 @@ export default function FileView({
       setDirty(isDirty)
       onDirtyChangeRef.current?.(isDirty)
       setLoaded({ kind: 'text', text: text2, md: MD_EXTS.has(r.ext!), meta })
+    },
+    [path, t]
+  )
+
+  // discard the buffer and take what's on disk (auto for clean buffers,
+  // explicit via the conflict banner for dirty ones)
+  const reloadFromDisk = useCallback(
+    async (flash = false): Promise<void> => {
+      const r = await window.ade.file.read(path)
+      if (!r.ok) {
+        mtimeRef.current = null
+        setDiskConflict('deleted')
+        return
+      }
+      applyRead(r, false)
+      setDiskConflict(null)
+      setSaveConfirm(null)
+      setReloadKey((k) => k + 1)
+      if (flash) {
+        setReloadedFlash(true)
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+        flashTimerRef.current = setTimeout(() => setReloadedFlash(false), 2500)
+      }
+    },
+    [path, applyRead]
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const r = await window.ade.file.read(path)
+      if (cancelled) return
+      if (!r.ok) {
+        setLoaded({ kind: 'text', error: r.error })
+        return
+      }
+      applyRead(r, true)
     })()
     return () => {
       cancelled = true
     }
-  }, [path, t])
+  }, [path, applyRead])
+
+  // watch the file on disk while open (deduped in main; unwatch on unmount)
+  const isLoaded = loaded !== null
+  useEffect(() => {
+    if (!isLoaded) return
+    void window.ade.file.watch(path)
+    const off = window.ade.file.onChanged((e) => {
+      if (e.path !== path) return
+      if (e.deleted) {
+        mtimeRef.current = null
+        setDiskConflict('deleted')
+      } else if (
+        // our own file.write trips the watcher — ignore the echo (mtime match,
+        // with a 300ms time window as fallback for e.g. missing mtimeMs)
+        (e.mtimeMs !== undefined && e.mtimeMs === mtimeRef.current) ||
+        Date.now() - lastWriteRef.current < 300
+      ) {
+        return
+      } else if (dirtyRef.current) {
+        setDiskConflict('changed') // already-bannered stays bannered
+      } else {
+        void reloadFromDisk(true)
+      }
+    })
+    return () => {
+      off()
+      void window.ade.file.unwatch(path)
+    }
+  }, [path, isLoaded, reloadFromDisk])
 
   // async-resolve a CM language for the file name (plaintext fallback)
   const isText = loaded?.kind === 'text' && loaded.text !== undefined
@@ -194,6 +285,23 @@ export default function FileView({
 
   return (
     <div className="file-body" onKeyDownCapture={onKeyDownCapture}>
+      {saveConfirm ? (
+        <div className="file-banner">
+          <span>{t(saveConfirm === 'recreate' ? 'fileDeletedConfirm' : 'fileChangedConfirm')}</span>
+          <button onClick={() => void save(true)}>
+            {t(saveConfirm === 'recreate' ? 'saveAnyway' : 'overwrite')}
+          </button>
+          <button onClick={() => setSaveConfirm(null)}>{t('cancel')}</button>
+        </div>
+      ) : diskConflict ? (
+        <div className="file-banner">
+          <span>{t(diskConflict === 'deleted' ? 'fileDeletedOnDisk' : 'fileChangedOnDisk')}</span>
+          {diskConflict === 'changed' && (
+            <button onClick={() => void reloadFromDisk()}>{t('reload')}</button>
+          )}
+          <button onClick={() => setDiskConflict(null)}>{t('keepMine')}</button>
+        </div>
+      ) : null}
       {!loaded ? (
         <div className="file-empty">
           <span>{t('loading')}</span>
@@ -217,10 +325,11 @@ export default function FileView({
       ) : loaded.kind === 'pdf' ? (
         <embed className="file-pdf" src={loaded.mediaUrl} type="application/pdf" />
       ) : isMd ? (
-        <MarkdownEditor initialValue={loaded.text!} onChange={handleChange} />
+        <MarkdownEditor key={reloadKey} initialValue={loaded.text!} onChange={handleChange} />
       ) : (
         <div className="cm-wrap">
           <CodeMirror
+            key={reloadKey}
             value={loaded.text}
             height="100%"
             theme={resolvedTheme === 'dark' ? oneDark : 'light'}
@@ -232,8 +341,9 @@ export default function FileView({
       {loaded?.meta && !loaded.error && (
         <div className="file-meta">
           {loaded.meta}
-          {dirty && <span className="file-dirty-note"> · unsaved</span>}
-          {saveError && <span className="file-err"> · save failed: {saveError}</span>}
+          {dirty && <span className="file-dirty-note"> · {t('unsavedChanges')}</span>}
+          {reloadedFlash && <span className="file-dirty-note"> · {t('reloadedFromDisk')}</span>}
+          {saveError && <span className="file-err"> · {t('saveFailed', { name: saveError })}</span>}
         </div>
       )}
     </div>

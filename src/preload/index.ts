@@ -30,12 +30,27 @@ export interface FileReadResult {
   ext?: string
   size?: number
   kind?: 'image' | 'text' | 'binary' | 'video' | 'audio' | 'pdf'
+  mtimeMs?: number
   data?: string // base64
 }
 
 export interface FileWriteResult {
   ok: boolean
   error?: string
+  mtimeMs?: number // post-write disk mtime, for the FileView save guard
+}
+
+export interface FileStatResult {
+  ok: boolean
+  exists?: boolean
+  mtimeMs?: number
+  error?: string
+}
+
+export interface FileChangedEvent {
+  path: string
+  mtimeMs?: number
+  deleted?: boolean
 }
 
 export interface DirEntry {
@@ -94,7 +109,16 @@ const ade = {
     openDialog: (): Promise<string | null> => ipcRenderer.invoke('file:openDialog'),
     read: (path: string): Promise<FileReadResult> => ipcRenderer.invoke('file:read', path),
     write: (path: string, content: string): Promise<FileWriteResult> =>
-      ipcRenderer.invoke('file:write', path, content)
+      ipcRenderer.invoke('file:write', path, content),
+    stat: (path: string): Promise<FileStatResult> => ipcRenderer.invoke('file:stat', path),
+    watch: (path: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('file:watch', path),
+    unwatch: (path: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('file:unwatch', path),
+    onChanged: (cb: (e: FileChangedEvent) => void): (() => void) => {
+      const handler = (_: unknown, e: FileChangedEvent): void => cb(e)
+      ipcRenderer.on('file:changed', handler)
+      return () => ipcRenderer.removeListener('file:changed', handler)
+    }
   },
   fs: {
     list: (dirPath: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:list', dirPath),

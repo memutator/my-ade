@@ -864,6 +864,44 @@ webview.browser-view {
   color: #e5534b;
 }
 
+/* external-change / save-conflict notice bar */
+.file-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.file-banner > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-banner button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.file-banner button:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 /* ── empty state ─────────────────────────── */
 
 .empty-state {

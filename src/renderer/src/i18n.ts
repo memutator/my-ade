@@ -115,7 +115,16 @@ const en = {
   // file tree / file view
   loading: 'loading…',
   empty: 'empty',
-  binaryFile: 'binary file'
+  binaryFile: 'binary file',
+  fileChangedOnDisk: 'changed on disk',
+  fileDeletedOnDisk: 'deleted on disk',
+  fileChangedConfirm: 'changed on disk since you opened it — overwrite?',
+  fileDeletedConfirm: 'deleted on disk — save anyway to recreate it?',
+  keepMine: 'keep mine',
+  overwrite: 'overwrite',
+  saveAnyway: 'save anyway',
+  cancel: 'cancel',
+  reloadedFromDisk: 'reloaded from disk'
 } as const
 
 export type TKey = keyof typeof en
@@ -220,7 +229,16 @@ const ko: Record<TKey, string> = {
 
   loading: '로딩…',
   empty: '비어 있음',
-  binaryFile: '바이너리 파일'
+  binaryFile: '바이너리 파일',
+  fileChangedOnDisk: '디스크에서 변경됨',
+  fileDeletedOnDisk: '디스크에서 삭제됨',
+  fileChangedConfirm: '열린 뒤 디스크에서 변경됨 — 덮어쓸까요?',
+  fileDeletedConfirm: '디스크에서 삭제됨 — 저장하면 다시 생성됩니다',
+  keepMine: '내 버전 유지',
+  overwrite: '덮어쓰기',
+  saveAnyway: '그래도 저장',
+  cancel: '취소',
+  reloadedFromDisk: '디스크에서 다시 불러옴'
 }
 
 const dicts: Record<Lang, Record<TKey, string>> = { en, ko }
