@@ -1,64 +1,62 @@
 {
   "claude": {
-    "match": [
-      "claude"
-    ],
-    "label": "Claude"
+    "match": ["claude"],
+    "label": "Claude",
+    "domain": "claude.ai",
+    "color": "#D97757"
   },
   "codex": {
-    "match": [
-      "codex"
-    ],
-    "label": "Codex"
+    "match": ["codex"],
+    "label": "Codex",
+    "domain": "openai.com",
+    "color": "#10A37F"
   },
   "gemini": {
-    "match": [
-      "gemini"
-    ],
-    "label": "Gemini"
+    "match": ["gemini"],
+    "label": "Gemini",
+    "domain": "gemini.google.com",
+    "color": "#1B72E8"
   },
   "grok": {
-    "match": [
-      "grok"
-    ],
-    "label": "Grok"
+    "match": ["grok"],
+    "label": "Grok",
+    "domain": "grok.com",
+    "color": "#8B8B8B"
   },
   "devin": {
-    "match": [
-      "devin"
-    ],
-    "label": "Devin"
+    "match": ["devin"],
+    "label": "Devin",
+    "domain": "devin.ai",
+    "color": "#7C7CFF"
   },
   "cursor": {
-    "match": [
-      "cursor-agent",
-      "cursor"
-    ],
-    "label": "Cursor"
+    "match": ["cursor-agent", "cursor"],
+    "label": "Cursor",
+    "domain": "cursor.com",
+    "color": "#9A9A9A"
   },
   "copilot": {
-    "match": [
-      "copilot",
-      "gh copilot"
-    ],
-    "label": "GitHub Copilot"
+    "match": ["copilot", "gh copilot"],
+    "label": "GitHub Copilot",
+    "domain": "github.com",
+    "color": "#9678E0"
   },
   "aider": {
-    "match": [
-      "aider"
-    ],
-    "label": "Aider"
+    "match": ["aider"],
+    "label": "Aider",
+    "domain": "aider.chat",
+    "color": "#65B741"
   },
   "opencode": {
-    "match": [
-      "opencode"
-    ],
-    "label": "OpenCode"
+    "match": ["opencode"],
+    "label": "OpenCode",
+    "domain": "opencode.ai",
+    "color": "#E5C07B"
   },
   "amp": {
-    "match": [
-      "amp"
-    ],
-    "label": "Amp"
+    "match": ["amp"],
+    "label": "Amp",
+    "domain": "ampcode.com",
+    "color": "#FF5543"
   }
 }

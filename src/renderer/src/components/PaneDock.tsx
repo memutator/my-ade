@@ -3,6 +3,7 @@ import type { PaneState, PaneType } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
+import AgentIcon from './AgentIcon'
 
 const ICONS: Record<PaneType, typeof TerminalSquare> = {
   terminal: TerminalSquare,
@@ -34,13 +35,12 @@ function chipTitle(p: PaneState): string {
   return p.title
 }
 
-// terminal status dot reads the active tab (pty state lives per-tab)
-function termDot(p: PaneState): 'agent' | 'exited' | null {
-  if (p.type !== 'terminal') return null
+// terminal status reads the active tab (pty state lives per-tab):
+// running agent → provider icon; exited shell → status dot
+function termStatus(p: PaneState): { agent?: string; exited?: boolean } {
+  if (p.type !== 'terminal') return {}
   const tab = p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
-  if (tab?.agent) return 'agent'
-  if (tab?.exited) return 'exited'
-  return null
+  return { agent: tab?.agent ?? undefined, exited: tab?.exited }
 }
 
 // Minimized-pane chips in the title bar (right side), scoped to the active
@@ -60,12 +60,16 @@ export default function PaneDock(): React.JSX.Element | null {
     <div className="pane-dock">
       {minimized.map((p) => {
         const Icon = ICONS[p.type]
-        const dot = termDot(p)
+        const status = termStatus(p)
         return (
           <Tooltip key={p.id} label={t('restorePane')}>
             <div className="dock-chip" onClick={() => restorePane(p.id, ws.id)}>
               <Icon />
-              {dot && <span className={`dock-dot ${dot}`} />}
+              {status.agent ? (
+                <AgentIcon id={status.agent} size={10} />
+              ) : (
+                status.exited && <span className="dock-dot exited" />
+              )}
               <span className="dock-chip-title">{chipTitle(p)}</span>
               <button
                 className="dock-chip-close"

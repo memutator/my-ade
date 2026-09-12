@@ -156,6 +156,7 @@ const ade = {
   agents: {
     manifest: (): Promise<Record<string, { label: string; match: string[] }>> =>
       ipcRenderer.invoke('agents:manifest'),
+    icon: (id: string): Promise<string | null> => ipcRenderer.invoke('agents:icon', id),
     configure: (patterns: Record<string, string[]>): void =>
       ipcRenderer.send('agents:config', patterns)
   },

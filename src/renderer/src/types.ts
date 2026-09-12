@@ -97,6 +97,8 @@ export interface AppNotification {
   tabId?: string
   title: string
   body?: string
+  /** agent provider id — renders the vendor icon in the notification list */
+  agent?: string
   ts: number
   read: boolean
 }
@@ -120,6 +122,10 @@ export interface Settings {
 export interface AgentProviderInfo {
   label: string
   match: string[]
+  /** vendor domain — favicon source for the provider icon (Chrome-style) */
+  domain?: string
+  /** brand color — letter-monogram fallback when no icon can be fetched */
+  color?: string
 }
 
 export interface AgentHookEvent {

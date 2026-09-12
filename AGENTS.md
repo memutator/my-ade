@@ -53,8 +53,11 @@ splittable pane layout scoped to a project directory.
   Newline-delimited JSON over stdio. Polls `/proc` for shell cwd **and walks the
   process tree to detect agent CLIs** (claude/codex/gemini/…), emitting
   `{t:'agent',agent}` events. Patterns come from `resources/agents/manifest.json`
-  (`match`/`label` only — no icons), filtered by the provider toggles in settings
-  (`agents:config` IPC).
+  (`match`/`label`/`domain`/`color`), filtered by the provider toggles in
+  settings (`agents:config` IPC). Provider icons follow Chrome's favicon model:
+  `agents:icon` IPC fetches `domain`'s favicon (google s2 → site `/favicon.ico`),
+  disk-caches under `userData/agent-icons/`, returns a data URL; `AgentIcon.tsx`
+  falls back to a brand-colored letter monogram.
 * **agent hooks** (`src/main/hooks.ts` + `hookInstallers.ts` + `eventsFile.ts`):
   per-harness Stop/idle hooks append NDJSON events to a userData file; a tailer
   forwards them to the renderer as `agent:event` (`turn-complete` / `needs-input`

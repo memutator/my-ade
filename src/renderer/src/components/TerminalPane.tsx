@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { TerminalPaneState, TerminalTab } from '../types'
 import { useStore } from '../store'
 import { agentLabel } from '../agents'
+import AgentIcon from './AgentIcon'
 import { useT, translate } from '../i18n'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
@@ -322,7 +323,7 @@ function TerminalTabView({
             agent: agentLabel(prev)
           })
           const body = ws ? ws.name : ''
-          st.notify({ workspaceId: wsId, paneId, tabId, title, body })
+          st.notify({ workspaceId: wsId, paneId, tabId, title, body, agent: prev })
           if (st.settings.osNotifications) {
             window.ade.notify.show(title, body, { workspaceId: wsId, paneId, tabId })
           }
@@ -447,6 +448,7 @@ export default function TerminalPane({
     id: tab.id,
     label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),
     sub: tab.cwd ? shortPath(tab.cwd) : undefined,
+    icon: tab.agent ? <AgentIcon id={tab.agent} size={11} /> : undefined,
     dirty: tab.exited,
     dotTip: t('shellExited')
   }))

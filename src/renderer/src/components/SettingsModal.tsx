@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
 import { loadAgentManifest } from '../agents'
+import AgentIcon from './AgentIcon'
 import type { AgentHookStatus, AgentProviderInfo, Language, Theme } from '../types'
 
 const ACCENTS = ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#f7768e', '#7dcfff', '#ff9e64']
@@ -160,7 +161,10 @@ export default function SettingsModal(): React.JSX.Element | null {
             )}
             {Object.entries(providers).map(([id, info]) => (
               <div className="srow" key={id}>
-                <label>{info.label ?? id}</label>
+                <label className="srow-label">
+                  <AgentIcon id={id} size={13} />
+                  {info.label ?? id}
+                </label>
                 <button
                   className={`toggle${settings.providers[id] !== false ? ' on' : ''}`}
                   onClick={() =>

@@ -1,10 +1,10 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Notification, net } from 'electron'
 import { join, basename, extname, isAbsolute, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
 import { readFile, writeFile, stat, readdir } from 'fs/promises'
-import { readFileSync } from 'fs'
+import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
@@ -232,6 +232,52 @@ function registerAgentIpc(): void {
   })
   ipcMain.on('agents:config', (_e, patterns: Record<string, string[]>) => {
     if (patterns && typeof patterns === 'object') configureAgents(patterns)
+  })
+  // Provider icon — Chrome's favicon model: manifest domain → fetch once →
+  // disk cache in userData/agent-icons → data URL. s2 favicons normalizes
+  // everything to PNG; the site's own /favicon.ico is the fallback source.
+  ipcMain.handle('agents:icon', async (_e, id: string) => {
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(AGENTS_DIR(), 'manifest.json'), 'utf8')
+      ) as Record<string, { domain?: string }>
+      const domain = manifest[id]?.domain
+      if (!domain || !/^[\w.-]+\.[a-z]{2,}$/.test(domain)) return null
+      const dir = join(app.getPath('userData'), 'agent-icons')
+      const file = join(dir, `${id}.img`)
+      const sniff = (b: Buffer): string | null => {
+        if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50) return 'image/png'
+        if (b.length > 4 && b[0] === 0 && b[1] === 0 && b[2] === 1) return 'image/x-icon'
+        if (b.length > 2 && b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg'
+        if (b.length > 6 && b.toString('ascii', 0, 3) === 'GIF') return 'image/gif'
+        if (b.length > 12 && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+        return null
+      }
+      if (existsSync(file)) {
+        const buf = readFileSync(file)
+        return `data:${sniff(buf) ?? 'image/png'};base64,` + buf.toString('base64')
+      }
+      for (const url of [
+        `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+        `https://${domain}/favicon.ico`
+      ]) {
+        try {
+          const res = await net.fetch(url, { signal: AbortSignal.timeout(5000) })
+          if (!res.ok) continue
+          const buf = Buffer.from(await res.arrayBuffer())
+          const mime = sniff(buf)
+          if (!mime || buf.length > 512 * 1024) continue
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(file, buf)
+          return `data:${mime};base64,` + buf.toString('base64')
+        } catch {
+          /* try next source */
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
   })
 }
 

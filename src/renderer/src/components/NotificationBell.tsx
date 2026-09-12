@@ -3,6 +3,7 @@ import { Bell, CheckCheck, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
+import AgentIcon from './AgentIcon'
 
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -77,7 +78,10 @@ export default function NotificationBell(): React.JSX.Element {
                   className={`notif-item${n.read ? '' : ' unread'}`}
                   onClick={() => goToNotification(n.id)}
                 >
-                  <div className="notif-title">{n.title}</div>
+                  <div className="notif-title">
+                    {n.agent && <AgentIcon id={n.agent} size={13} />}
+                    {n.title}
+                  </div>
                   <div className="notif-sub">
                     {wsName(n.workspaceId)}
                     {n.body ? ` · ${n.body}` : ''} · {timeAgo(n.ts)}

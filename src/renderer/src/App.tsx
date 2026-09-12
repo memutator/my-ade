@@ -179,7 +179,7 @@ export default function App(): React.JSX.Element {
         { agent: label }
       )
       const body = ev.message || ws?.name || ev.cwd || ''
-      if (wsId) st.notify({ workspaceId: wsId, paneId, tabId, title, body })
+      if (wsId) st.notify({ workspaceId: wsId, paneId, tabId, title, body, agent: ev.provider })
       if (st.settings.osNotifications) {
         window.ade.notify.show(title, body, { workspaceId: wsId ?? undefined, paneId, tabId })
       }
