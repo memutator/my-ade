@@ -171,6 +171,10 @@ export default function App(): React.JSX.Element {
       const st = useStore.getState()
       if (st.settings.providers[ev.provider] === false) return
       const { ws, paneId, tabId } = resolveHookTarget(st, ev.cwd)
+      // foreign sessions (hook ran outside ade — global hooks append here too):
+      // notify only when the agent worked inside a registered project; agents
+      // in unrelated dirs stay silent
+      if (!ev.ours && !ws) return
       const wsId = ws?.id ?? st.activeWorkspaceId
       const label = agentLabel(ev.provider)
       const title = translate(

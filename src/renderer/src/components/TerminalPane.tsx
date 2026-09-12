@@ -448,7 +448,7 @@ export default function TerminalPane({
     id: tab.id,
     label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),
     sub: tab.cwd ? shortPath(tab.cwd) : undefined,
-    icon: tab.agent ? <AgentIcon id={tab.agent} size={14} /> : undefined,
+    icon: tab.agent ? <AgentIcon id={tab.agent} size={16} /> : undefined,
     dirty: tab.exited,
     dotTip: t('shellExited')
   }))

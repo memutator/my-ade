@@ -133,6 +133,8 @@ export interface AgentHookEvent {
   event: string
   cwd?: string
   sessionId?: string
+  /** true when the event came from an ade-spawned terminal session */
+  ours?: boolean
   message?: string
   ts?: number
 }
