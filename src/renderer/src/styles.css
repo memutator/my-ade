@@ -2044,6 +2044,9 @@ body.pane-dragging webview {
   flex-shrink: 0;
   min-width: 0;
   overflow: hidden;
+  /* the topbar is a window-drag region; chips are divs, not buttons, so they
+     must opt out themselves or clicks land on the drag region */
+  -webkit-app-region: no-drag;
 }
 
 .dock-chip {
