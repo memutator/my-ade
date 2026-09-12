@@ -43,12 +43,14 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   )
 }
 
-// cwd → workspace/pane resolution for harness hook events. Longest project
-// path prefix wins; pane hint only when a terminal's cwd matches exactly.
+// cwd → workspace/pane/tab resolution for harness hook events. Longest project
+// path prefix wins; pane+tab hint only when a terminal tab's cwd matches
+// exactly (background tabs count — the shell that emitted the event may not be
+// the visible one).
 function resolveHookTarget(
   st: ReturnType<typeof useStore.getState>,
   cwd: string | undefined
-): { ws: Workspace | undefined; paneId: string | undefined } {
+): { ws: Workspace | undefined; paneId: string | undefined; tabId: string | undefined } {
   const dir = (cwd ?? '').replace(/\/+$/, '')
   let ws: Workspace | undefined
   let best = -1
@@ -63,15 +65,24 @@ function resolveHookTarget(
     }
   }
   let paneId: string | undefined
+  let tabId: string | undefined
   if (ws) {
     if (dir) {
-      paneId = Object.values(ws.panes).find((p) => p.type === 'terminal' && p.cwd === dir)?.id
+      for (const p of Object.values(ws.panes)) {
+        if (p.type !== 'terminal') continue
+        const hit = (p.tabs ?? []).find((t) => (t.cwd ?? '').replace(/\/+$/, '') === dir)
+        if (hit) {
+          paneId = p.id
+          tabId = hit.id
+          break
+        }
+      }
     }
     // cwd didn't match a live terminal — still land on something sensible so
     // clicking the notification focuses the workspace's active pane
     paneId ??= ws.focusedPaneId ?? Object.keys(ws.panes)[0]
   }
-  return { ws, paneId }
+  return { ws, paneId, tabId }
 }
 
 export default function App(): React.JSX.Element {
@@ -133,13 +144,21 @@ export default function App(): React.JSX.Element {
     }
   }, [])
 
-  // OS notification click → jump to workspace/pane
+  // OS notification click → jump to workspace/pane/tab
   useEffect(() => {
     return window.ade.notify.onClicked((m) => {
       const st = useStore.getState()
       if (m.workspaceId && st.workspaces.some((w) => w.id === m.workspaceId)) {
         st.activateWorkspace(m.workspaceId)
-        if (m.paneId) st.focusPane(m.paneId, m.workspaceId)
+        if (m.paneId) {
+          st.focusPane(m.paneId, m.workspaceId)
+          if (m.tabId) {
+            const p = st.workspaces.find((w) => w.id === m.workspaceId)?.panes[m.paneId]
+            if (p && 'tabs' in p && p.tabs.some((t) => t.id === m.tabId)) {
+              st.updatePane(m.paneId, { activeTabId: m.tabId }, m.workspaceId)
+            }
+          }
+        }
       }
     })
   }, [])
@@ -151,7 +170,7 @@ export default function App(): React.JSX.Element {
       if (ev.event !== 'turn-complete' && ev.event !== 'needs-input') return
       const st = useStore.getState()
       if (st.settings.providers[ev.provider] === false) return
-      const { ws, paneId } = resolveHookTarget(st, ev.cwd)
+      const { ws, paneId, tabId } = resolveHookTarget(st, ev.cwd)
       const wsId = ws?.id ?? st.activeWorkspaceId
       const label = agentLabel(ev.provider)
       const title = translate(
@@ -160,9 +179,9 @@ export default function App(): React.JSX.Element {
         { agent: label }
       )
       const body = ev.message || ws?.name || ev.cwd || ''
-      if (wsId) st.notify({ workspaceId: wsId, paneId, title, body })
+      if (wsId) st.notify({ workspaceId: wsId, paneId, tabId, title, body })
       if (st.settings.osNotifications) {
-        window.ade.notify.show(title, body, { workspaceId: wsId ?? undefined, paneId })
+        window.ade.notify.show(title, body, { workspaceId: wsId ?? undefined, paneId, tabId })
       }
     })
   }, [])

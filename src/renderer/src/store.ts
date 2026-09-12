@@ -11,6 +11,8 @@ import type {
   PaneType,
   Project,
   Settings,
+  TerminalPaneState,
+  TerminalTab,
   TodoItem,
   Workspace
 } from './types'
@@ -20,8 +22,10 @@ const uid = (): string => crypto.randomUUID()
 function makePane(type: PaneType): PaneState {
   const id = uid()
   switch (type) {
-    case 'terminal':
-      return { id, type, title: 'terminal', agent: null }
+    case 'terminal': {
+      const tab: TerminalTab = { id: uid() }
+      return { id, type, title: 'terminal', tabs: [tab], activeTabId: tab.id }
+    }
     case 'browser': {
       const tab: BrowserTab = { id: uid(), url: 'https://', title: '' }
       return { id, type, title: 'browser', url: 'https://', tabs: [tab], activeTabId: tab.id }
@@ -105,11 +109,36 @@ export function leafPaneIds(node: LayoutNode | null): string[] {
   return [...leafPaneIds(node.a), ...leafPaneIds(node.b)]
 }
 
-// older saves have browser panes without tabs — seed one tab from the stored url
+// older saves predate internal tabs: browser panes had no `tabs` (seed one from
+// the stored url); terminal panes kept their single shell's cwd/shell/exited/
+// agent on the pane itself (migrated into a seeded tab, then stripped)
 function normalizePane(p: PaneState): PaneState {
-  if (p.type !== 'browser' || (Array.isArray(p.tabs) && p.tabs.length > 0)) return p
-  const tab: BrowserTab = { id: uid(), url: p.url, title: '' }
-  return { ...p, tabs: [tab], activeTabId: tab.id }
+  if (p.type === 'browser') {
+    if (Array.isArray(p.tabs) && p.tabs.length > 0) return p
+    const tab: BrowserTab = { id: uid(), url: p.url, title: '' }
+    return { ...p, tabs: [tab], activeTabId: tab.id }
+  }
+  if (p.type === 'terminal') {
+    const tabs = Array.isArray(p.tabs) ? p.tabs : []
+    if (tabs.length === 0) {
+      const tab: TerminalTab = {
+        id: uid(),
+        cwd: p.cwd,
+        shell: p.shell,
+        exited: p.exited,
+        agent: p.agent ?? null
+      }
+      const np: TerminalPaneState = { ...p, tabs: [tab], activeTabId: tab.id }
+      delete np.cwd
+      delete np.shell
+      delete np.exited
+      delete np.agent
+      return np
+    }
+    // a stale/missing activeTabId would leave the pane showing nothing
+    return tabs.some((t) => t.id === p.activeTabId) ? p : { ...p, activeTabId: tabs[0].id }
+  }
+  return p
 }
 
 function normalizeWorkspace(w: Workspace): Workspace {
@@ -552,13 +581,13 @@ export const useStore = create<AdeState>((set, get) => {
       }),
 
     // Ctrl+Tab target: advance activeTabId inside the focused pane when it has
-    // internal tabs (browser/editor); terminal/todo panes are a no-op.
+    // internal tabs (browser/editor/terminal); todo panes are a no-op.
     cyclePaneTab: (dir, wsIdArg) => {
       const wsId = wid(wsIdArg)
       if (!wsId) return
       const ws = get().workspaces.find((w) => w.id === wsId)
       const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
-      if (!p || (p.type !== 'browser' && p.type !== 'editor') || p.tabs.length < 2) return
+      if (!p || p.type === 'todo' || p.tabs.length < 2) return
       const i = Math.max(
         0,
         p.tabs.findIndex((t) => t.id === p.activeTabId)
@@ -835,7 +864,16 @@ export const useStore = create<AdeState>((set, get) => {
         notifOpen: false,
         notifications: s.notifications.map((x) => (x.id === id ? { ...x, read: true } : x))
       })
-      if (n.paneId) get().focusPane(n.paneId, n.workspaceId)
+      if (n.paneId) {
+        get().focusPane(n.paneId, n.workspaceId)
+        // land on the tab that emitted the event, not just the pane
+        if (n.tabId) {
+          const p = get().workspaces.find((w) => w.id === n.workspaceId)?.panes[n.paneId]
+          if (p && 'tabs' in p && p.tabs.some((t) => t.id === n.tabId)) {
+            get().updatePane(n.paneId, { activeTabId: n.tabId }, n.workspaceId)
+          }
+        }
+      }
     }
   }
 })
