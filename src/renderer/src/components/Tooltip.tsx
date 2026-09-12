@@ -7,6 +7,7 @@ import {
   type ReactElement,
   type ReactNode
 } from 'react'
+import { createPortal } from 'react-dom'
 
 interface AnchorProps {
   onMouseEnter?: (e: React.MouseEvent) => void
@@ -19,8 +20,8 @@ interface AnchorProps {
 /**
  * Delayed-hover tooltip. Wraps a single element (no extra DOM node — handlers are
  * cloned onto the child) and shows `label` in a fixed-position overlay after
- * ~300ms. Fixed positioning escapes `overflow: hidden` ancestors as long as no
- * ancestor transforms, which holds for this app's layout.
+ * ~300ms. The bubble is portaled to <body> so it can never affect layout or be
+ * clipped by overflow/stacking-context ancestors.
  */
 export default function Tooltip({
   label,
@@ -104,16 +105,20 @@ export default function Tooltip({
   return (
     <>
       {anchor}
-      {visible && (
-        <div
-          ref={tipRef}
-          className="tooltip"
-          role="tooltip"
-          style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }}
-        >
-          {label}
-        </div>
-      )}
+      {visible &&
+        createPortal(
+          <div
+            ref={tipRef}
+            className="tooltip"
+            role="tooltip"
+            style={
+              pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }
+            }
+          >
+            {label}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

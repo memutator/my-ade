@@ -62,8 +62,13 @@ function resolveHookTarget(
     }
   }
   let paneId: string | undefined
-  if (ws && dir) {
-    paneId = Object.values(ws.panes).find((p) => p.type === 'terminal' && p.cwd === dir)?.id
+  if (ws) {
+    if (dir) {
+      paneId = Object.values(ws.panes).find((p) => p.type === 'terminal' && p.cwd === dir)?.id
+    }
+    // cwd didn't match a live terminal — still land on something sensible so
+    // clicking the notification focuses the workspace's active pane
+    paneId ??= ws.focusedPaneId ?? Object.keys(ws.panes)[0]
   }
   return { ws, paneId }
 }

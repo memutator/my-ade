@@ -415,7 +415,7 @@ function BookmarkMenu({
       {open && (
         <>
           <div className="click-catcher" onMouseDown={close} />
-          <div className="pdrop right">
+          <div className="pdrop">
             {projectId && (
               <button className="pdrop-action" disabled={!canSave} onClick={() => save(projectId)}>
                 <Star size={11} /> {t('saveTo', { name: projectName ?? t('project') })}
@@ -584,6 +584,12 @@ export default function BrowserPane({
             onClose={closeTab}
             onNew={newTab}
           />
+          <BookmarkMenu
+            tab={activeTab}
+            projectId={project?.id}
+            projectName={project?.name}
+            onOpen={openBookmark}
+          />
           <Tooltip label={t('back')}>
             <button
               className="pbtn"
@@ -623,12 +629,6 @@ export default function BrowserPane({
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && go()}
             onPointerDown={(e) => e.stopPropagation()}
-          />
-          <BookmarkMenu
-            tab={activeTab}
-            projectId={project?.id}
-            projectName={project?.name}
-            onOpen={openBookmark}
           />
         </>
       }

@@ -643,12 +643,21 @@ export const useStore = create<AdeState>((set, get) => {
     removeBookmark: (id) => set((s) => ({ bookmarks: s.bookmarks.filter((x) => x.id !== id) })),
 
     notify: (n) =>
-      set((s) => ({
-        notifications: [{ ...n, id: uid(), ts: Date.now(), read: false }, ...s.notifications].slice(
-          0,
-          100
+      set((s) => {
+        const now = Date.now()
+        // collapse duplicate signals for the same completion — e.g. a codex
+        // hook event plus the pty agent→idle transition firing together
+        const dupe = s.notifications.some(
+          (x) => x.title === n.title && x.paneId === n.paneId && now - x.ts < 8000
         )
-      })),
+        if (dupe) return s
+        return {
+          notifications: [{ ...n, id: uid(), ts: now, read: false }, ...s.notifications].slice(
+            0,
+            100
+          )
+        }
+      }),
 
     markRead: (id) =>
       set((s) => ({

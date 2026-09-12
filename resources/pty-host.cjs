@@ -139,6 +139,14 @@ function handleSpawn(m) {
       send({ t: 'cwd', id: m.id, cwd })
     }
     const agent = detectAgent(proc.pid)
+    // debounce agent loss: process trees flap (helpers spawn/die during title
+    // updates etc.), so only declare agent→idle after two consecutive misses
+    if (agent === null && entry.lastAgent !== null) {
+      entry.misses = (entry.misses ?? 0) + 1
+      if (entry.misses < 2) return
+    } else {
+      entry.misses = 0
+    }
     if (agent !== entry.lastAgent) {
       entry.lastAgent = agent
       send({ t: 'agent', id: m.id, agent })
