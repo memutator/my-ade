@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useStore } from './store'
 import type { Language } from './types'
 
@@ -240,5 +241,7 @@ export function translate(language: Language, key: TKey, vars?: Record<string, s
 /** Hook: translate a UI string using the language from settings. */
 export function useT(): (key: TKey, vars?: Record<string, string>) => string {
   const language = useStore((s) => s.settings.language)
-  return (key, vars) => translate(language, key, vars)
+  // stable across renders — components put `t` in effect deps (FileView's
+  // file-read loop spun 12k× on a pane remount before this was memoized)
+  return useCallback((key, vars) => translate(language, key, vars), [language])
 }

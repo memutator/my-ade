@@ -43,6 +43,11 @@ const MIME: Record<string, string> = {
 
 const MD_EXTS = new Set(['.md', '.markdown'])
 
+// Unsaved editor buffers, keyed by absolute path. Pane drags remount FileView
+// and would silently drop dirty edits; keeping the draft session-scoped also
+// restores it if the tab is closed and reopened (hot-exit style).
+const drafts = new Map<string, string>()
+
 interface Loaded {
   kind: 'image' | 'text' | 'binary' | 'video' | 'audio' | 'pdf'
   text?: string
@@ -84,6 +89,7 @@ export default function FileView({
     const r = await window.ade.file.write(path, contentRef.current)
     if (r.ok) {
       savedRef.current = contentRef.current
+      drafts.delete(path)
       dirtyRef.current = false
       setDirty(false)
       setSaveError(null)
@@ -97,6 +103,8 @@ export default function FileView({
   const handleChange = (text: string): void => {
     contentRef.current = text
     const d = text !== savedRef.current
+    if (d) drafts.set(path, text)
+    else drafts.delete(path)
     if (d !== dirtyRef.current) {
       dirtyRef.current = d
       setDirty(d)
@@ -131,12 +139,16 @@ export default function FileView({
       }
 
       const text = new TextDecoder().decode(bytes)
+      // a draft survives remounts (pane drags) and tab close+reopen
+      const draft = drafts.get(path)
+      const text2 = draft !== undefined && draft !== text ? draft : text
+      const isDirty = text2 !== text
       savedRef.current = text
-      contentRef.current = text
-      dirtyRef.current = false
-      setDirty(false)
-      onDirtyChangeRef.current?.(false) // clear stale dirty flag from persisted state
-      setLoaded({ kind: 'text', text, md: MD_EXTS.has(r.ext!), meta })
+      contentRef.current = text2
+      dirtyRef.current = isDirty
+      setDirty(isDirty)
+      onDirtyChangeRef.current?.(isDirty)
+      setLoaded({ kind: 'text', text: text2, md: MD_EXTS.has(r.ext!), meta })
     })()
     return () => {
       cancelled = true
