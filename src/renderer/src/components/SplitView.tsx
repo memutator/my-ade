@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { LayoutNode } from '../types'
-import { useStore } from '../store'
+import { useStore, visibleLeafIds } from '../store'
 import TerminalPane from './TerminalPane'
 import BrowserPane from './BrowserPane'
 import EditorPane from './EditorPane'
@@ -32,12 +32,14 @@ function Divider({
   splitId,
   dir,
   wsId,
-  containerRef
+  containerRef,
+  hidden
 }: {
   splitId: string
   dir: 'row' | 'col'
   wsId: string
   containerRef: React.RefObject<HTMLDivElement | null>
+  hidden?: boolean
 }): React.JSX.Element {
   const setRatio = useStore((s) => s.setRatio)
   const [dragging, setDragging] = useState(false)
@@ -70,7 +72,13 @@ function Divider({
     [dir, splitId, setRatio, containerRef, wsId]
   )
 
-  return <div className={`divider${dragging ? ' dragging' : ''}`} onPointerDown={onPointerDown} />
+  return (
+    <div
+      className={`divider${dragging ? ' dragging' : ''}`}
+      onPointerDown={onPointerDown}
+      hidden={hidden}
+    />
+  )
 }
 
 export default function SplitView({
@@ -81,22 +89,36 @@ export default function SplitView({
   wsId: string
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const panes = useStore((s) => s.workspaces.find((x) => x.id === wsId)?.panes)
 
+  // Minimized panes keep their leaf in the tree — the subtree renders hidden
+  // (display:none, still MOUNTED, so terminals/webviews keep running) and the
+  // visible sibling's flex share fills the freed space. Restore = clearing the
+  // flag, which pops the pane back into its exact slot.
   if (node.kind === 'leaf') {
     return (
-      <div className="node leaf" ref={ref}>
+      <div className="node leaf" ref={ref} hidden={!!panes?.[node.paneId]?.minimized}>
         <PaneFor paneId={node.paneId} wsId={wsId} />
       </div>
     )
   }
 
+  const aMin = !panes || visibleLeafIds(node.a, panes).length === 0
+  const bMin = !panes || visibleLeafIds(node.b, panes).length === 0
+
   return (
     <div className={`node split ${node.dir}`} ref={ref}>
-      <div className="split-child" style={{ flex: node.ratio }}>
+      <div className="split-child" style={{ flex: node.ratio }} hidden={aMin}>
         <SplitView node={node.a} wsId={wsId} />
       </div>
-      <Divider splitId={node.id} dir={node.dir} wsId={wsId} containerRef={ref} />
-      <div className="split-child" style={{ flex: 1 - node.ratio }}>
+      <Divider
+        splitId={node.id}
+        dir={node.dir}
+        wsId={wsId}
+        containerRef={ref}
+        hidden={aMin || bMin}
+      />
+      <div className="split-child" style={{ flex: 1 - node.ratio }} hidden={bMin}>
         <SplitView node={node.b} wsId={wsId} />
       </div>
     </div>

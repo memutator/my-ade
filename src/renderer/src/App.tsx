@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
-import { useStore } from './store'
+import { leafPaneIds, useStore } from './store'
 import { applyShortcut } from './shortcuts'
 import { useT, translate } from './i18n'
 import { agentProviders, agentLabel } from './agents'
@@ -9,6 +9,7 @@ import type { AgentHookEvent, Workspace } from './types'
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
 import EmptyState from './components/EmptyState'
+import PaneDock from './components/PaneDock'
 import Sidebar from './components/Sidebar'
 import SettingsModal from './components/SettingsModal'
 
@@ -193,17 +194,23 @@ export default function App(): React.JSX.Element {
         <Sidebar />
         <div className="workspace-area">
           {workspaces.length === 0 && <EmptyState />}
-          {workspaces.map((w) => (
-            <div key={w.id} className="ws-host" data-ws-id={w.id} hidden={w.id !== activeId}>
-              {w.root ? (
-                <div className="layout">
-                  <SplitView node={w.root} wsId={w.id} />
-                </div>
-              ) : (
-                <WorkspaceEmpty wsId={w.id} />
-              )}
-            </div>
-          ))}
+          {workspaces.map((w) => {
+            // all leaves minimized → keep .layout mounted-but-hidden (terminals
+            // keep running) and show the empty state; the dock still offers
+            // the chips for restoring them
+            const hasVisible = leafPaneIds(w.root).some((id) => !w.panes[id]?.minimized)
+            return (
+              <div key={w.id} className="ws-host" data-ws-id={w.id} hidden={w.id !== activeId}>
+                {w.root && (
+                  <div className="layout" hidden={!hasVisible}>
+                    <SplitView node={w.root} wsId={w.id} />
+                  </div>
+                )}
+                {!hasVisible && <WorkspaceEmpty wsId={w.id} />}
+                <PaneDock wsId={w.id} />
+              </div>
+            )
+          })}
         </div>
       </div>
       <SettingsModal />

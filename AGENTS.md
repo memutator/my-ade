@@ -20,6 +20,13 @@ splittable pane layout scoped to a project directory.
 - **bookmarks** are global or project-scoped (`bookmarks: Bookmark[]`, `scope:
   'global' | projectId`); browser panes own a `tabs[]` + `activeTabId` list exposed
   via header dropdowns (no room for a tab strip).
+- **minimized panes** (`pane.minimized`) keep their leaf in the layout tree —
+  `SplitView` hides fully-minimized subtrees with the `hidden` attr, so the pane
+  stays mounted and its pty/webview keeps running (removing the leaf would
+  unmount it and kill the session). A `.pane-dock` strip at the bottom of the
+  workspace lists chips; restoring clears the flag and the pane reappears in its
+  exact slot. Minimized terminals respawn their pty on app restart (they re-mount
+  hidden — acceptable).
 
 ## Commands
 
@@ -95,6 +102,7 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 | Alt+T / Alt+B / Alt+E / Alt+L | new terminal / browser / editor / todo pane |
 | Alt+D / Alt+S | split focused pane right / down |
 | Alt+W | close focused pane |
+| Alt+H | minimize focused pane to the dock |
 | Alt+] / Alt+[ | cycle focus |
 | Alt+Arrow keys | move focus to the pane in that direction |
 | Alt+M | toggle dark/light theme |

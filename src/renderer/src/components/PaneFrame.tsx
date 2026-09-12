@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react'
-import { Columns2, Rows2, X } from 'lucide-react'
+import { Columns2, Minus, Rows2, X } from 'lucide-react'
 import type { PaneState } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
@@ -25,7 +25,7 @@ export default function PaneFrame({
     const w = s.workspaces.find((x) => x.id === wsId)
     return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
   })
-  const { focusPane, splitPane, closePane } = useStore()
+  const { focusPane, splitPane, closePane, minimizePane } = useStore()
   const gripRef = useRef<HTMLSpanElement>(null)
   const t = useT()
 
@@ -67,6 +67,11 @@ export default function PaneFrame({
           <Tooltip label={t('splitDown')}>
             <button className="pbtn" onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}>
               <Rows2 />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('minimizePane')}>
+            <button className="pbtn" onClick={() => minimizePane(pane.id, wsId)}>
+              <Minus />
             </button>
           </Tooltip>
           <Tooltip label={t('closePane')}>

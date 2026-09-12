@@ -33,6 +33,8 @@ const en = {
   // pane frame
   splitRight: 'Split right (Alt+D)',
   splitDown: 'Split down (Alt+S)',
+  minimizePane: 'Minimize pane (Alt+H)',
+  restorePane: 'Restore pane',
   closePane: 'Close (Alt+W)',
   dragToMove: 'Drag to move pane',
 
@@ -145,6 +147,8 @@ const ko: Record<TKey, string> = {
 
   splitRight: '오른쪽으로 분할 (Alt+D)',
   splitDown: '아래로 분할 (Alt+S)',
+  minimizePane: '패널 최소화 (Alt+H)',
+  restorePane: '패널 복원',
   closePane: '닫기 (Alt+W)',
   dragToMove: '드래그하여 패널 이동',
 

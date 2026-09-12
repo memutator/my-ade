@@ -10,7 +10,11 @@ function paneIdInDirection(
   const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
   const host = document.querySelector('.ws-host:not([hidden])')
   if (!ws?.focusedPaneId || !host) return null
-  const els = [...host.querySelectorAll<HTMLElement>('.pane[data-pane-id]')]
+  // minimized panes stay mounted inside [hidden] wrappers — zero rects, so
+  // they'd wrongly win left/up; exclude them (and bail if focus is on one)
+  const els = [...host.querySelectorAll<HTMLElement>('.pane[data-pane-id]')].filter(
+    (el) => !el.closest('[hidden]')
+  )
   const from = els.find((el) => el.dataset.paneId === ws.focusedPaneId)
   if (!from) return null
   const fr = from.getBoundingClientRect()
@@ -81,6 +85,9 @@ export function applyShortcut(input: ShortcutInput): boolean {
       break
     case 'w':
       if (ws?.focusedPaneId) st.closePane(ws.focusedPaneId)
+      break
+    case 'h':
+      if (ws?.focusedPaneId) st.minimizePane(ws.focusedPaneId)
       break
     case ']':
       st.cycleFocus(1)
