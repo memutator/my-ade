@@ -373,6 +373,12 @@ body {
   background: var(--bg-pane);
 }
 
+/* stacked per-tab terminal surfaces (hidden keeps shells alive in background) */
+.term-tab {
+  position: absolute;
+  inset: 0;
+}
+
 /* ── browser pane ────────────────────────── */
 
 .url-input {

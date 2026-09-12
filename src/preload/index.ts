@@ -107,14 +107,23 @@ const ade = {
     save: (state: unknown): Promise<void> => ipcRenderer.invoke('state:save', state)
   },
   notify: {
-    show: (title: string, body?: string, meta?: { workspaceId?: string; paneId?: string }): void =>
-      ipcRenderer.send('notify:show', { title, body, ...meta }),
+    show: (
+      title: string,
+      body?: string,
+      meta?: { workspaceId?: string; paneId?: string; tabId?: string }
+    ): void => ipcRenderer.send('notify:show', { title, body, ...meta }),
     onClicked: (
-      cb: (m: { title: string; body?: string; workspaceId?: string; paneId?: string }) => void
+      cb: (m: {
+        title: string
+        body?: string
+        workspaceId?: string
+        paneId?: string
+        tabId?: string
+      }) => void
     ): (() => void) => {
       const handler = (
         _: unknown,
-        m: { title: string; body?: string; workspaceId?: string; paneId?: string }
+        m: { title: string; body?: string; workspaceId?: string; paneId?: string; tabId?: string }
       ): void => cb(m)
       ipcRenderer.on('notify:clicked', handler)
       return () => ipcRenderer.removeListener('notify:clicked', handler)

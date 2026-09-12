@@ -39,6 +39,8 @@ const en = {
   // terminal pane
   restartShell: 'Restart shell',
   processExited: 'process exited — click to restart',
+  shellExited: 'process exited',
+  newTerminalTab: 'New terminal tab',
   agentFinished: '{agent} finished',
   ptyError: 'pty error',
 
@@ -150,6 +152,8 @@ const ko: Record<TKey, string> = {
 
   restartShell: '셸 다시 시작',
   processExited: '프로세스가 종료됨 — 클릭하여 다시 시작',
+  shellExited: '프로세스가 종료됨',
+  newTerminalTab: '새 터미널 탭',
   agentFinished: '{agent} 완료',
   ptyError: 'pty 오류',
 

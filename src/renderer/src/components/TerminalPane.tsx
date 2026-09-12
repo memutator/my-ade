@@ -3,14 +3,15 @@ import { Terminal } from '@xterm/xterm'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { RotateCw, TerminalSquare } from 'lucide-react'
+import { Plus, RotateCw, TerminalSquare } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
-import type { TerminalPaneState } from '../types'
+import type { TerminalPaneState, TerminalTab } from '../types'
 import { useStore } from '../store'
 import { agentLabel } from '../agents'
 import { useT, translate } from '../i18n'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
+import TabStrip, { type TabItem } from './TabStrip'
 
 const TERM_THEME = {
   dark: {
@@ -122,11 +123,9 @@ function extractPath(token: string): { path: string; start: number; end: number 
   return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
 }
 
-// Resolve against the terminal's live cwd and open in the workspace's editor.
-function openLinkedPath(raw: string, wsId: string, paneId: string): void {
-  const st = useStore.getState()
-  const p = st.workspaces.find((w) => w.id === wsId)?.panes[paneId]
-  const cwd = p?.type === 'terminal' ? p.cwd : undefined
+// Resolve against the owning tab's live cwd and open in the workspace's editor.
+function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string): void {
+  const cwd = terminalPane(wsId, paneId)?.tabs?.find((t) => t.id === tabId)?.cwd
   window.ade.fs
     .resolvePath(raw, cwd)
     .then((abs) => {
@@ -136,7 +135,37 @@ function openLinkedPath(raw: string, wsId: string, paneId: string): void {
     .catch(() => {})
 }
 
-function makePathLinkProvider(term: Terminal, wsId: string, paneId: string): ILinkProvider {
+/** event handlers outlive props — always read the pane fresh from the store */
+function terminalPane(wsId: string, paneId: string): TerminalPaneState | null {
+  const w = useStore.getState().workspaces.find((x) => x.id === wsId)
+  const p = w?.panes[paneId]
+  return p?.type === 'terminal' ? p : null
+}
+
+// pty events arrive keyed by session id (paneId:tabId:uuid) — route the state
+// write to the tab that owns the session, never to the pane as a whole
+function patchTerminalTab(
+  wsId: string,
+  paneId: string,
+  tabId: string,
+  patch: Partial<TerminalTab>
+): void {
+  const st = useStore.getState()
+  const p = terminalPane(wsId, paneId)
+  if (!p || !(p.tabs ?? []).some((x) => x.id === tabId)) return
+  st.updatePane(
+    paneId,
+    { tabs: (p.tabs ?? []).map((x) => (x.id === tabId ? { ...x, ...patch } : x)) },
+    wsId
+  )
+}
+
+function makePathLinkProvider(
+  term: Terminal,
+  wsId: string,
+  paneId: string,
+  tabId: string
+): ILinkProvider {
   return {
     provideLinks: (bufferLineNumber, callback) => {
       const buf = term.buffer.active
@@ -171,7 +200,7 @@ function makePathLinkProvider(term: Terminal, wsId: string, paneId: string): ILi
             end: { x: (col[e] ?? e) + 1, y: bufferLineNumber }
           },
           text: r.path,
-          activate: () => openLinkedPath(r.path, wsId, paneId)
+          activate: () => openLinkedPath(r.path, wsId, paneId, tabId)
         })
       }
       callback(links.length ? links : undefined)
@@ -179,14 +208,29 @@ function makePathLinkProvider(term: Terminal, wsId: string, paneId: string): ILi
   }
 }
 
-export default function TerminalPane({
-  pane,
+/**
+ * One xterm + pty session per tab. Inactive tabs stay mounted (their wrapper
+ * uses the `hidden` attribute) so shells keep running; the ResizeObserver
+ * refits when a tab becomes visible again.
+ */
+function TerminalTabView({
   wsId,
-  projectPath
+  paneId,
+  tabId,
+  projectPath,
+  active,
+  epoch,
+  focused,
+  onRestart
 }: {
-  pane: TerminalPaneState
   wsId: string
+  paneId: string
+  tabId: string
   projectPath?: string
+  active: boolean
+  epoch: number
+  focused: boolean
+  onRestart: () => void
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -195,12 +239,11 @@ export default function TerminalPane({
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
-  const focused = useStore((s) => {
+  const exited = useStore((s) => {
     const w = s.workspaces.find((x) => x.id === wsId)
-    return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
+    const p = w?.panes[paneId]
+    return (p?.type === 'terminal' && (p.tabs ?? []).find((x) => x.id === tabId)?.exited) ?? false
   })
-  const updatePane = useStore((s) => s.updatePane)
-  const [epoch, setEpoch] = useState(0)
   const t = useT()
 
   useEffect(() => {
@@ -218,9 +261,9 @@ export default function TerminalPane({
     const fit = new FitAddon()
     term.loadAddon(fit)
     // click a URL → a browser pane in this workspace; click a file path → an
-    // editor pane (resolved against the pane's live cwd at click time)
+    // editor pane (resolved against the tab's live cwd at click time)
     term.loadAddon(new WebLinksAddon((_e, uri) => useStore.getState().openUrlInBrowser(uri, wsId)))
-    term.registerLinkProvider(makePathLinkProvider(term, wsId, pane.id))
+    term.registerLinkProvider(makePathLinkProvider(term, wsId, paneId, tabId))
     term.open(host)
     try {
       fit.fit()
@@ -231,8 +274,9 @@ export default function TerminalPane({
     fitRef.current = fit
 
     // Unique session per mount: events from a previous (killed) pty must not
-    // leak into this mount (StrictMode remount / HMR).
-    const id = `${pane.id}:${crypto.randomUUID()}`
+    // leak into this mount (StrictMode remount / HMR). The tabId segment keeps
+    // sibling tabs' sessions in the same pane distinct too.
+    const id = `${paneId}:${tabId}:${crypto.randomUUID()}`
     window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
 
     const refit = (): void => {
@@ -257,9 +301,10 @@ export default function TerminalPane({
       if (e.id !== id) return
       if (e.t === 'data' && e.d) term.write(decode(e.d))
       else if (e.t === 'spawned' && e.shell)
-        updatePane(pane.id, { shell: e.shell, exited: false }, wsId)
-      else if (e.t === 'cwd' && e.cwd) updatePane(pane.id, { cwd: e.cwd }, wsId)
-      else if (e.t === 'exit') updatePane(pane.id, { exited: true }, wsId)
+        // fresh shell: clear exited and any stale agent label from the old session
+        patchTerminalTab(wsId, paneId, tabId, { shell: e.shell, exited: false, agent: null })
+      else if (e.t === 'cwd' && e.cwd) patchTerminalTab(wsId, paneId, tabId, { cwd: e.cwd })
+      else if (e.t === 'exit') patchTerminalTab(wsId, paneId, tabId, { exited: true, agent: null })
       else if (e.t === 'error')
         term.writeln(
           `\r\n[${translate(useStore.getState().settings.language, 'ptyError')}] ${e.msg ?? ''}`
@@ -267,7 +312,7 @@ export default function TerminalPane({
       else if (e.t === 'agent') {
         const prev = lastAgentRef.current
         lastAgentRef.current = e.agent ?? null
-        updatePane(pane.id, { agent: e.agent ?? null }, wsId)
+        patchTerminalTab(wsId, paneId, tabId, { agent: e.agent ?? null })
         // agent → idle transition = completion
         if (prev && !e.agent) {
           const st = useStore.getState()
@@ -277,9 +322,9 @@ export default function TerminalPane({
             agent: agentLabel(prev)
           })
           const body = ws ? ws.name : ''
-          st.notify({ workspaceId: wsId, paneId: pane.id, title, body })
+          st.notify({ workspaceId: wsId, paneId, tabId, title, body })
           if (st.settings.osNotifications) {
-            window.ade.notify.show(title, body, { workspaceId: wsId, paneId: pane.id })
+            window.ade.notify.show(title, body, { workspaceId: wsId, paneId, tabId })
           }
         }
       }
@@ -307,7 +352,7 @@ export default function TerminalPane({
       fitRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.id, wsId, epoch])
+  }, [paneId, tabId, wsId, epoch])
 
   useEffect(() => {
     if (termRef.current) termRef.current.options.theme = TERM_THEME[resolvedTheme]
@@ -326,33 +371,134 @@ export default function TerminalPane({
   }, [termFont, termFontSize])
 
   useEffect(() => {
-    if (focused) termRef.current?.focus()
-  }, [focused])
+    if (focused && active) termRef.current?.focus()
+  }, [focused, active])
 
-  const title = pane.cwd ? `${pane.shell ?? 'sh'} · ${shortPath(pane.cwd)}` : pane.title
+  return (
+    <>
+      <div className="term-host" ref={hostRef} onClick={() => termRef.current?.focus()} />
+      {exited && (
+        <div className="term-exited" onClick={onRestart}>
+          {t('processExited')}
+        </div>
+      )}
+    </>
+  )
+}
+
+export default function TerminalPane({
+  pane,
+  wsId,
+  projectPath
+}: {
+  pane: TerminalPaneState
+  wsId: string
+  projectPath?: string
+}): React.JSX.Element {
+  const updatePane = useStore((s) => s.updatePane)
+  const closePane = useStore((s) => s.closePane)
+  const focused = useStore((s) => {
+    const w = s.workspaces.find((x) => x.id === wsId)
+    return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
+  })
+  // per-tab restart counter — bumping re-runs the tab's spawn effect
+  const [epochs, setEpochs] = useState<Record<string, number>>({})
+  const t = useT()
+
+  const tabs = pane.tabs ?? []
+  const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
+  const activeTabId = activeTab?.id ?? null
+
+  const restartTab = (tabId: string): void =>
+    setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
+
+  // a new tab spawns a fresh shell in the workspace project dir — same cwd a
+  // brand-new terminal pane would get
+  const newTab = (): void => {
+    const tab: TerminalTab = { id: crypto.randomUUID() }
+    updatePane(pane.id, { tabs: [...tabs, tab], activeTabId: tab.id }, wsId)
+  }
+
+  const closeTab = (tabId: string): void => {
+    const next = tabs.filter((x) => x.id !== tabId)
+    // closing the last tab closes the pane — a terminal without a shell is dead
+    // weight; unmounting the pane kills the pty via the tab view's cleanup
+    if (next.length === 0) {
+      closePane(pane.id, wsId)
+      return
+    }
+    const keep = activeTabId && activeTabId !== tabId ? activeTabId : next.at(-1)!.id
+    updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
+  }
+
+  const renameTab = (tabId: string, name: string): void => {
+    const title = name.trim()
+    patchTerminalTab(wsId, pane.id, tabId, { title: title || undefined })
+  }
+
+  const reorderTabs = (from: number, to: number): void => {
+    const next = [...tabs]
+    const [m] = next.splice(from, 1)
+    next.splice(to, 0, m)
+    updatePane(pane.id, { tabs: next }, wsId)
+  }
+
+  const items: TabItem[] = tabs.map((tab) => ({
+    id: tab.id,
+    label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),
+    sub: tab.cwd ? shortPath(tab.cwd) : undefined,
+    dirty: tab.exited,
+    dotTip: t('shellExited')
+  }))
 
   return (
     <PaneFrame
       pane={pane}
       wsId={wsId}
       icon={<TerminalSquare className="picon" />}
-      title={<span className="pane-title">{title}</span>}
+      title={
+        <div className="pane-tabs">
+          <TabStrip
+            tabs={items}
+            activeId={activeTabId}
+            onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
+            onClose={closeTab}
+            onRename={renameTab}
+            onReorder={reorderTabs}
+          />
+        </div>
+      }
       extraActions={
-        pane.exited ? (
-          <Tooltip label={t('restartShell')}>
-            <button className="pbtn" onClick={() => setEpoch((n) => n + 1)}>
-              <RotateCw />
+        <>
+          {activeTab?.exited && (
+            <Tooltip label={t('restartShell')}>
+              <button className="pbtn" onClick={() => restartTab(activeTab.id)}>
+                <RotateCw />
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip label={t('newTerminalTab')}>
+            <button className="pbtn" onClick={newTab}>
+              <Plus />
             </button>
           </Tooltip>
-        ) : undefined
+        </>
       }
     >
-      <div className="term-host" ref={hostRef} onClick={() => termRef.current?.focus()} />
-      {pane.exited && (
-        <div className="term-exited" onClick={() => setEpoch((n) => n + 1)}>
-          {t('processExited')}
+      {tabs.map((tab) => (
+        <div key={tab.id} className="term-tab" hidden={tab.id !== activeTabId}>
+          <TerminalTabView
+            wsId={wsId}
+            paneId={pane.id}
+            tabId={tab.id}
+            projectPath={projectPath}
+            active={tab.id === activeTabId}
+            epoch={epochs[tab.id] ?? 0}
+            focused={focused}
+            onRestart={() => restartTab(tab.id)}
+          />
         </div>
-      )}
+      ))}
     </PaneFrame>
   )
 }

@@ -9,6 +9,8 @@ export interface TabItem {
   sub?: string
   icon?: ReactNode
   dirty?: boolean
+  /** tooltip for the dirty/status dot (default: unsaved-changes text) */
+  dotTip?: string
 }
 
 export default function TabStrip({
@@ -79,7 +81,7 @@ export default function TabStrip({
             )}
             {tab.sub && <span className="ctab-sub">{tab.sub}</span>}
             {tab.dirty && (
-              <Tooltip label={t('unsavedChanges')}>
+              <Tooltip label={tab.dotTip ?? t('unsavedChanges')}>
                 <span className="ctab-dot" />
               </Tooltip>
             )}

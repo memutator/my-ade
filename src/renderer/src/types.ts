@@ -6,8 +6,22 @@ export interface PaneBase {
   title: string
 }
 
+export interface TerminalTab {
+  id: string
+  /** user-set label (double-click rename); falls back to agent/shell */
+  title?: string
+  cwd?: string
+  shell?: string
+  exited?: boolean
+  agent?: string | null
+}
+
 export interface TerminalPaneState extends PaneBase {
   type: 'terminal'
+  tabs: TerminalTab[]
+  activeTabId?: string
+  /** @deprecated legacy single-shell fields — read only by normalizePane when
+   *  hydrating pre-tabs saves, then stripped */
   cwd?: string
   shell?: string
   exited?: boolean
@@ -70,6 +84,8 @@ export interface AppNotification {
   id: string
   workspaceId: string
   paneId?: string
+  /** internal tab inside paneId to activate on click (terminal tabs) */
+  tabId?: string
   title: string
   body?: string
   ts: number

@@ -11,6 +11,9 @@ splittable pane layout scoped to a project directory.
   All workspaces across projects share the single `WorkspaceStrip` in the title bar.
   Switching happens only via workspace tabs; project is chosen when creating a workspace.
 - Terminal cwd and the file-tree root come from the workspace's `project.path`.
+- **terminal pane** owns an internal `TabStrip` of shell tabs (`tabs[]` +
+  `activeTabId`); every tab keeps a mounted xterm + live pty in the background,
+  and closing the last tab closes the pane. New tabs spawn in `project.path`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
   Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
   WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted.
@@ -62,11 +65,14 @@ splittable pane layout scoped to a project directory.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
   `workspaces[]` (each with `root`/`panes`/`focusedPaneId`), `settings`,
   `notifications`. `TabStrip.tsx` is the shared Chrome-curved-tab component used by
-  `WorkspaceStrip` (title bar) and `EditorPane` (pane title bar). `FileTree` backs both
+  `WorkspaceStrip` (title bar) and `EditorPane`/`TerminalPane` (pane title bar).
+  `FileTree` backs both
   the app-icon hover overlay and the pinned `Sidebar`. Persisted state is saved
   debounced via `state:save` and hydrated before first render in `main.tsx`.
-- PTY session ids are `paneId:uuid` — unique per mount so stale `exit` events from a
-  killed session (StrictMode remount, HMR) can't corrupt a new one.
+- PTY session ids are `paneId:tabId:uuid` — unique per terminal tab mount so
+  stale `exit` events from a killed session (StrictMode remount, HMR, tab
+  restart) can't corrupt a new one. Each session's events write back to its own
+  tab (`patchTerminalTab`), including background tabs.
 - Agent "completion" = detected agent → idle transition → in-app notification +
   OS notification; clicking either jumps to the workspace/pane. (Process-exit proxy —
   interactive agents ending their turn may not be captured. Real per-harness hooks
