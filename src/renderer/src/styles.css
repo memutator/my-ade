@@ -1122,6 +1122,21 @@ webview.browser-view {
 
 /* ── chrome-style tabs ───────────────────── */
 
+/* wrap keeps the strip's old flex role in its parents (.ws-strip/.pane-tabs)
+   and hosts the overlay thumb without letting it scroll away with content */
+.tstrip-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.tstrip-wrap > .tstrip {
+  flex: 1;
+  min-width: 0;
+}
+
 .tstrip {
   display: flex;
   align-items: flex-end;
@@ -1136,25 +1151,44 @@ webview.browser-view {
      fill covers it (the old margin-bottom:-1px on .ctab is dead — vertical
      overflow is clipped now, so the overlap lives on the strip instead) */
   margin-bottom: -1px;
-  /* thin scrollbar — the strip lives in the window-drag region so it needs
-     no-drag for the scrollbar (and wheel) to work */
+  /* the strip lives in the window-drag region so it needs no-drag for wheel
+     and tab interaction to work */
   -webkit-app-region: no-drag;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  /* native scrollbar fully hidden — it can't overlay (occupies layout height,
+     breaking the active-tab/content merge), so .tstrip-thumb replaces it */
+  scrollbar-width: none;
 }
 
 .tstrip::-webkit-scrollbar {
-  height: 4px;
+  display: none;
 }
 
-.tstrip::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+/* overlay scrollbar thumb: 3px bar drawn on the strip's bottom edge,
+   hidden until the strip is hovered (or being dragged) */
+.tstrip-thumb {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
   border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+  -webkit-app-region: no-drag;
 }
 
-.tstrip::-webkit-scrollbar-track,
-.tstrip::-webkit-scrollbar-corner {
-  background: transparent;
+.tstrip-wrap:hover .tstrip-thumb,
+.tstrip-wrap.dragging .tstrip-thumb {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tstrip-thumb:hover {
+  background: var(--text-faint);
 }
 
 .ws-strip {
