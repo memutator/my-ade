@@ -97,6 +97,8 @@ export interface AppNotification {
   tabId?: string
   title: string
   body?: string
+  /** session label — user-renamed tab title, else cwd */
+  session?: string
   /** agent provider id — renders the vendor icon in the notification list */
   agent?: string
   ts: number
@@ -135,7 +137,20 @@ export interface AgentHookEvent {
   sessionId?: string
   /** true when the event came from an ade-spawned terminal session */
   ours?: boolean
+  /** session-rename payload: the new session name */
+  name?: string
   message?: string
+  ts?: number
+}
+
+/** registry entry for a harness sessionId observed via hook events */
+export interface AgentSessionInfo {
+  name?: string
+  provider?: string
+  cwd?: string
+  wsId?: string
+  paneId?: string
+  tabId?: string
   ts?: number
 }
 

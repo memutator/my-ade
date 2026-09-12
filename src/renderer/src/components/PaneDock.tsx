@@ -4,19 +4,13 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
 import AgentIcon from './AgentIcon'
+import { shortPath } from '../utils'
 
 const ICONS: Record<PaneType, typeof TerminalSquare> = {
   terminal: TerminalSquare,
   browser: Globe,
   editor: Code2,
   todo: ListTodo
-}
-
-// same compaction TerminalPane's titlebar uses
-function shortPath(p: string): string {
-  const home = '/home/'
-  if (p.startsWith(home)) return '~/' + p.slice(home.length).split('/').slice(1).join('/')
-  return p
 }
 
 // What the chip shows: terminals get the active tab's live `shell · cwd` like

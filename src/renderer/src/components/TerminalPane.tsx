@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css'
 import type { TerminalPaneState, TerminalTab } from '../types'
 import { useStore } from '../store'
 import { agentLabel } from '../agents'
+import { shortPath } from '../utils'
 import AgentIcon from './AgentIcon'
 import { useT, translate } from '../i18n'
 import Tooltip from './Tooltip'
@@ -31,12 +32,6 @@ const TERM_THEME = {
     selectionBackground: '#d4dbf8',
     selectionInactiveBackground: '#e3e6ea'
   }
-}
-
-function shortPath(p: string): string {
-  const home = '/home/'
-  if (p.startsWith(home)) return '~/' + p.slice(home.length).split('/').slice(1).join('/')
-  return p
 }
 
 function decode(b64: string): Uint8Array {
@@ -319,13 +314,19 @@ function TerminalTabView({
           const st = useStore.getState()
           if (st.settings.providers[prev] === false) return
           const ws = st.workspaces.find((w) => w.id === wsId)
+          const lp = ws?.panes[paneId]
+          const thisTab = lp?.type === 'terminal' ? lp.tabs.find((t) => t.id === tabId) : undefined
           const title = translate(st.settings.language, 'agentFinished', {
             agent: agentLabel(prev)
           })
-          const body = ws ? ws.name : ''
-          st.notify({ workspaceId: wsId, paneId, tabId, title, body, agent: prev })
+          const session = thisTab?.title ?? (thisTab?.cwd ? shortPath(thisTab.cwd) : undefined)
+          st.notify({ workspaceId: wsId, paneId, tabId, title, session, agent: prev })
           if (st.settings.osNotifications) {
-            window.ade.notify.show(title, body, { workspaceId: wsId, paneId, tabId })
+            window.ade.notify.show(title, session ?? '', {
+              workspaceId: wsId,
+              paneId,
+              tabId
+            })
           }
         }
       }
@@ -435,6 +436,26 @@ export default function TerminalPane({
   const renameTab = (tabId: string, name: string): void => {
     const title = name.trim()
     patchTerminalTab(wsId, pane.id, tabId, { title: title || undefined })
+    // session-rename hook: if a harness session was observed for this tab,
+    // propagate the name through the real event channel so the session
+    // registry (and every ade instance) learns it — powers the "which
+    // session" line in notifications
+    const st = useStore.getState()
+    const lp = st.workspaces.find((w) => w.id === wsId)?.panes[pane.id]
+    const tab = lp?.type === 'terminal' ? lp.tabs.find((t) => t.id === tabId) : undefined
+    const sid = Object.entries(st.agentSessions).find(
+      ([, i]) => i.tabId === tabId && i.wsId === wsId
+    )?.[0]
+    if (sid) {
+      st.renameAgentSession(sid, title)
+      void window.ade.hooks.emit?.({
+        provider: tab?.agent ?? st.agentSessions[sid]?.provider ?? 'unknown',
+        event: 'session-rename',
+        sessionId: sid,
+        cwd: tab?.cwd,
+        name: title || undefined
+      })
+    }
   }
 
   const reorderTabs = (from: number, to: number): void => {

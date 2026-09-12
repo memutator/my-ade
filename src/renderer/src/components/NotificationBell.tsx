@@ -80,12 +80,13 @@ export default function NotificationBell(): React.JSX.Element {
                 >
                   <div className="notif-title">
                     {n.agent && <AgentIcon id={n.agent} size={13} />}
-                    {n.title}
+                    <span className="notif-title-text">{n.title}</span>
+                    <span className="notif-time">{timeAgo(n.ts)}</span>
                   </div>
                   <div className="notif-sub">
-                    {wsName(n.workspaceId)}
-                    {n.body ? ` · ${n.body}` : ''} · {timeAgo(n.ts)}
+                    {[wsName(n.workspaceId), n.session].filter(Boolean).join(' · ')}
                   </div>
+                  {n.body && n.body !== n.session && <div className="notif-msg">{n.body}</div>}
                 </button>
               ))}
             </div>

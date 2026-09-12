@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AgentSessionInfo,
   AppNotification,
   Bookmark,
   BrowserPaneState,
@@ -265,6 +266,8 @@ export interface PersistedState {
   sidebarOpen: boolean
   bookmarks: Bookmark[]
   todos: Record<string, TodoItem[]>
+  /** harness sessionId → observed info (name set via session-rename) */
+  agentSessions: Record<string, AgentSessionInfo>
 }
 
 interface AdeState extends PersistedState {
@@ -337,6 +340,9 @@ interface AdeState extends PersistedState {
   markAllRead: () => void
   clearNotifications: () => void
   goToNotification: (id: string) => void
+
+  upsertAgentSession: (sessionId: string, info: Partial<AgentSessionInfo>) => void
+  renameAgentSession: (sessionId: string, name: string) => void
 }
 
 function updWs(
@@ -367,6 +373,7 @@ export const useStore = create<AdeState>((set, get) => {
     sidebarOpen: false,
     bookmarks: [],
     todos: {},
+    agentSessions: {},
     notifications: [],
     settingsOpen: false,
     notifOpen: false,
@@ -381,7 +388,8 @@ export const useStore = create<AdeState>((set, get) => {
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
         sidebarOpen: s.sidebarOpen ?? false,
         bookmarks: s.bookmarks ?? [],
-        todos: s.todos ?? {}
+        todos: s.todos ?? {},
+        agentSessions: s.agentSessions ?? {}
       }),
 
     addProject: (path, name) => {
@@ -975,6 +983,56 @@ export const useStore = create<AdeState>((set, get) => {
           }
         }
       }
-    }
+    },
+
+    upsertAgentSession: (sessionId, info) =>
+      set((s) => {
+        const next = {
+          ...s.agentSessions,
+          [sessionId]: { ...s.agentSessions[sessionId], ...info, ts: Date.now() }
+        }
+        // cap the registry — drop oldest-observed entries beyond 200
+        const keys = Object.keys(next)
+        if (keys.length > 200) {
+          keys
+            .sort((a, b) => (next[a].ts ?? 0) - (next[b].ts ?? 0))
+            .slice(0, keys.length - 200)
+            .forEach((k) => delete next[k])
+        }
+        return { agentSessions: next }
+      }),
+
+    renameAgentSession: (sessionId, name) =>
+      set((s) => {
+        // create the entry when absent — a rename can arrive (from another
+        // instance's event) before this instance sees any session event
+        const info = s.agentSessions[sessionId] ?? {}
+        const title = name || undefined
+        const patch: Partial<AdeState> = {
+          agentSessions: {
+            ...s.agentSessions,
+            [sessionId]: { ...info, name: title, ts: Date.now() }
+          }
+        }
+        // the name is also the tab label — sync it when the session maps to a
+        // live terminal tab (covers renames arriving via the event channel)
+        if (info.wsId && info.paneId && info.tabId) {
+          const ws = s.workspaces.find((w) => w.id === info.wsId)
+          const pane = ws?.panes[info.paneId]
+          if (ws && pane && pane.type === 'terminal') {
+            patch.workspaces = updWs(s.workspaces, ws.id, (w) => ({
+              ...w,
+              panes: {
+                ...w.panes,
+                [pane.id]: {
+                  ...pane,
+                  tabs: pane.tabs.map((t) => (t.id === info.tabId ? { ...t, title } : t))
+                }
+              }
+            }))
+          }
+        }
+        return patch
+      })
   }
 })

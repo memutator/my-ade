@@ -4,7 +4,8 @@ import { leafPaneIds, useStore } from './store'
 import { applyShortcut } from './shortcuts'
 import { useT, translate } from './i18n'
 import { agentProviders, agentLabel } from './agents'
-import type { AgentHookEvent, Workspace } from './types'
+import { shortPath } from './utils'
+import type { AgentHookEvent, TerminalTab, Workspace } from './types'
 
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
@@ -50,7 +51,12 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
 function resolveHookTarget(
   st: ReturnType<typeof useStore.getState>,
   cwd: string | undefined
-): { ws: Workspace | undefined; paneId: string | undefined; tabId: string | undefined } {
+): {
+  ws: Workspace | undefined
+  paneId: string | undefined
+  tabId: string | undefined
+  tab: TerminalTab | undefined
+} {
   const dir = (cwd ?? '').replace(/\/+$/, '')
   let ws: Workspace | undefined
   let best = -1
@@ -66,6 +72,7 @@ function resolveHookTarget(
   }
   let paneId: string | undefined
   let tabId: string | undefined
+  let tab: TerminalTab | undefined
   if (ws) {
     if (dir) {
       for (const p of Object.values(ws.panes)) {
@@ -74,6 +81,7 @@ function resolveHookTarget(
         if (hit) {
           paneId = p.id
           tabId = hit.id
+          tab = hit
           break
         }
       }
@@ -82,7 +90,7 @@ function resolveHookTarget(
     // clicking the notification focuses the workspace's active pane
     paneId ??= ws.focusedPaneId ?? Object.keys(ws.panes)[0]
   }
-  return { ws, paneId, tabId }
+  return { ws, paneId, tabId, tab }
 }
 
 export default function App(): React.JSX.Element {
@@ -134,7 +142,8 @@ export default function App(): React.JSX.Element {
           settings: s.settings,
           sidebarOpen: s.sidebarOpen,
           bookmarks: s.bookmarks,
-          todos: s.todos
+          todos: s.todos,
+          agentSessions: s.agentSessions
         })
       }, 400)
     })
@@ -167,10 +176,27 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!window.ade.hooks?.onEvent) return
     return window.ade.hooks.onEvent((ev: AgentHookEvent) => {
-      if (ev.event !== 'turn-complete' && ev.event !== 'needs-input') return
       const st = useStore.getState()
+      // session-rename: a tab rename propagated through the real channel —
+      // updates the session registry (and the mapped tab's title), no notify
+      if (ev.event === 'session-rename') {
+        if (ev.sessionId) st.renameAgentSession(ev.sessionId, ev.name ?? '')
+        return
+      }
+      const { ws, paneId, tabId, tab } = resolveHookTarget(st, ev.cwd)
+      // track the session ↔ tab association so renames and notification
+      // labels can resolve this sessionId later
+      if (ev.sessionId) {
+        st.upsertAgentSession(ev.sessionId, {
+          provider: ev.provider,
+          cwd: ev.cwd,
+          wsId: ws?.id,
+          paneId,
+          tabId
+        })
+      }
+      if (ev.event !== 'turn-complete' && ev.event !== 'needs-input') return
       if (st.settings.providers[ev.provider] === false) return
-      const { ws, paneId, tabId } = resolveHookTarget(st, ev.cwd)
       // foreign sessions (hook ran outside ade — global hooks append here too):
       // notify only when the agent worked inside a registered project; agents
       // in unrelated dirs stay silent
@@ -182,10 +208,19 @@ export default function App(): React.JSX.Element {
         ev.event === 'needs-input' ? 'agentNeedsInput' : 'agentFinished',
         { agent: label }
       )
-      const body = ev.message || ws?.name || ev.cwd || ''
-      if (wsId) st.notify({ workspaceId: wsId, paneId, tabId, title, body, agent: ev.provider })
+      const session =
+        (ev.sessionId ? st.agentSessions[ev.sessionId]?.name : undefined) ??
+        tab?.title ??
+        (ev.cwd ? shortPath(ev.cwd) : undefined)
+      const body = ev.message || ''
+      if (wsId)
+        st.notify({ workspaceId: wsId, paneId, tabId, title, body, session, agent: ev.provider })
       if (st.settings.osNotifications) {
-        window.ade.notify.show(title, body, { workspaceId: wsId ?? undefined, paneId, tabId })
+        window.ade.notify.show(title, [session, body].filter(Boolean).join(' — '), {
+          workspaceId: wsId ?? undefined,
+          paneId,
+          tabId
+        })
       }
     })
   }, [])

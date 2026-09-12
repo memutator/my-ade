@@ -53,4 +53,18 @@ export function registerHookIpc(): void {
       return { ok: false, error: String(e instanceof Error ? e.message : e) }
     }
   })
+  // Renderer-originated events (e.g. session-rename after a tab rename) travel
+  // the same file channel so every ade instance sees them — stamped with this
+  // instance's session so the tailer marks them `ours`.
+  ipcMain.handle('hooks:emit', (_e, ev: AgentHookEvent) => {
+    try {
+      if (!ev || typeof ev.provider !== 'string' || typeof ev.event !== 'string') {
+        return { ok: false, error: 'bad event' }
+      }
+      appendEvent({ ...ev, adeSession: process.env.ADE_SESSION })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e instanceof Error ? e.message : e) }
+    }
+  })
 }

@@ -64,6 +64,10 @@ export interface AgentHookEvent {
   event: string
   cwd?: string
   sessionId?: string
+  /** set by the tailer: true when the event carries this instance's session */
+  ours?: boolean
+  /** session-rename payload: the new session name */
+  name?: string
   message?: string
   ts?: number
 }
@@ -166,6 +170,7 @@ const ade = {
       ipcRenderer.invoke('hooks:install', provider),
     test: (provider: string): Promise<HookActionResult> =>
       ipcRenderer.invoke('hooks:test', provider),
+    emit: (ev: AgentHookEvent): Promise<HookActionResult> => ipcRenderer.invoke('hooks:emit', ev),
     onEvent: (cb: (e: AgentHookEvent) => void): (() => void) => {
       const handler = (_: unknown, e: AgentHookEvent): void => cb(e)
       ipcRenderer.on('agent:event', handler)

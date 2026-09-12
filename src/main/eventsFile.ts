@@ -21,6 +21,8 @@ export interface AgentHookEvent {
   adeSession?: string
   /** set by the tailer: true when the event carries this instance's session */
   ours?: boolean
+  /** session-rename payload: the new session name */
+  name?: string
   ts?: number
 }
 

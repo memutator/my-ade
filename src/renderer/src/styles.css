@@ -1517,9 +1517,34 @@ webview.browser-view {
   align-items: center;
   gap: 6px;
 }
+.notif-item .notif-title-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notif-item .notif-time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-faint);
+}
 .notif-item .notif-sub {
   font-size: 10.5px;
   color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notif-item .notif-msg {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 .notif-item.unread .notif-title::before {
   content: '';
