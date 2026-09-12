@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { TerminalSquare, Globe, Code2 } from 'lucide-react'
+import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
 import { useStore } from './store'
 import { agentProviders } from './agents'
 import TopBar from './components/TopBar'
@@ -27,6 +27,11 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
           <Code2 />
           editor
           <kbd>Alt+E</kbd>
+        </button>
+        <button onClick={() => newPane('todo', wsId)}>
+          <ListTodo />
+          todos
+          <kbd>Alt+L</kbd>
         </button>
       </div>
     </div>
@@ -80,7 +85,8 @@ export default function App(): React.JSX.Element {
           workspaces: s.workspaces,
           activeWorkspaceId: s.activeWorkspaceId,
           settings: s.settings,
-          sidebarOpen: s.sidebarOpen
+          sidebarOpen: s.sidebarOpen,
+          todos: s.todos
         })
       }, 400)
     })
@@ -116,6 +122,9 @@ export default function App(): React.JSX.Element {
           break
         case 'e':
           st.newPane('editor')
+          break
+        case 'l':
+          st.newPane('todo')
           break
         case 'd':
           if (ws?.focusedPaneId) st.splitPane(ws.focusedPaneId, 'row', 'terminal')

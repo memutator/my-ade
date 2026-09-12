@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import TerminalPane from './TerminalPane'
 import BrowserPane from './BrowserPane'
 import EditorPane from './EditorPane'
+import TodoPane from './TodoPane'
 
 function PaneFor({ paneId, wsId }: { paneId: string; wsId: string }): React.JSX.Element | null {
   const pane = useStore((s) => {
@@ -22,6 +23,8 @@ function PaneFor({ paneId, wsId }: { paneId: string; wsId: string }): React.JSX.
       return <BrowserPane pane={pane} wsId={wsId} />
     case 'editor':
       return <EditorPane pane={pane} wsId={wsId} />
+    case 'todo':
+      return <TodoPane pane={pane} wsId={wsId} />
   }
 }
 

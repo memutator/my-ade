@@ -3,6 +3,7 @@ import {
   TerminalSquare,
   Globe,
   Code2,
+  ListTodo,
   Sun,
   Moon,
   Minus,
@@ -74,6 +75,9 @@ export default function TopBar(): React.JSX.Element {
       </button>
       <button className="tbtn" title="New editor (Alt+E)" onClick={() => newPane('editor')}>
         <Code2 /> editor
+      </button>
+      <button className="tbtn" title="New todo list (Alt+L)" onClick={() => newPane('todo')}>
+        <ListTodo /> todos
       </button>
 
       <WorkspaceStrip />

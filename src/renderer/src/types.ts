@@ -1,4 +1,4 @@
-export type PaneType = 'terminal' | 'browser' | 'editor'
+export type PaneType = 'terminal' | 'browser' | 'editor' | 'todo'
 
 export interface PaneBase {
   id: string
@@ -31,7 +31,11 @@ export interface EditorPaneState extends PaneBase {
   activeTabId?: string
 }
 
-export type PaneState = TerminalPaneState | BrowserPaneState | EditorPaneState
+export interface TodoPaneState extends PaneBase {
+  type: 'todo'
+}
+
+export type PaneState = TerminalPaneState | BrowserPaneState | EditorPaneState | TodoPaneState
 
 export type LayoutNode =
   | { kind: 'leaf'; id: string; paneId: string }
@@ -83,4 +87,16 @@ export interface DirEntry {
   name: string
   path: string
   isDir: boolean
+}
+
+export type TodoStatus = 'todo' | 'doing' | 'done'
+
+export interface TodoItem {
+  id: string
+  text: string
+  status: TodoStatus
+  parentId?: string
+  dependsOn: string[]
+  createdAt: number
+  order: number
 }
