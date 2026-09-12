@@ -80,6 +80,7 @@ body {
   min-width: 0;
   display: flex;
   position: relative;
+  background: var(--tab-active);
 }
 
 .ws-host {
@@ -566,6 +567,18 @@ webview.browser-view {
 .app-icon {
   position: relative;
   -webkit-app-region: no-drag;
+}
+
+.tbtn.icon-btn {
+  padding: 0;
+  width: 26px;
+}
+
+.tbtn .app-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: block;
 }
 
 .tree-overlay {
