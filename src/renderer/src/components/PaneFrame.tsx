@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { Columns2, Rows2, X } from 'lucide-react'
 import type { PaneState } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { startPaneDrag } from '../paneDnd'
 import Tooltip from './Tooltip'
 
 export default function PaneFrame({
@@ -25,15 +26,36 @@ export default function PaneFrame({
     return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
   })
   const { focusPane, splitPane, closePane } = useStore()
+  const gripRef = useRef<HTMLSpanElement>(null)
   const t = useT()
 
   return (
     <div
       className={`pane${focused ? ' focused' : ''}`}
+      data-pane-id={pane.id}
+      data-ws-id={wsId}
       onPointerDownCapture={() => focusPane(pane.id, wsId)}
     >
       <div className="pane-titlebar">
-        {icon}
+        <Tooltip label={t('dragToMove')}>
+          <span
+            ref={gripRef}
+            className="pane-grip"
+            onPointerDown={(e) =>
+              startPaneDrag(e, {
+                paneId: pane.id,
+                wsId,
+                title:
+                  gripRef.current?.parentElement?.querySelector('.pane-title')?.textContent ??
+                  pane.title,
+                iconEl: gripRef.current,
+                paneEl: gripRef.current?.closest('.pane') as HTMLElement | null
+              })
+            }
+          >
+            {icon}
+          </span>
+        </Tooltip>
         {title ?? <span className="pane-title">{pane.title}</span>}
         <div className="actions">
           {extraActions}

@@ -81,6 +81,18 @@ function removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
   return { ...node, a, b }
 }
 
+function swapPaneIds(node: LayoutNode, a: string, b: string): LayoutNode {
+  if (node.kind === 'leaf') {
+    if (node.paneId === a) return { ...node, paneId: b }
+    if (node.paneId === b) return { ...node, paneId: a }
+    return node
+  }
+  const na = swapPaneIds(node.a, a, b)
+  const nb = swapPaneIds(node.b, a, b)
+  if (na === node.a && nb === node.b) return node
+  return { ...node, a: na, b: nb }
+}
+
 function setRatioIn(node: LayoutNode, splitId: string, ratio: number): LayoutNode {
   if (node.kind === 'leaf') return node
   if (node.id === splitId) return { ...node, ratio }
@@ -168,6 +180,13 @@ interface AdeState extends PersistedState {
   newPane: (type: PaneType, wsId?: string) => void
   splitPane: (paneId: string, dir: 'row' | 'col', type: PaneType, wsId?: string) => void
   closePane: (paneId: string, wsId?: string) => void
+  movePane: (
+    paneId: string,
+    fromWsId: string,
+    toWsId: string,
+    targetPaneId: string | null,
+    edge?: 'left' | 'right' | 'top' | 'bottom' | null
+  ) => void
   setRatio: (splitId: string, ratio: number, wsId?: string) => void
   updatePane: (paneId: string, patch: Partial<PaneState>, wsId?: string) => void
   focusPane: (paneId: string, wsId?: string) => void
@@ -362,6 +381,111 @@ export const useStore = create<AdeState>((set, get) => {
               w.focusedPaneId === paneId ? (root ? leafPaneIds(root)[0] : null) : w.focusedPaneId
             return { ...w, root, panes, focusedPaneId }
           })
+        }
+      }),
+
+    // Drag & drop move. targetPaneId == null → append to the end of the target
+    // layout (root wrapped in a row split). targetPaneId + edge → split that
+    // leaf and drop the pane into the new half. targetPaneId without edge →
+    // swap the two panes' positions (across workspaces both states migrate).
+    movePane: (paneId, fromWsId, toWsId, targetPaneId, edge) =>
+      set((s) => {
+        const from = s.workspaces.find((w) => w.id === fromWsId)
+        const to = s.workspaces.find((w) => w.id === toWsId)
+        const pane = from?.panes[paneId]
+        if (!from || !to || !pane || !from.root) return s
+        if (paneId === targetPaneId) return s
+        if (targetPaneId && !to.panes[targetPaneId]) return s
+        const sameWs = fromWsId === toWsId
+
+        if (targetPaneId && !edge) {
+          const target = to.panes[targetPaneId]
+          if (sameWs) {
+            return {
+              workspaces: updWs(s.workspaces, toWsId, (w) =>
+                w.root ? { ...w, root: swapPaneIds(w.root, paneId, targetPaneId) } : w
+              )
+            }
+          }
+          if (!to.root) return s
+          return {
+            activeWorkspaceId: toWsId,
+            workspaces: s.workspaces.map((w) => {
+              if (w.id === fromWsId) {
+                const panes = { ...w.panes }
+                delete panes[paneId]
+                panes[targetPaneId] = target
+                return {
+                  ...w,
+                  root: mapLeaf(w.root!, paneId, (l) => ({ ...l, paneId: targetPaneId })),
+                  panes,
+                  focusedPaneId: w.focusedPaneId === paneId ? targetPaneId : w.focusedPaneId
+                }
+              }
+              if (w.id === toWsId) {
+                const panes = { ...w.panes }
+                delete panes[targetPaneId]
+                panes[paneId] = pane
+                return {
+                  ...w,
+                  root: mapLeaf(w.root!, targetPaneId, (l) => ({ ...l, paneId })),
+                  panes,
+                  focusedPaneId: paneId
+                }
+              }
+              return w
+            })
+          }
+        }
+
+        const strip = (w: Workspace): Workspace => {
+          const root = w.root ? removeLeaf(w.root, paneId) : w.root
+          const panes = { ...w.panes }
+          delete panes[paneId]
+          const focusedPaneId =
+            w.focusedPaneId === paneId ? (root ? leafPaneIds(root)[0] : null) : w.focusedPaneId
+          return { ...w, root, panes, focusedPaneId }
+        }
+
+        const graft = (w: Workspace): Workspace => {
+          const panes = { ...w.panes, [paneId]: pane }
+          let root = w.root
+          if (root && targetPaneId && edge) {
+            const dir: 'row' | 'col' = edge === 'left' || edge === 'right' ? 'row' : 'col'
+            const first = edge === 'left' || edge === 'top'
+            root = mapLeaf(root, targetPaneId, (l) => ({
+              kind: 'split',
+              id: uid(),
+              dir,
+              ratio: 0.5,
+              a: first ? leaf(paneId) : l,
+              b: first ? l : leaf(paneId)
+            }))
+          } else if (root) {
+            // append at the end — n/(n+1) keeps existing panes' relative share
+            const n = leafPaneIds(root).length
+            root = {
+              kind: 'split',
+              id: uid(),
+              dir: 'row',
+              ratio: n / (n + 1),
+              a: root,
+              b: leaf(paneId)
+            }
+          } else {
+            root = leaf(paneId)
+          }
+          return { ...w, panes, root, focusedPaneId: paneId }
+        }
+
+        if (sameWs) {
+          return { workspaces: updWs(s.workspaces, toWsId, (w) => graft(strip(w))) }
+        }
+        return {
+          activeWorkspaceId: toWsId,
+          workspaces: s.workspaces.map((w) =>
+            w.id === fromWsId ? strip(w) : w.id === toWsId ? graft(w) : w
+          )
         }
       }),
 

@@ -223,7 +223,7 @@ export default function App(): React.JSX.Element {
         <div className="workspace-area">
           {workspaces.length === 0 && <EmptyState />}
           {workspaces.map((w) => (
-            <div key={w.id} className="ws-host" hidden={w.id !== activeId}>
+            <div key={w.id} className="ws-host" data-ws-id={w.id} hidden={w.id !== activeId}>
               {w.root ? (
                 <div className="layout">
                   <SplitView node={w.root} wsId={w.id} />

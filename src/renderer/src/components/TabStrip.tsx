@@ -44,6 +44,7 @@ export default function TabStrip({
         <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
           <div
             className={`ctab${tab.id === activeId ? ' active' : ''}`}
+            data-tab-id={tab.id}
             draggable={!!onReorder && editingId !== tab.id}
             onDragStart={() => (dragIdx.current = i)}
             onDragOver={(e) => e.preventDefault()}

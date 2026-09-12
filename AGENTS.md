@@ -93,10 +93,15 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 | Alt+W | close focused pane |
 | Alt+] / Alt+[ | cycle focus |
 | Alt+M | toggle dark/light theme |
+| hold pane icon + drag | move pane — center drop swaps, edge drop splits; drop on a workspace tab (or hover it ~0.4s mid-drag to switch workspaces) to move across workspaces; Esc cancels |
 
 ## Gotchas
 
 - `webview.loadURL` throws before `dom-ready`; `BrowserPane` retries via a ready flag.
+- Pane drag & drop (`paneDnd.ts`) is pointer-event based, not HTML5 DnD — a
+  `<webview>` swallows all mouse events, so an armed drag sets
+  `body.pane-dragging` which forces `pointer-events: none` on every webview,
+  keeping `elementFromPoint` hit-testing and window pointermove/up alive.
 - No build tools (make/gcc) on this machine — never add deps that require node-gyp
   builds; prefer prebuilt binaries.
 - Preload changes are NOT hot-reloaded — restart `npm run dev` after editing

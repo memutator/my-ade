@@ -7,7 +7,8 @@ workspace is a splittable pane layout scoped to a project directory.
 ## Features
 
 - **Tiling panes** — terminal / browser / editor panes in a binary split tree,
-  flush edges, drag-to-resize dividers
+  flush edges, drag-to-resize dividers, press-hold the pane icon to drag panes
+  (swap, split onto edges, or onto another workspace's tab)
 - **Workspaces** — Chrome-curved tabs in the title bar; `+` picks a project,
   auto-named `workspace N`, double-click to rename, drag to reorder
 - **Projects** — directories on disk; terminal cwd and the file tree follow the
