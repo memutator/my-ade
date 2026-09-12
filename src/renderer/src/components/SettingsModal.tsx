@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 import { loadAgentManifest } from '../agents'
-import type { AgentProviderInfo, Theme } from '../types'
+import type { AgentProviderInfo, Language, Theme } from '../types'
 
 const ACCENTS = ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#f7768e', '#7dcfff', '#ff9e64']
+
+const LANG_LABELS: Record<Language, string> = {
+  system: 'system',
+  en: 'English',
+  ko: '한국어'
+}
 
 export default function SettingsModal(): React.JSX.Element | null {
   const open = useStore((s) => s.settingsOpen)
   const settings = useStore((s) => s.settings)
   const { setSettingsOpen, updateSettings } = useStore()
   const [providers, setProviders] = useState<Record<string, AgentProviderInfo>>({})
+  const t = useT()
 
   useEffect(() => {
     if (open && Object.keys(providers).length === 0) {
@@ -32,30 +41,46 @@ export default function SettingsModal(): React.JSX.Element | null {
     <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span>settings</span>
-          <button className="pbtn" onClick={() => setSettingsOpen(false)}>
-            <X />
-          </button>
+          <span>{t('settings')}</span>
+          <Tooltip label={t('close')}>
+            <button className="pbtn" onClick={() => setSettingsOpen(false)}>
+              <X />
+            </button>
+          </Tooltip>
         </div>
         <div className="modal-body">
           <section>
-            <h3>appearance</h3>
+            <h3>{t('appearance')}</h3>
             <div className="srow">
-              <label>theme</label>
+              <label>{t('theme')}</label>
               <div className="seg">
-                {(['dark', 'light', 'system'] as Theme[]).map((t) => (
+                {(['dark', 'light', 'system'] as Theme[]).map((v) => (
                   <button
-                    key={t}
-                    className={settings.theme === t ? 'on' : ''}
-                    onClick={() => updateSettings({ theme: t })}
+                    key={v}
+                    className={settings.theme === v ? 'on' : ''}
+                    onClick={() => updateSettings({ theme: v })}
                   >
-                    {t}
+                    {t(v)}
                   </button>
                 ))}
               </div>
             </div>
             <div className="srow">
-              <label>accent</label>
+              <label>{t('language')}</label>
+              <div className="seg">
+                {(['system', 'en', 'ko'] as Language[]).map((v) => (
+                  <button
+                    key={v}
+                    className={settings.language === v ? 'on' : ''}
+                    onClick={() => updateSettings({ language: v })}
+                  >
+                    {v === 'system' ? t('system') : LANG_LABELS[v]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="srow">
+              <label>{t('accent')}</label>
               <div className="swatches">
                 {ACCENTS.map((c) => (
                   <button
@@ -68,7 +93,7 @@ export default function SettingsModal(): React.JSX.Element | null {
               </div>
             </div>
             <div className="srow">
-              <label>ui font</label>
+              <label>{t('uiFont')}</label>
               <input
                 className="sinput"
                 value={settings.uiFont}
@@ -77,7 +102,7 @@ export default function SettingsModal(): React.JSX.Element | null {
               />
             </div>
             <div className="srow">
-              <label>terminal font</label>
+              <label>{t('terminalFont')}</label>
               <input
                 className="sinput"
                 value={settings.termFont}
@@ -86,7 +111,7 @@ export default function SettingsModal(): React.JSX.Element | null {
               />
             </div>
             <div className="srow">
-              <label>terminal font size</label>
+              <label>{t('terminalFontSize')}</label>
               <input
                 className="sinput narrow"
                 type="number"
@@ -100,9 +125,9 @@ export default function SettingsModal(): React.JSX.Element | null {
           </section>
 
           <section>
-            <h3>notifications</h3>
+            <h3>{t('notifications')}</h3>
             <div className="srow">
-              <label>os notifications</label>
+              <label>{t('osNotifications')}</label>
               <button
                 className={`toggle${settings.osNotifications ? ' on' : ''}`}
                 onClick={() => updateSettings({ osNotifications: !settings.osNotifications })}
@@ -113,9 +138,9 @@ export default function SettingsModal(): React.JSX.Element | null {
           </section>
 
           <section>
-            <h3>agent providers</h3>
+            <h3>{t('agentProviders')}</h3>
             {Object.keys(providers).length === 0 && (
-              <div className="srow dim">no providers found</div>
+              <div className="srow dim">{t('noProviders')}</div>
             )}
             {Object.entries(providers).map(([id, info]) => (
               <div className="srow" key={id}>

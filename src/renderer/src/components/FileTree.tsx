@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import type { DirEntry } from '../types'
 import { useStore } from '../store'
+import { useFileIcon } from '../fileIcons'
 
 function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.JSX.Element {
   const openFileInEditor = useStore((s) => s.openFileInEditor)
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<DirEntry[] | null>(null)
   const hidden = entry.name.startsWith('.')
+  const iconUrl = useFileIcon(entry.name, entry.isDir, open)
 
   const toggle = async (): Promise<void> => {
     if (!entry.isDir) {
@@ -18,6 +20,7 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.J
     setOpen(!open)
   }
 
+  const Fallback = entry.isDir ? Folder : File
   return (
     <>
       <div
@@ -26,15 +29,14 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.J
         onClick={toggle}
       >
         {entry.isDir ? (
-          <>
-            <ChevronRight size={11} className={`tchev${open ? ' open' : ''}`} />
-            <Folder size={12} className="ticon" />
-          </>
+          <ChevronRight size={11} className={`tchev${open ? ' open' : ''}`} />
         ) : (
-          <>
-            <span className="tchev" />
-            <File size={12} className="ticon" />
-          </>
+          <span className="tchev" />
+        )}
+        {iconUrl ? (
+          <img src={iconUrl} className="ticon-img" draggable={false} alt="" />
+        ) : (
+          <Fallback size={12} className="ticon" />
         )}
         <span className="tname">{entry.name}</span>
       </div>

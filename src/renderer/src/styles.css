@@ -670,6 +670,12 @@ webview.browser-view {
   flex-shrink: 0;
   color: var(--text-faint);
 }
+.ticon-img {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  user-select: none;
+}
 .tname {
   overflow: hidden;
   text-overflow: ellipsis;

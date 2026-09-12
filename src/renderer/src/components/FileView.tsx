@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { createHighlighter, type Highlighter } from 'shiki'
 import { useStore } from '../store'
+import { useT } from '../i18n'
 
 const LANGS: Record<string, string> = {
   '.ts': 'typescript',
@@ -80,6 +81,7 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
   const resolvedTheme = useStore((s) => s.resolvedTheme ?? 'dark')
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const imgUrlRef = useRef<string | null>(null)
+  const t = useT()
 
   useEffect(() => {
     let cancelled = false
@@ -103,7 +105,7 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
         return
       }
       if (r.kind === 'binary') {
-        setLoaded({ kind: 'binary', error: 'binary file', meta })
+        setLoaded({ kind: 'binary', error: t('binaryFile'), meta })
         return
       }
 
@@ -137,7 +139,7 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
     return () => {
       cancelled = true
     }
-  }, [path, resolvedTheme, theme])
+  }, [path, resolvedTheme, theme, t])
 
   useEffect(
     () => () => {
@@ -150,7 +152,7 @@ export default function FileView({ path }: { path: string }): React.JSX.Element 
     <div className="file-body">
       {!loaded ? (
         <div className="file-empty">
-          <span>loading…</span>
+          <span>{t('loading')}</span>
         </div>
       ) : loaded.error ? (
         <div className="file-empty">

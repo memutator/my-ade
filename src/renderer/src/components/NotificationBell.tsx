@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { Bell, CheckCheck, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -16,6 +18,7 @@ export default function NotificationBell(): React.JSX.Element {
   const open = useStore((s) => s.notifOpen)
   const { setNotifOpen, goToNotification, markAllRead, clearNotifications } = useStore()
   const ref = useRef<HTMLDivElement>(null)
+  const t = useT()
 
   const unread = notifications.filter((n) => !n.read).length
 
@@ -32,23 +35,31 @@ export default function NotificationBell(): React.JSX.Element {
 
   return (
     <div className="notif-wrap" ref={ref}>
-      <button className="tbtn" title="Notifications" onClick={() => setNotifOpen(!open)}>
-        <Bell />
-        {unread > 0 && <span className="notif-badge">{unread}</span>}
-      </button>
+      <Tooltip label={t('notificationsTooltip')}>
+        <button className="tbtn" onClick={() => setNotifOpen(!open)}>
+          <Bell />
+          {unread > 0 && <span className="notif-badge">{unread}</span>}
+        </button>
+      </Tooltip>
       {open && (
         <div className="notif-panel">
           <div className="notif-head">
-            <span>notifications</span>
-            <button className="tbtn" title="Mark all read" onClick={markAllRead}>
-              <CheckCheck size={13} />
-            </button>
-            <button className="tbtn" title="Clear all" onClick={clearNotifications}>
-              <Trash2 size={13} />
-            </button>
+            <span>{t('notifications')}</span>
+            <Tooltip label={t('markAllRead')}>
+              <button className="tbtn" onClick={markAllRead}>
+                <CheckCheck size={13} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('clearAll')}>
+              <button className="tbtn" onClick={clearNotifications}>
+                <Trash2 size={13} />
+              </button>
+            </Tooltip>
           </div>
           <div className="notif-list">
-            {notifications.length === 0 && <div className="notif-empty">no notifications</div>}
+            {notifications.length === 0 && (
+              <div className="notif-empty">{t('noNotifications')}</div>
+            )}
             {notifications.map((n) => (
               <button
                 key={n.id}

@@ -1,13 +1,15 @@
 import { FolderGit2, Plus } from 'lucide-react'
 import { useStore } from '../store'
+import { useT } from '../i18n'
 
 export default function EmptyState(): React.JSX.Element {
   const projects = useStore((s) => s.projects)
   const { addProject, createWorkspace } = useStore()
+  const t = useT()
 
   const pickDir = async (): Promise<void> => {
     const dir = await window.ade.fs.pickDirectory()
-    if (dir) createWorkspace(addProject(dir).id)
+    if (dir) createWorkspace(addProject(dir).id, t('workspace'))
   }
 
   return (
@@ -15,7 +17,7 @@ export default function EmptyState(): React.JSX.Element {
       <div className="logo">ade</div>
       <div className="empty-actions">
         {projects.map((p) => (
-          <button key={p.id} onClick={() => createWorkspace(p.id)}>
+          <button key={p.id} onClick={() => createWorkspace(p.id, t('workspace'))}>
             <FolderGit2 />
             {p.name}
             <kbd>{p.path}</kbd>
@@ -23,8 +25,8 @@ export default function EmptyState(): React.JSX.Element {
         ))}
         <button onClick={pickDir}>
           <Plus />
-          add project
-          <kbd>choose dir…</kbd>
+          {t('addProject')}
+          <kbd>{t('chooseDir')}</kbd>
         </button>
       </div>
     </div>

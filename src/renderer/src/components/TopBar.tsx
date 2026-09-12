@@ -12,6 +12,8 @@ import {
   Layers
 } from 'lucide-react'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 import WorkspaceStrip from './WorkspaceStrip'
 import NotificationBell from './NotificationBell'
 import FileTree from './FileTree'
@@ -22,6 +24,7 @@ export default function TopBar(): React.JSX.Element {
   const { newPane, updateSettings, setSidebarOpen, setSettingsOpen } = useStore()
   const activeWs = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const activeProject = useStore((s) => s.projects.find((p) => p.id === activeWs?.projectId))
+  const t = useT()
 
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const [treeOverlay, setTreeOverlay] = useState(false)
@@ -48,16 +51,17 @@ export default function TopBar(): React.JSX.Element {
   return (
     <div className="topbar">
       <div className="app-icon" onMouseEnter={onIconEnter} onMouseLeave={onIconLeave}>
-        <button
-          className="tbtn icon-btn"
-          title="Files — hover to peek, click to pin"
-          onClick={() => {
-            setTreeOverlay(false)
-            setSidebarOpen(!sidebarOpen)
-          }}
-        >
-          <Layers />
-        </button>
+        <Tooltip label={t('filesPeek')}>
+          <button
+            className="tbtn icon-btn"
+            onClick={() => {
+              setTreeOverlay(false)
+              setSidebarOpen(!sidebarOpen)
+            }}
+          >
+            <Layers />
+          </button>
+        </Tooltip>
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>
             <div className="tree-overlay-head">{activeProject.name}</div>
@@ -66,44 +70,59 @@ export default function TopBar(): React.JSX.Element {
         )}
       </div>
 
-      <button className="tbtn" title="New terminal (Alt+T)" onClick={() => newPane('terminal')}>
-        <TerminalSquare /> terminal
-      </button>
-      <button className="tbtn" title="New browser (Alt+B)" onClick={() => newPane('browser')}>
-        <Globe /> browser
-      </button>
-      <button className="tbtn" title="New editor (Alt+E)" onClick={() => newPane('editor')}>
-        <Code2 /> editor
-      </button>
+      <Tooltip label={t('newTerminal')}>
+        <button className="tbtn" onClick={() => newPane('terminal')}>
+          <TerminalSquare /> {t('terminal')}
+        </button>
+      </Tooltip>
+      <Tooltip label={t('newBrowser')}>
+        <button className="tbtn" onClick={() => newPane('browser')}>
+          <Globe /> {t('browser')}
+        </button>
+      </Tooltip>
+      <Tooltip label={t('newEditor')}>
+        <button className="tbtn" onClick={() => newPane('editor')}>
+          <Code2 /> {t('editor')}
+        </button>
+      </Tooltip>
 
       <WorkspaceStrip />
 
       <div className="spacer" />
       <NotificationBell />
-      <button className="tbtn" title="Settings" onClick={() => setSettingsOpen(true)}>
-        <Settings />
-      </button>
-      <button
-        className="tbtn"
-        title="Toggle theme (Alt+M)"
-        onClick={() =>
-          updateSettings({
-            theme: settings.theme === 'dark' ? 'light' : 'dark'
-          })
-        }
-      >
-        {resolvedTheme === 'dark' ? <Sun /> : <Moon />}
-      </button>
+      <Tooltip label={t('settingsTooltip')}>
+        <button className="tbtn" onClick={() => setSettingsOpen(true)}>
+          <Settings />
+        </button>
+      </Tooltip>
+      <Tooltip label={t('toggleTheme')}>
+        <button
+          className="tbtn"
+          onClick={() =>
+            updateSettings({
+              theme: settings.theme === 'dark' ? 'light' : 'dark'
+            })
+          }
+        >
+          {resolvedTheme === 'dark' ? <Sun /> : <Moon />}
+        </button>
+      </Tooltip>
       <div className="win-controls">
-        <button className="tbtn" onClick={() => window.ade.win.minimize()}>
-          <Minus />
-        </button>
-        <button className="tbtn" onClick={() => window.ade.win.maximize()}>
-          <Square />
-        </button>
-        <button className="tbtn" onClick={() => window.ade.win.close()}>
-          <X />
-        </button>
+        <Tooltip label={t('minimize')}>
+          <button className="tbtn" onClick={() => window.ade.win.minimize()}>
+            <Minus />
+          </button>
+        </Tooltip>
+        <Tooltip label={t('maximize')}>
+          <button className="tbtn" onClick={() => window.ade.win.maximize()}>
+            <Square />
+          </button>
+        </Tooltip>
+        <Tooltip label={t('close')}>
+          <button className="tbtn" onClick={() => window.ade.win.close()}>
+            <X />
+          </button>
+        </Tooltip>
       </div>
     </div>
   )

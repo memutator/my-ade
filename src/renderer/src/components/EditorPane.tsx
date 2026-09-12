@@ -1,6 +1,8 @@
 import { Code2, FolderOpen } from 'lucide-react'
 import type { EditorPaneState } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 import TabStrip, { type TabItem } from './TabStrip'
 import FileView from './FileView'
@@ -13,6 +15,7 @@ export default function EditorPane({
   wsId: string
 }): React.JSX.Element {
   const updatePane = useStore((s) => s.updatePane)
+  const t = useT()
 
   const openDialog = async (): Promise<void> => {
     const p = await window.ade.file.openDialog()
@@ -53,9 +56,11 @@ export default function EditorPane({
         </div>
       }
       extraActions={
-        <button className="pbtn" title="Open file…" onClick={openDialog}>
-          <FolderOpen />
-        </button>
+        <Tooltip label={t('openFileTooltip')}>
+          <button className="pbtn" onClick={openDialog}>
+            <FolderOpen />
+          </button>
+        </Tooltip>
       }
     >
       {active ? (
@@ -63,8 +68,8 @@ export default function EditorPane({
       ) : (
         <div className="file-body">
           <div className="file-empty">
-            <span>no file open</span>
-            <button onClick={openDialog}>open file…</button>
+            <span>{t('noFileOpen')}</span>
+            <button onClick={openDialog}>{t('openFile')}</button>
           </div>
         </div>
       )}
