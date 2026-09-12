@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Notification, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Notification, net, screen } from 'electron'
 import { join, basename, extname, isAbsolute, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
@@ -37,9 +37,19 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  // clamp to the display the window will live on — the fixed 1440×900 default
+  // is wider than a portrait/secondary monitor's work area (e.g. 1080×1920),
+  // and on Wayland the oversize initial configure race left the renderer laid
+  // out at a stale size until the first resize (titlebar content drifting to
+  // the middle, clipped tabs). x/y are honored on X11 and ignored on Wayland.
+  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(1440, wa.width)
+  const height = Math.min(900, wa.height)
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width,
+    height,
+    x: wa.x + Math.round((wa.width - width) / 2),
+    y: wa.y + Math.round((wa.height - height) / 2),
     minWidth: 480,
     minHeight: 320,
     show: false,
