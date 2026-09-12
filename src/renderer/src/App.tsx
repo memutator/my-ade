@@ -2,7 +2,9 @@ import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
 import { useStore } from './store'
 import { useT } from './i18n'
-import { agentProviders } from './agents'
+import { agentProviders, agentLabel } from './agents'
+import type { AgentHookEvent, Workspace } from './types'
+
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
 import EmptyState from './components/EmptyState'
@@ -38,6 +40,32 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+// cwd → workspace/pane resolution for harness hook events. Longest project
+// path prefix wins; pane hint only when a terminal's cwd matches exactly.
+function resolveHookTarget(
+  st: ReturnType<typeof useStore.getState>,
+  cwd: string | undefined
+): { ws: Workspace | undefined; paneId: string | undefined } {
+  const dir = (cwd ?? '').replace(/\/+$/, '')
+  let ws: Workspace | undefined
+  let best = -1
+  if (dir) {
+    for (const w of st.workspaces) {
+      const proj = st.projects.find((p) => p.id === w.projectId)
+      const pp = proj?.path.replace(/\/+$/, '') ?? ''
+      if (pp && (dir === pp || dir.startsWith(pp + '/')) && pp.length > best) {
+        ws = w
+        best = pp.length
+      }
+    }
+  }
+  let paneId: string | undefined
+  if (ws && dir) {
+    paneId = Object.values(ws.panes).find((p) => p.type === 'terminal' && p.cwd === dir)?.id
+  }
+  return { ws, paneId }
 }
 
 export default function App(): React.JSX.Element {
@@ -106,6 +134,25 @@ export default function App(): React.JSX.Element {
       if (m.workspaceId && st.workspaces.some((w) => w.id === m.workspaceId)) {
         st.activateWorkspace(m.workspaceId)
         if (m.paneId) st.focusPane(m.paneId, m.workspaceId)
+      }
+    })
+  }, [])
+
+  // harness hook events (real turn-complete signals, not process-exit proxy)
+  useEffect(() => {
+    if (!window.ade.hooks?.onEvent) return
+    return window.ade.hooks.onEvent((ev: AgentHookEvent) => {
+      if (ev.event !== 'turn-complete' && ev.event !== 'needs-input') return
+      const st = useStore.getState()
+      if (st.settings.providers[ev.provider] === false) return
+      const { ws, paneId } = resolveHookTarget(st, ev.cwd)
+      const wsId = ws?.id ?? st.activeWorkspaceId
+      const label = agentLabel(ev.provider)
+      const title = ev.event === 'needs-input' ? `${label} needs input` : `${label} finished`
+      const body = ev.message || ws?.name || ev.cwd || ''
+      if (wsId) st.notify({ workspaceId: wsId, paneId, title, body })
+      if (st.settings.osNotifications) {
+        window.ade.notify.show(title, body, { workspaceId: wsId ?? undefined, paneId })
       }
     })
   }, [])

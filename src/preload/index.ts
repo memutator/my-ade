@@ -44,6 +44,31 @@ export interface DirEntry {
   isDir: boolean
 }
 
+export interface AgentHookEvent {
+  provider: string
+  event: string
+  cwd?: string
+  sessionId?: string
+  message?: string
+  ts?: number
+}
+
+export interface AgentHookStatus {
+  id: string
+  label: string
+  mechanism: string
+  available: boolean
+  installed: boolean
+  detail?: string
+  configPath: string
+}
+
+export interface HookActionResult {
+  ok: boolean
+  error?: string
+  detail?: string
+}
+
 function toBase64(s: string): string {
   const bytes = new TextEncoder().encode(s)
   let bin = ''
@@ -100,6 +125,18 @@ const ade = {
       ipcRenderer.invoke('agents:manifest'),
     configure: (patterns: Record<string, string[]>): void =>
       ipcRenderer.send('agents:config', patterns)
+  },
+  hooks: {
+    status: (): Promise<AgentHookStatus[]> => ipcRenderer.invoke('hooks:status'),
+    install: (provider: string): Promise<HookActionResult> =>
+      ipcRenderer.invoke('hooks:install', provider),
+    test: (provider: string): Promise<HookActionResult> =>
+      ipcRenderer.invoke('hooks:test', provider),
+    onEvent: (cb: (e: AgentHookEvent) => void): (() => void) => {
+      const handler = (_: unknown, e: AgentHookEvent): void => cb(e)
+      ipcRenderer.on('agent:event', handler)
+      return () => ipcRenderer.removeListener('agent:event', handler)
+    }
   },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),

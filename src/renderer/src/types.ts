@@ -96,6 +96,25 @@ export interface AgentProviderInfo {
   match: string[]
 }
 
+export interface AgentHookEvent {
+  provider: string
+  event: string
+  cwd?: string
+  sessionId?: string
+  message?: string
+  ts?: number
+}
+
+export interface AgentHookStatus {
+  id: string
+  label: string
+  mechanism: string
+  available: boolean
+  installed: boolean
+  detail?: string
+  configPath: string
+}
+
 export interface DirEntry {
   name: string
   path: string

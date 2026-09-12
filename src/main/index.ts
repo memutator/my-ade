@@ -6,6 +6,7 @@ import { readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
+import { startEventIngest, registerHookIpc } from './hooks'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
@@ -235,8 +236,10 @@ app.whenReady().then(() => {
   registerStateIpc()
   registerNotifyIpc()
   registerAgentIpc()
+  registerHookIpc()
   createWindow()
   startPtyHost(() => mainWindow)
+  startEventIngest(() => mainWindow)
   pushAgentConfig()
 
   app.on('activate', () => {
