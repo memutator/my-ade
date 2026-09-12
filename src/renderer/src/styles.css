@@ -1289,13 +1289,23 @@ webview.browser-view {
   flex-shrink: 0;
 }
 
+/* sub (cwd / project name) is hover-only: it used to sit next to the label
+   capped at 60px, which clipped the label itself. On hover the label yields
+   its slot to the sub so the path gets the tab's full width. */
 .ctab-sub {
+  display: none;
   font-size: 10px;
   color: var(--text-faint);
-  flex-shrink: 0;
-  max-width: 60px;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ctab.has-sub:hover .ctab-sub {
+  display: inline;
+}
+.ctab.has-sub:hover .ctab-label {
+  display: none;
 }
 
 .ctab-rename {

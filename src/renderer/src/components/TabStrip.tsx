@@ -137,7 +137,7 @@ export default function TabStrip({
         {tabs.map((tab, i) => (
           <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
             <div
-              className={`ctab${tab.id === activeId ? ' active' : ''}`}
+              className={`ctab${tab.id === activeId ? ' active' : ''}${tab.sub ? ' has-sub' : ''}`}
               data-tab-id={tab.id}
               draggable={!!onReorder && editingId !== tab.id}
               onDragStart={() => (dragIdx.current = i)}
