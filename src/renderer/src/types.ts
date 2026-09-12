@@ -64,12 +64,15 @@ export interface AppNotification {
 
 export type Theme = 'dark' | 'light' | 'system'
 
+export type Language = 'ko' | 'en' | 'system'
+
 export interface Settings {
   theme: Theme
   accent: string
   uiFont: string
   termFont: string
   termFontSize: number
+  language: Language
   osNotifications: boolean
   providers: Record<string, boolean>
 }

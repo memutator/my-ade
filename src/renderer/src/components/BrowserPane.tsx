@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, RotateCw, Globe } from 'lucide-react'
 import type { BrowserPaneState } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
 function normalizeUrl(input: string): string {
@@ -24,6 +26,7 @@ export default function BrowserPane({
   const readyRef = useRef(false)
   const [urlInput, setUrlInput] = useState(pane.url === 'https://' ? '' : pane.url)
   const updatePane = useStore((s) => s.updatePane)
+  const t = useT()
 
   useEffect(() => {
     const wv = wvRef.current
@@ -93,19 +96,25 @@ export default function BrowserPane({
       icon={<Globe className="picon" />}
       title={
         <>
-          <button className="pbtn" title="Back" onClick={() => wvRef.current?.goBack()}>
-            <ArrowLeft />
-          </button>
-          <button className="pbtn" title="Forward" onClick={() => wvRef.current?.goForward()}>
-            <ArrowRight />
-          </button>
-          <button className="pbtn" title="Reload" onClick={() => wvRef.current?.reload()}>
-            <RotateCw />
-          </button>
+          <Tooltip label={t('back')}>
+            <button className="pbtn" onClick={() => wvRef.current?.goBack()}>
+              <ArrowLeft />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('forward')}>
+            <button className="pbtn" onClick={() => wvRef.current?.goForward()}>
+              <ArrowRight />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('reload')}>
+            <button className="pbtn" onClick={() => wvRef.current?.reload()}>
+              <RotateCw />
+            </button>
+          </Tooltip>
           <input
             className="url-input"
             value={urlInput}
-            placeholder="url or search…"
+            placeholder={t('urlOrSearch')}
             spellCheck={false}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && go()}

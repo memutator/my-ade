@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 import TabStrip, { type TabItem } from './TabStrip'
 
 function AddWorkspaceButton(): React.JSX.Element {
@@ -8,6 +10,7 @@ function AddWorkspaceButton(): React.JSX.Element {
   const { createWorkspace, addProject } = useStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const t = useT()
 
   useEffect(() => {
     if (!open) return
@@ -22,15 +25,17 @@ function AddWorkspaceButton(): React.JSX.Element {
     const dir = await window.ade.fs.pickDirectory()
     if (!dir) return
     const proj = addProject(dir)
-    createWorkspace(proj.id)
+    createWorkspace(proj.id, t('workspace'))
     setOpen(false)
   }
 
   return (
     <div className="ws-add" ref={ref}>
-      <button className="tbtn ws-plus" title="New workspace" onClick={() => setOpen(!open)}>
-        <Plus size={14} />
-      </button>
+      <Tooltip label={t('newWorkspace')}>
+        <button className="tbtn ws-plus" onClick={() => setOpen(!open)}>
+          <Plus size={14} />
+        </button>
+      </Tooltip>
       {open && (
         <div className="ws-menu">
           {projects.map((p) => (
@@ -38,7 +43,7 @@ function AddWorkspaceButton(): React.JSX.Element {
               key={p.id}
               className="ws-menu-item"
               onClick={() => {
-                createWorkspace(p.id)
+                createWorkspace(p.id, t('workspace'))
                 setOpen(false)
               }}
             >
@@ -47,7 +52,7 @@ function AddWorkspaceButton(): React.JSX.Element {
             </button>
           ))}
           <button className="ws-menu-item accent" onClick={pickDirectory}>
-            + add project…
+            {t('addProjectItem')}
           </button>
         </div>
       )}

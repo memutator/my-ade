@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { Columns2, Rows2, X } from 'lucide-react'
 import type { PaneState } from '../types'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import Tooltip from './Tooltip'
 
 export default function PaneFrame({
   pane,
@@ -23,6 +25,7 @@ export default function PaneFrame({
     return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
   })
   const { focusPane, splitPane, closePane } = useStore()
+  const t = useT()
 
   return (
     <div
@@ -34,23 +37,21 @@ export default function PaneFrame({
         {title ?? <span className="pane-title">{pane.title}</span>}
         <div className="actions">
           {extraActions}
-          <button
-            className="pbtn"
-            title="Split right (Alt+D)"
-            onClick={() => splitPane(pane.id, 'row', 'terminal', wsId)}
-          >
-            <Columns2 />
-          </button>
-          <button
-            className="pbtn"
-            title="Split down (Alt+S)"
-            onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}
-          >
-            <Rows2 />
-          </button>
-          <button className="pbtn" title="Close (Alt+W)" onClick={() => closePane(pane.id, wsId)}>
-            <X />
-          </button>
+          <Tooltip label={t('splitRight')}>
+            <button className="pbtn" onClick={() => splitPane(pane.id, 'row', 'terminal', wsId)}>
+              <Columns2 />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('splitDown')}>
+            <button className="pbtn" onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}>
+              <Rows2 />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('closePane')}>
+            <button className="pbtn" onClick={() => closePane(pane.id, wsId)}>
+              <X />
+            </button>
+          </Tooltip>
         </div>
       </div>
       <div className="pane-body">{children}</div>

@@ -6,6 +6,8 @@ import '@xterm/xterm/css/xterm.css'
 import type { TerminalPaneState } from '../types'
 import { useStore } from '../store'
 import { agentLabel } from '../agents'
+import { useT, translate } from '../i18n'
+import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
 const TERM_THEME = {
@@ -62,6 +64,7 @@ export default function TerminalPane({
   })
   const updatePane = useStore((s) => s.updatePane)
   const [epoch, setEpoch] = useState(0)
+  const t = useT()
 
   useEffect(() => {
     const host = hostRef.current
@@ -91,6 +94,23 @@ export default function TerminalPane({
     const id = `${pane.id}:${crypto.randomUUID()}`
     window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
 
+    const refit = (): void => {
+      try {
+        fit.fit()
+        window.ade.pty.resize(id, term.cols, term.rows)
+      } catch {
+        /* not visible yet */
+      }
+    }
+
+    // Cell metrics can change once fonts finish loading — refit so the xterm
+    // screen actually fills the host instead of leaving a bare strip.
+    let disposed = false
+    document.fonts?.ready.then(() => {
+      if (!disposed) refit()
+    })
+    const raf = requestAnimationFrame(refit)
+
     const offData = term.onData((d) => window.ade.pty.write(id, d))
     const offEvent = window.ade.pty.onEvent((e) => {
       if (e.id !== id) return
@@ -99,7 +119,10 @@ export default function TerminalPane({
         updatePane(pane.id, { shell: e.shell, exited: false }, wsId)
       else if (e.t === 'cwd' && e.cwd) updatePane(pane.id, { cwd: e.cwd }, wsId)
       else if (e.t === 'exit') updatePane(pane.id, { exited: true }, wsId)
-      else if (e.t === 'error') term.writeln(`\r\n[pty error] ${e.msg ?? ''}`)
+      else if (e.t === 'error')
+        term.writeln(
+          `\r\n[${translate(useStore.getState().settings.language, 'ptyError')}] ${e.msg ?? ''}`
+        )
       else if (e.t === 'agent') {
         const prev = lastAgentRef.current
         lastAgentRef.current = e.agent ?? null
@@ -109,7 +132,9 @@ export default function TerminalPane({
           const st = useStore.getState()
           if (st.settings.providers[prev] === false) return
           const ws = st.workspaces.find((w) => w.id === wsId)
-          const title = `${agentLabel(prev)} finished`
+          const title = translate(st.settings.language, 'agentFinished', {
+            agent: agentLabel(prev)
+          })
           const body = ws ? ws.name : ''
           st.notify({ workspaceId: wsId, paneId: pane.id, title, body })
           if (st.settings.osNotifications) {
@@ -130,6 +155,8 @@ export default function TerminalPane({
     ro.observe(host)
 
     return () => {
+      disposed = true
+      cancelAnimationFrame(raf)
       ro.disconnect()
       offEvent()
       offData.dispose()
@@ -171,16 +198,18 @@ export default function TerminalPane({
       title={<span className="pane-title">{title}</span>}
       extraActions={
         pane.exited ? (
-          <button className="pbtn" title="Restart shell" onClick={() => setEpoch((n) => n + 1)}>
-            <RotateCw />
-          </button>
+          <Tooltip label={t('restartShell')}>
+            <button className="pbtn" onClick={() => setEpoch((n) => n + 1)}>
+              <RotateCw />
+            </button>
+          </Tooltip>
         ) : undefined
       }
     >
       <div className="term-host" ref={hostRef} onClick={() => termRef.current?.focus()} />
       {pane.exited && (
         <div className="term-exited" onClick={() => setEpoch((n) => n + 1)}>
-          process exited — click to restart
+          {t('processExited')}
         </div>
       )}
     </PaneFrame>

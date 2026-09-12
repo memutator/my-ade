@@ -73,6 +73,7 @@ const DEFAULT_SETTINGS: Settings = {
   uiFont: "'Inter', system-ui, sans-serif",
   termFont: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
   termFontSize: 12.5,
+  language: 'system',
   osNotifications: true,
   providers: {}
 }
@@ -97,7 +98,7 @@ interface AdeState extends PersistedState {
   addProject: (path: string, name?: string) => Project
   removeProject: (id: string) => void
 
-  createWorkspace: (projectId: string) => void
+  createWorkspace: (projectId: string, name?: string) => void
   activateWorkspace: (id: string) => void
   renameWorkspace: (id: string, name: string) => void
   closeWorkspace: (id: string) => void
@@ -176,12 +177,12 @@ export const useStore = create<AdeState>((set, get) => {
         workspaces: s.workspaces.filter((w) => w.projectId !== id)
       })),
 
-    createWorkspace: (projectId) =>
+    createWorkspace: (projectId, name) =>
       set((s) => {
         const count = s.workspaces.filter((w) => w.projectId === projectId).length
         const ws: Workspace = {
           id: uid(),
-          name: `workspace ${count + 1}`,
+          name: `${name ?? 'workspace'} ${count + 1}`,
           projectId,
           root: null,
           panes: {},

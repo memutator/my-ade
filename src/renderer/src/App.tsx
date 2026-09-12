@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2 } from 'lucide-react'
 import { useStore } from './store'
+import { useT } from './i18n'
 import { agentProviders } from './agents'
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
@@ -10,22 +11,23 @@ import SettingsModal from './components/SettingsModal'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   const newPane = useStore((s) => s.newPane)
+  const t = useT()
   return (
     <div className="empty-state">
       <div className="empty-actions">
         <button onClick={() => newPane('terminal', wsId)}>
           <TerminalSquare />
-          terminal
+          {t('terminal')}
           <kbd>Alt+T</kbd>
         </button>
         <button onClick={() => newPane('browser', wsId)}>
           <Globe />
-          browser
+          {t('browser')}
           <kbd>Alt+B</kbd>
         </button>
         <button onClick={() => newPane('editor', wsId)}>
           <Code2 />
-          editor
+          {t('editor')}
           <kbd>Alt+E</kbd>
         </button>
       </div>
