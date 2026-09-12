@@ -1884,3 +1884,98 @@ webview.browser-view {
   pointer-events: none;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
+
+/* ── pane drag & drop ────────────────────── */
+
+/* the titlebar icon doubles as the drag grip — subtle grab affordance */
+.pane-grip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: grab;
+}
+.pane-grip:hover .picon {
+  color: var(--text-dim);
+}
+
+/* source pane dims while its ghost is on the move */
+.pane.drag-src {
+  opacity: 0.55;
+}
+
+body.pane-dragging,
+body.pane-dragging * {
+  cursor: grabbing !important;
+}
+
+/* <webview> swallows every pointer event — during a drag it must be
+   transparent so window listeners + elementFromPoint keep working */
+body.pane-dragging webview {
+  pointer-events: none;
+}
+
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 96;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-elev);
+  box-shadow: 0 6px 20px var(--shadow);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  pointer-events: none;
+  will-change: transform;
+}
+.drag-ghost .picon,
+.drag-ghost svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.drag-ghost-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* fixed overlay showing where the pane will land */
+.drop-indicator {
+  position: fixed;
+  z-index: 95;
+  pointer-events: none;
+}
+.drop-indicator.swap,
+.drop-indicator.ws {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.drop-indicator.edge-left {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.drop-indicator.edge-right {
+  background: var(--accent-soft);
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+.drop-indicator.edge-top {
+  background: var(--accent-soft);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.drop-indicator.edge-bottom {
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* workspace tab hovered as a drop target */
+.ctab.drop-target {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}

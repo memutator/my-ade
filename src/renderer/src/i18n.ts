@@ -33,6 +33,7 @@ const en = {
   splitRight: 'Split right (Alt+D)',
   splitDown: 'Split down (Alt+S)',
   closePane: 'Close (Alt+W)',
+  dragToMove: 'Drag to move pane',
 
   // terminal pane
   restartShell: 'Restart shell',
@@ -144,6 +145,7 @@ const ko: Record<TKey, string> = {
   splitRight: '오른쪽으로 분할 (Alt+D)',
   splitDown: '아래로 분할 (Alt+S)',
   closePane: '닫기 (Alt+W)',
+  dragToMove: '드래그하여 패널 이동',
 
   restartShell: '셸 다시 시작',
   processExited: '프로세스가 종료됨 — 클릭하여 다시 시작',
