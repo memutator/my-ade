@@ -1,15 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  TerminalSquare,
-  Globe,
-  Code2,
-  Sun,
-  Moon,
-  Minus,
-  Square,
-  X,
-  Settings
-} from 'lucide-react'
+import { TerminalSquare, Globe, Code2, Sun, Moon, Minus, Square, X, Settings } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'

@@ -47,6 +47,9 @@ const en = {
   back: 'Back',
   forward: 'Forward',
   reload: 'Reload',
+  stop: 'Stop',
+  tabs: 'Tabs',
+  bookmarks: 'Bookmarks',
   urlOrSearch: 'url or search…',
 
   // notification center
@@ -117,6 +120,9 @@ const ko: Record<TKey, string> = {
   back: '뒤로',
   forward: '앞으로',
   reload: '새로고침',
+  stop: '정지',
+  tabs: '탭',
+  bookmarks: '북마크',
   urlOrSearch: 'URL 또는 검색어…',
 
   notificationsTooltip: '알림',

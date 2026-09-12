@@ -116,12 +116,7 @@ export default function FileView({
       const bytes = fromBase64(r.data!)
       const meta = `${r.name} · ${(r.size! / 1024).toFixed(1)} KB`
 
-      if (
-        r.kind === 'image' ||
-        r.kind === 'video' ||
-        r.kind === 'audio' ||
-        r.kind === 'pdf'
-      ) {
+      if (r.kind === 'image' || r.kind === 'video' || r.kind === 'audio' || r.kind === 'pdf') {
         if (imgUrlRef.current) URL.revokeObjectURL(imgUrlRef.current)
         const url = URL.createObjectURL(
           new Blob([bytes], { type: MIME[r.ext!] ?? 'application/octet-stream' })

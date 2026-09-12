@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import type {
   AppNotification,
+  Bookmark,
   BrowserPaneState,
+  BrowserTab,
   EditorPaneState,
   EditorTab,
   LayoutNode,
@@ -19,8 +21,10 @@ function makePane(type: PaneType): PaneState {
   switch (type) {
     case 'terminal':
       return { id, type, title: 'terminal', agent: null }
-    case 'browser':
-      return { id, type, title: 'browser', url: 'https://' }
+    case 'browser': {
+      const tab: BrowserTab = { id: uid(), url: 'https://', title: '' }
+      return { id, type, title: 'browser', url: 'https://', tabs: [tab], activeTabId: tab.id }
+    }
     case 'editor':
       return { id, type, title: 'editor', tabs: [] }
   }
@@ -86,6 +90,23 @@ export function leafPaneIds(node: LayoutNode | null): string[] {
   return [...leafPaneIds(node.a), ...leafPaneIds(node.b)]
 }
 
+// older saves have browser panes without tabs — seed one tab from the stored url
+function normalizePane(p: PaneState): PaneState {
+  if (p.type !== 'browser' || (Array.isArray(p.tabs) && p.tabs.length > 0)) return p
+  const tab: BrowserTab = { id: uid(), url: p.url, title: '' }
+  return { ...p, tabs: [tab], activeTabId: tab.id }
+}
+
+function normalizeWorkspace(w: Workspace): Workspace {
+  let changed = false
+  const panes: Record<string, PaneState> = {}
+  for (const [id, p] of Object.entries(w.panes)) {
+    panes[id] = normalizePane(p)
+    if (panes[id] !== p) changed = true
+  }
+  return changed ? { ...w, panes } : w
+}
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   accent: '#7aa2f7',
@@ -103,6 +124,7 @@ export interface PersistedState {
   activeWorkspaceId: string | null
   settings: Settings
   sidebarOpen: boolean
+  bookmarks: Bookmark[]
 }
 
 interface AdeState extends PersistedState {
@@ -139,6 +161,9 @@ interface AdeState extends PersistedState {
   setNotifOpen: (open: boolean) => void
   updateSettings: (patch: Partial<Settings>) => void
 
+  addBookmark: (b: { title: string; url: string; scope: string }) => void
+  removeBookmark: (id: string) => void
+
   notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'>) => void
   markRead: (id: string) => void
   markAllRead: () => void
@@ -164,6 +189,7 @@ export const useStore = create<AdeState>((set, get) => {
     activeWorkspaceId: null,
     settings: DEFAULT_SETTINGS,
     sidebarOpen: false,
+    bookmarks: [],
     notifications: [],
     settingsOpen: false,
     notifOpen: false,
@@ -173,10 +199,11 @@ export const useStore = create<AdeState>((set, get) => {
     hydrate: (s) =>
       set({
         projects: s.projects ?? [],
-        workspaces: s.workspaces ?? [],
+        workspaces: (s.workspaces ?? []).map(normalizeWorkspace),
         activeWorkspaceId: s.activeWorkspaceId ?? s.workspaces?.[0]?.id ?? null,
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
-        sidebarOpen: s.sidebarOpen ?? false
+        sidebarOpen: s.sidebarOpen ?? false,
+        bookmarks: s.bookmarks ?? []
       }),
 
     addProject: (path, name) => {
@@ -194,7 +221,8 @@ export const useStore = create<AdeState>((set, get) => {
     removeProject: (id) =>
       set((s) => ({
         projects: s.projects.filter((p) => p.id !== id),
-        workspaces: s.workspaces.filter((w) => w.projectId !== id)
+        workspaces: s.workspaces.filter((w) => w.projectId !== id),
+        bookmarks: s.bookmarks.filter((b) => b.scope !== id)
       })),
 
     createWorkspace: (projectId, name) =>
@@ -391,10 +419,17 @@ export const useStore = create<AdeState>((set, get) => {
           Object.values(ws.panes).find((p) => p.type === 'browser')?.id
 
         if (target) {
+          const bp = ws.panes[target] as BrowserPaneState
+          const tabs = (bp.tabs ?? []).map((t) =>
+            t.id === (bp.activeTabId ?? bp.tabs?.[0]?.id) ? { ...t, url } : t
+          )
           return {
             workspaces: updWs(s.workspaces, wsId, (w) => ({
               ...w,
-              panes: { ...w.panes, [target]: { ...w.panes[target], url } as PaneState },
+              panes: {
+                ...w.panes,
+                [target]: { ...w.panes[target], url, tabs } as PaneState
+              },
               focusedPaneId: target
             }))
           }
@@ -402,6 +437,7 @@ export const useStore = create<AdeState>((set, get) => {
 
         const pane = makePane('browser') as BrowserPaneState
         pane.url = url
+        if (pane.tabs?.length) pane.tabs = pane.tabs.map((t) => ({ ...t, url }))
         return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
       }),
 
@@ -410,6 +446,17 @@ export const useStore = create<AdeState>((set, get) => {
     setNotifOpen: (open) => set({ notifOpen: open }),
 
     updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
+
+    addBookmark: (b) =>
+      set((s) => ({
+        bookmarks: [
+          { ...b, id: uid(), createdAt: Date.now() },
+          // replace any existing bookmark for the same url+scope
+          ...s.bookmarks.filter((x) => !(x.url === b.url && x.scope === b.scope))
+        ]
+      })),
+
+    removeBookmark: (id) => set((s) => ({ bookmarks: s.bookmarks.filter((x) => x.id !== id) })),
 
     notify: (n) =>
       set((s) => ({

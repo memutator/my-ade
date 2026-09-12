@@ -14,9 +14,18 @@ export interface TerminalPaneState extends PaneBase {
   agent?: string | null
 }
 
+export interface BrowserTab {
+  id: string
+  url: string
+  title: string
+}
+
 export interface BrowserPaneState extends PaneBase {
   type: 'browser'
+  /** mirror of the active tab's url (kept for backward compat with older saves) */
   url: string
+  tabs: BrowserTab[]
+  activeTabId?: string
 }
 
 export interface EditorTab {
@@ -87,4 +96,15 @@ export interface DirEntry {
   name: string
   path: string
   isDir: boolean
+}
+
+/** 'global' or a project id */
+export type BookmarkScope = 'global' | (string & {})
+
+export interface Bookmark {
+  id: string
+  title: string
+  url: string
+  scope: BookmarkScope
+  createdAt: number
 }
