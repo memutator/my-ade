@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '../store'
 import { loadAgentManifest } from '../agents'
-import type { AgentProviderInfo, Theme } from '../types'
+import type { AgentHookStatus, AgentProviderInfo, Theme } from '../types'
 
 const ACCENTS = ['#7aa2f7', '#9ece6a', '#e0af68', '#bb9af7', '#f7768e', '#7dcfff', '#ff9e64']
 
@@ -11,11 +11,13 @@ export default function SettingsModal(): React.JSX.Element | null {
   const settings = useStore((s) => s.settings)
   const { setSettingsOpen, updateSettings } = useStore()
   const [providers, setProviders] = useState<Record<string, AgentProviderInfo>>({})
+  const [hooks, setHooks] = useState<AgentHookStatus[]>([])
 
   useEffect(() => {
     if (open && Object.keys(providers).length === 0) {
       loadAgentManifest().then(setProviders)
     }
+    if (open) window.ade.hooks?.status().then(setHooks)
   }, [open, providers])
 
   useEffect(() => {
@@ -130,6 +132,39 @@ export default function SettingsModal(): React.JSX.Element | null {
                 >
                   <span className="knob" />
                 </button>
+              </div>
+            ))}
+          </section>
+
+          <section>
+            <h3>agent hooks</h3>
+            {hooks.length === 0 && <div className="srow dim">no hookable providers</div>}
+            {hooks.map((h) => (
+              <div className="srow" key={h.id}>
+                <label>{h.label}</label>
+                <div className="hook-meta">
+                  <span className={`hook-state${h.installed ? ' ok' : ''}`}>
+                    {h.installed ? 'installed' : h.available ? 'not installed' : 'cli not found'}
+                  </span>
+                  <span className="hook-mech">{h.mechanism}</span>
+                </div>
+                {!h.installed && h.available && (
+                  <button
+                    className="sbtn"
+                    onClick={() =>
+                      window.ade.hooks
+                        .install(h.id)
+                        .then(() => window.ade.hooks.status().then(setHooks))
+                    }
+                  >
+                    install
+                  </button>
+                )}
+                {h.installed && (
+                  <button className="sbtn" onClick={() => window.ade.hooks.test(h.id)}>
+                    test
+                  </button>
+                )}
               </div>
             ))}
           </section>
