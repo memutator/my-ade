@@ -10,6 +10,9 @@ import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
 import { registerFileWatchIpc } from './filewatch'
+import { registerFsOpsIpc } from './fsops'
+import { registerDirWatchIpc } from './dirwatch'
+import { registerWorktreeIpc } from './worktree'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
@@ -331,6 +334,9 @@ app.whenReady().then(() => {
   registerPtyIpc()
   registerFileIpc()
   registerFileWatchIpc()
+  registerFsOpsIpc()
+  registerDirWatchIpc()
+  registerWorktreeIpc()
   registerWindowIpc()
   registerFsIpc()
   registerStateIpc()

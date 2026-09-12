@@ -170,6 +170,21 @@ export interface DirEntry {
   isDir: boolean
 }
 
+export interface WorktreeEntry {
+  path: string
+  branch: string | null
+  head: string
+  main: boolean
+}
+
+export interface GitInfo {
+  isRepo: boolean
+  branch?: string | null
+  branches?: string[]
+  worktrees?: WorktreeEntry[]
+  wtRoot?: string
+}
+
 /** 'global' or a project id */
 export type BookmarkScope = 'global' | (string & {})
 

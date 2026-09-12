@@ -59,6 +59,29 @@ export interface DirEntry {
   isDir: boolean
 }
 
+export interface FsOpResult {
+  ok: boolean
+  error?: string
+  path?: string
+  paths?: string[]
+}
+
+export interface WorktreeEntry {
+  path: string
+  branch: string | null
+  head: string
+  main: boolean
+}
+
+export interface GitInfo {
+  isRepo: boolean
+  branch?: string | null
+  branches?: string[]
+  worktrees?: WorktreeEntry[]
+  /** suggested parent dir for new worktrees (`<repo>.worktrees/` sibling) */
+  wtRoot?: string
+}
+
 export interface AgentHookEvent {
   provider: string
   event: string
@@ -128,7 +151,41 @@ const ade = {
     list: (dirPath: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:list', dirPath),
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),
     resolvePath: (p: string, cwd?: string): Promise<string | null> =>
-      ipcRenderer.invoke('fs:resolve', p, cwd)
+      ipcRenderer.invoke('fs:resolve', p, cwd),
+    // file-tree ops (see src/main/fsops.ts)
+    create: (dirPath: string, name: string, kind: 'file' | 'dir'): Promise<FsOpResult> =>
+      ipcRenderer.invoke('fs:create', dirPath, name, kind),
+    rename: (oldPath: string, newPath: string): Promise<FsOpResult> =>
+      ipcRenderer.invoke('fs:rename', oldPath, newPath),
+    trash: (paths: string[]): Promise<FsOpResult> => ipcRenderer.invoke('fs:trash', paths),
+    copy: (paths: string[], destDir: string): Promise<FsOpResult> =>
+      ipcRenderer.invoke('fs:copy', paths, destDir),
+    move: (paths: string[], destDir: string): Promise<FsOpResult> =>
+      ipcRenderer.invoke('fs:move', paths, destDir),
+    exists: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:exists', p),
+    reveal: (p: string): void => ipcRenderer.send('fs:reveal', p)
+  },
+  dir: {
+    // listing watch for expanded tree dirs (see src/main/dirwatch.ts)
+    watch: (path: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('dir:watch', path),
+    unwatch: (path: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('dir:unwatch', path),
+    onChanged: (cb: (path: string) => void): (() => void) => {
+      const handler = (_: unknown, e: { path: string }): void => cb(e.path)
+      ipcRenderer.on('dir:changed', handler)
+      return () => ipcRenderer.removeListener('dir:changed', handler)
+    }
+  },
+  git: {
+    // worktree 분화 (see src/main/worktree.ts)
+    info: (repoPath: string): Promise<GitInfo> => ipcRenderer.invoke('git:info', repoPath),
+    addWorktree: (
+      repoPath: string,
+      opts: { branch: string; base?: string }
+    ): Promise<FsOpResult & { branch?: string }> =>
+      ipcRenderer.invoke('git:worktreeAdd', repoPath, opts),
+    removeWorktree: (repoPath: string, wtPath: string, force?: boolean): Promise<FsOpResult> =>
+      ipcRenderer.invoke('git:worktreeRemove', repoPath, wtPath, force)
   },
   state: {
     load: (): Promise<unknown> => ipcRenderer.invoke('state:load'),

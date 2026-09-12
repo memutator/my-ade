@@ -309,6 +309,11 @@ interface AdeState extends PersistedState {
 
   openFileInEditor: (path: string, name: string, wsId?: string) => void
   openUrlInBrowser: (url: string, wsId?: string) => void
+  // file-tree ops: keep open editor tabs pointing at real paths — a rename or
+  // move remaps tab.path (incl. descendants of a renamed dir), a delete closes
+  // the tab
+  remapOpenFile: (oldPath: string, newPath: string) => void
+  closeFilesUnder: (paths: string[]) => void
 
   addTodo: (projectId: string, text?: string, parentId?: string) => string
   updateTodo: (
@@ -784,6 +789,70 @@ export const useStore = create<AdeState>((set, get) => {
         pane.url = url
         if (pane.tabs?.length) pane.tabs = pane.tabs.map((t) => ({ ...t, url }))
         return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
+      }),
+
+    remapOpenFile: (oldPath, newPath) =>
+      set((s) => {
+        const base = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
+        const remap = (p: string): string | null =>
+          p === oldPath
+            ? newPath
+            : p.startsWith(oldPath.endsWith('/') ? oldPath : oldPath + '/')
+              ? newPath + p.slice(oldPath.length)
+              : null
+        return {
+          workspaces: s.workspaces.map((w) => {
+            let changed = false
+            const panes: Record<string, PaneState> = {}
+            for (const [id, p] of Object.entries(w.panes)) {
+              if (p.type !== 'editor') {
+                panes[id] = p
+                continue
+              }
+              const tabs = p.tabs.map((t) => {
+                const np = remap(t.path)
+                return np ? { ...t, path: np, name: base(np) } : t
+              })
+              if (tabs.some((t, i) => t !== p.tabs[i])) {
+                panes[id] = { ...p, tabs }
+                changed = true
+              } else {
+                panes[id] = p
+              }
+            }
+            return changed ? { ...w, panes } : w
+          })
+        }
+      }),
+
+    closeFilesUnder: (paths) =>
+      set((s) => {
+        const under = (p: string): boolean =>
+          paths.some((d) => p === d || p.startsWith(d.endsWith('/') ? d : d + '/'))
+        return {
+          workspaces: s.workspaces.map((w) => {
+            let changed = false
+            const panes: Record<string, PaneState> = {}
+            for (const [id, p] of Object.entries(w.panes)) {
+              if (p.type !== 'editor') {
+                panes[id] = p
+                continue
+              }
+              const tabs = p.tabs.filter((t) => !under(t.path))
+              if (tabs.length !== p.tabs.length) {
+                const activeTabId =
+                  p.activeTabId && tabs.some((t) => t.id === p.activeTabId)
+                    ? p.activeTabId
+                    : (tabs.at(-1)?.id ?? undefined)
+                panes[id] = { ...p, tabs, activeTabId }
+                changed = true
+              } else {
+                panes[id] = p
+              }
+            }
+            return changed ? { ...w, panes } : w
+          })
+        }
       }),
 
     addTodo: (projectId, text = '', parentId) => {

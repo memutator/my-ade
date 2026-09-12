@@ -67,7 +67,7 @@ export default function TopBar(): React.JSX.Element {
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>
             <div className="tree-overlay-head">{activeProject.name}</div>
-            <FileTree rootPath={activeProject.path} />
+            <FileTree key={activeProject.path} rootPath={activeProject.path} />
           </div>
         )}
       </div>

@@ -1119,6 +1119,214 @@ webview.browser-view {
   font-size: 11px;
   color: var(--text-faint);
 }
+.tree-status.error {
+  color: #f7768e;
+}
+
+/* file tree: selection / keyboard focus / clipboard / dnd */
+.filetree {
+  outline: none;
+  user-select: none;
+}
+.tnode.sel {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.filetree:focus-within .tnode.kb {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tnode.cut {
+  opacity: 0.5;
+}
+.tnode.drop {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+.filetree.drop {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tnode.creating {
+  color: var(--text-dim);
+}
+.tinput {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+/* tree context menu */
+.ctxmenu {
+  position: fixed;
+  min-width: 190px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 10px 32px var(--shadow);
+  padding: 4px;
+  z-index: 92;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ctx-item:hover:not(:disabled) {
+  background: var(--hover);
+}
+.ctx-item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.ctx-item.danger {
+  color: #f7768e;
+}
+.ctx-item kbd {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.ctx-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+/* sidebar explorer toolbar */
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-title-row .sidebar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-actions {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.side-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.side-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* workspace menu: project row + worktree button */
+.ws-menu-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.ws-menu-row .ws-menu-item {
+  flex: 1;
+  min-width: 0;
+}
+.ws-menu-wt {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ws-menu-wt:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+/* worktree modal */
+.wt-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.wt-dest {
+  font-size: 11px;
+}
+.wt-dest span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wt-err {
+  color: #f7768e;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.wt-row {
+  gap: 8px;
+}
+.wt-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wt-branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.sbtn.accent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.sbtn.danger,
+.wt-rm.danger {
+  color: #f7768e;
+  border-color: #f7768e;
+}
+.wt-rm {
+  width: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* ── chrome-style tabs ───────────────────── */
 
