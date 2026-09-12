@@ -16,6 +16,7 @@ import { useT } from '../i18n'
 import Tooltip from './Tooltip'
 import WorkspaceStrip from './WorkspaceStrip'
 import NotificationBell from './NotificationBell'
+import PaneDock from './PaneDock'
 import FileTree from './FileTree'
 import AdeLogo from './AdeLogo'
 
@@ -95,6 +96,7 @@ export default function TopBar(): React.JSX.Element {
       <WorkspaceStrip />
 
       <div className="spacer" />
+      <PaneDock />
       <NotificationBell />
       <Tooltip label={t('settingsTooltip')}>
         <button className="tbtn" onClick={() => setSettingsOpen(true)}>

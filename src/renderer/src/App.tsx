@@ -9,7 +9,6 @@ import type { AgentHookEvent, Workspace } from './types'
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
 import EmptyState from './components/EmptyState'
-import PaneDock from './components/PaneDock'
 import Sidebar from './components/Sidebar'
 import SettingsModal from './components/SettingsModal'
 
@@ -226,7 +225,6 @@ export default function App(): React.JSX.Element {
                   </div>
                 )}
                 {!hasVisible && <WorkspaceEmpty wsId={w.id} />}
-                <PaneDock wsId={w.id} />
               </div>
             )
           })}

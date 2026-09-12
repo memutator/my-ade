@@ -106,9 +106,15 @@ export default function SplitView({
   const aMin = !panes || visibleLeafIds(node.a, panes).length === 0
   const bMin = !panes || visibleLeafIds(node.b, panes).length === 0
 
+  // flex-grow sums < 1 do NOT normalize — a hidden side leaves only a fraction
+  // of its space to the sibling (0.5 grow ⇒ 0.5 × free space, rest stranded).
+  // The sole visible child must take flex:1 to fill it.
+  const aFlex = aMin ? 0 : bMin ? 1 : node.ratio
+  const bFlex = bMin ? 0 : aMin ? 1 : 1 - node.ratio
+
   return (
     <div className={`node split ${node.dir}`} ref={ref}>
-      <div className="split-child" style={{ flex: node.ratio }} hidden={aMin}>
+      <div className="split-child" style={{ flex: aFlex }} hidden={aMin}>
         <SplitView node={node.a} wsId={wsId} />
       </div>
       <Divider
@@ -118,7 +124,7 @@ export default function SplitView({
         containerRef={ref}
         hidden={aMin || bMin}
       />
-      <div className="split-child" style={{ flex: 1 - node.ratio }} hidden={bMin}>
+      <div className="split-child" style={{ flex: bFlex }} hidden={bMin}>
         <SplitView node={node.b} wsId={wsId} />
       </div>
     </div>

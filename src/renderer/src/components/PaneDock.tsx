@@ -18,10 +18,14 @@ function shortPath(p: string): string {
   return p
 }
 
-// What the chip shows: terminals get their live `shell · cwd` title like the
-// pane titlebar, browser/editor chips show the active tab when there is one.
+// What the chip shows: terminals get the active tab's live `shell · cwd` like
+// the pane titlebar, browser/editor chips show the active tab when there is
+// one.
 function chipTitle(p: PaneState): string {
-  if (p.type === 'terminal' && p.cwd) return `${p.shell ?? 'sh'} · ${shortPath(p.cwd)}`
+  if (p.type === 'terminal') {
+    const tab = p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
+    if (tab?.cwd) return `${tab.shell ?? 'sh'} · ${shortPath(tab.cwd)}`
+  }
   if (p.type === 'browser' || p.type === 'editor') {
     const tab = p.tabs.find((t) => t.id === p.activeTabId)
     if (tab && 'title' in tab && tab.title) return tab.title
@@ -30,38 +34,44 @@ function chipTitle(p: PaneState): string {
   return p.title
 }
 
-// Slim strip at the bottom of a workspace listing its minimized panes. The
-// panes themselves stay mounted (hidden) in the layout — clicking a chip just
-// clears the flag; the × actually closes the pane (kills the pty etc.).
-export default function PaneDock({ wsId }: { wsId: string }): React.JSX.Element | null {
-  const panes = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.panes)
+// terminal status dot reads the active tab (pty state lives per-tab)
+function termDot(p: PaneState): 'agent' | 'exited' | null {
+  if (p.type !== 'terminal') return null
+  const tab = p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
+  if (tab?.agent) return 'agent'
+  if (tab?.exited) return 'exited'
+  return null
+}
+
+// Minimized-pane chips in the title bar (right side), scoped to the active
+// workspace. The panes themselves stay mounted (hidden) in the layout —
+// clicking a chip just clears the flag; the × actually closes the pane (kills
+// the pty etc.).
+export default function PaneDock(): React.JSX.Element | null {
+  const ws = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const restorePane = useStore((s) => s.restorePane)
   const closePane = useStore((s) => s.closePane)
   const t = useT()
 
-  const minimized = Object.values(panes ?? {}).filter((p) => p.minimized)
-  if (minimized.length === 0) return null
+  const minimized = Object.values(ws?.panes ?? {}).filter((p) => p.minimized)
+  if (!ws || minimized.length === 0) return null
 
   return (
     <div className="pane-dock">
       {minimized.map((p) => {
         const Icon = ICONS[p.type]
+        const dot = termDot(p)
         return (
           <Tooltip key={p.id} label={t('restorePane')}>
-            <div className="dock-chip" onClick={() => restorePane(p.id, wsId)}>
+            <div className="dock-chip" onClick={() => restorePane(p.id, ws.id)}>
               <Icon />
-              {p.type === 'terminal' &&
-                (p.agent ? (
-                  <span className="dock-dot agent" />
-                ) : p.exited ? (
-                  <span className="dock-dot exited" />
-                ) : null)}
+              {dot && <span className={`dock-dot ${dot}`} />}
               <span className="dock-chip-title">{chipTitle(p)}</span>
               <button
                 className="dock-chip-close"
                 onClick={(e) => {
                   e.stopPropagation()
-                  closePane(p.id, wsId)
+                  closePane(p.id, ws.id)
                 }}
               >
                 <X />
