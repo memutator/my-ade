@@ -6,6 +6,7 @@ export interface TabItem {
   label: string
   sub?: string
   icon?: ReactNode
+  dirty?: boolean
 }
 
 export default function TabStrip({
@@ -74,6 +75,7 @@ export default function TabStrip({
             <span className="ctab-label">{t.label}</span>
           )}
           {t.sub && <span className="ctab-sub">{t.sub}</span>}
+          {t.dirty && <span className="ctab-dot" title="unsaved changes" />}
           {onClose && (
             <button
               className="ctab-close"

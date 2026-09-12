@@ -33,6 +33,11 @@ export interface FileReadResult {
   data?: string // base64
 }
 
+export interface FileWriteResult {
+  ok: boolean
+  error?: string
+}
+
 export interface DirEntry {
   name: string
   path: string
@@ -62,7 +67,9 @@ const ade = {
   },
   file: {
     openDialog: (): Promise<string | null> => ipcRenderer.invoke('file:openDialog'),
-    read: (path: string): Promise<FileReadResult> => ipcRenderer.invoke('file:read', path)
+    read: (path: string): Promise<FileReadResult> => ipcRenderer.invoke('file:read', path),
+    write: (path: string, content: string): Promise<FileWriteResult> =>
+      ipcRenderer.invoke('file:write', path, content)
   },
   fs: {
     list: (dirPath: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:list', dirPath),
