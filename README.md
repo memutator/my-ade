@@ -12,9 +12,16 @@ workspace is a splittable pane layout scoped to a project directory.
   auto-named `workspace N`, double-click to rename, drag to reorder
 - **Projects** — directories on disk; terminal cwd and the file tree follow the
   active workspace's project path
-- **Editor pane** — internal file tabs; file-tree clicks open files there
-- **Agent awareness** — the PTY host detects agent CLIs (claude, codex, gemini, …)
-  under each shell and fires in-app + OS notifications when an agent goes idle
+- **Editor pane** — editable files (CodeMirror), live-rendered markdown
+  (Milkdown, Obsidian-style), dirty dots, image/video/audio/PDF preview
+- **Todo pane** — project-scoped checklists with doing/done states, arbitrary
+  nesting, dependencies; sidebar section + pane type (Alt+L)
+- **Browser pane** — real tabs via header dropdown, bookmarks with global +
+  project scopes
+- **Agent awareness** — detects agent CLIs under each shell; per-harness hooks
+  (codex/grok/devin/zcode/opencode) fire turn-complete / needs-input events →
+  in-app + OS notifications
+- **Terminal links** — URL/file paths in terminal output open in matching panes
 - **File tree** — app icon hover → overlay, click → pinned sidebar
 - **Persistence** — projects, workspaces, layouts, pane state, and settings are
   restored across restarts (`~/.config/ade/ade-state.json`)
@@ -37,7 +44,7 @@ running under XWayland makes text render blurry.
 
 | Key | Action |
 | --- | --- |
-| Alt+T / Alt+B / Alt+E | new terminal / browser / editor pane |
+| Alt+T / Alt+B / Alt+E / Alt+L | new terminal / browser / editor / todo pane |
 | Alt+D / Alt+S | split focused pane right / down |
 | Alt+W | close focused pane |
 | Alt+] / Alt+[ | cycle focus |
@@ -47,6 +54,6 @@ running under XWayland makes text render blurry.
 
 Electron · React 19 · TypeScript · electron-vite · zustand · xterm.js ·
 `@homebridge/node-pty-prebuilt-multiarch` (via a separate system-Node pty-host) ·
-lucide-react
+CodeMirror · Milkdown · material-icon-theme · lucide-react
 
 See `AGENTS.md` for architecture and contributor-facing details.

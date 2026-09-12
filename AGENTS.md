@@ -12,11 +12,22 @@ splittable pane layout scoped to a project directory.
   Switching happens only via workspace tabs; project is chosen when creating a workspace.
 - Terminal cwd and the file-tree root come from the workspace's `project.path`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
+  Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
+  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted.
+- **todo items** live per project (`todos: Record<projectId, TodoItem[]>`) — checklist
+  with `todo`/`doing`/`done`, arbitrary `parentId` depth, `dependsOn` blocking, drag
+  reorder. Surfaced as a sidebar section and as a `'todo'` pane type.
+- **bookmarks** are global or project-scoped (`bookmarks: Bookmark[]`, `scope:
+  'global' | projectId`); browser panes own a `tabs[]` + `activeTabId` list exposed
+  via header dropdowns (no room for a tab strip).
 
 ## Commands
 
 - `npm run dev` — start dev (sets `ELECTRON_DISABLE_SANDBOX=1`; required because
   `chrome-sandbox` lacks setuid root on this machine)
+- `npm install` fails at the `electron-builder install-app-deps` postinstall
+  (node-gyp rebuild needs make, which isn't installed) — deps still install fine;
+  ignore it or use `--ignore-scripts`.
 - `npm run typecheck` / `npm run lint` / `npm run build`
 - `npm run build:linux` — package via electron-builder
 
@@ -34,6 +45,14 @@ splittable pane layout scoped to a project directory.
   `{t:'agent',agent}` events. Patterns come from `resources/agents/manifest.json`
   (`match`/`label` only — no icons), filtered by the provider toggles in settings
   (`agents:config` IPC).
+- **agent hooks** (`src/main/hooks.ts` + `hookInstallers.ts` + `eventsFile.ts`):
+  per-harness Stop/idle hooks append NDJSON events to a userData file; a tailer
+  forwards them to the renderer as `agent:event` (`turn-complete` / `needs-input`
+  → notification). Installers: codex (`~/.codex/config.toml` notify), grok
+  (`~/.grok/hooks/ade.json`), devin (`~/.config/devin/config.json`), zcode
+  (`~/.zcode/cli/config.json`), opencode (plugin). `hooks:test` writes a synthetic
+  event through the real channel — the Settings "agent hooks" section has
+  status/install/test per provider. Process-detection idle is the fallback.
 - **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
@@ -69,7 +88,7 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 
 | Key | Action |
 | --- | --- |
-| Alt+T / Alt+B / Alt+E | new terminal / browser / editor pane |
+| Alt+T / Alt+B / Alt+E / Alt+L | new terminal / browser / editor / todo pane |
 | Alt+D / Alt+S | split focused pane right / down |
 | Alt+W | close focused pane |
 | Alt+] / Alt+[ | cycle focus |
@@ -90,15 +109,3 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 - Debug renderer via CDP: start dev with `-- --remote-debugging-port=9222`,
   then `Page.captureScreenshot` / `Runtime.evaluate` against `localhost:9222/json`.
   Screenshots are physical pixels — `devicePixelRatio` is 1 here.
-
-## Branches in flight (merge pending)
-
-Parallel worktree feature branches off `main` — see `git worktree list`:
-
-- `feat/ui-fixes` — i18n, Tooltip component, terminal bottom-band fix, tree file icons
-- `feat/harness-hooks` — real completion hooks for grok/codex/opencode/devin/zcode
-- `feat/editor-editing` — writable editor (CodeMirror), Milkdown live markdown, dirty tabs
-- `feat/browser-fixes` — webview reliability, tab dropdown, global+project bookmarks
-- `feat/todo-pane` — project-scoped todo (checklist/deps/depth), sidebar section + pane
-- `feat/pane-linking` — terminal link clicks route to browser/editor panes; wider
-  editor file-type coverage
