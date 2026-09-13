@@ -9,6 +9,7 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!node_modules/@homebridge/node-pty-prebuilt-multiarch/**'
 asarUnpack:
   - resources/**
 extraResources:
@@ -18,6 +19,20 @@ extraResources:
     to: webview-preload.cjs
   - from: resources/agents
     to: agents
+  # pty-host runs under system Node outside the asar — ship node-pty where its
+  # require('@homebridge/node-pty-prebuilt-multiarch') can resolve it.
+  - from: node_modules/@homebridge/node-pty-prebuilt-multiarch
+    to: node_modules/@homebridge/node-pty-prebuilt-multiarch
+    filter:
+      - '**/*'
+      - '!prebuilds/linux-arm/**'
+      - '!prebuilds/linux-arm64/**'
+      - '!prebuilds/linux-ia32/**'
+      - '!third_party/**'
+      - '!typings/**'
+      - '!scripts/**'
+      - '!**/*.test.js'
+      - '!binding.gyp'
 win:
   executableName: my-ade
 nsis:
@@ -38,10 +53,10 @@ dmg:
 linux:
   target:
     - AppImage
-    - snap
     - deb
   maintainer: electronjs.org
   category: Utility
+  syncDesktopName: true
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
