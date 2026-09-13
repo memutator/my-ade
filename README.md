@@ -61,4 +61,8 @@ Electron · React 19 · TypeScript · electron-vite · zustand · xterm.js ·
 `@homebridge/node-pty-prebuilt-multiarch` (via a separate system-Node pty-host) ·
 CodeMirror · Milkdown · material-icon-theme · lucide-react
 
-See `AGENTS.md` for architecture and contributor-facing details.
+## Docs
+
+Full documentation lives in [`docs/`](docs/README.md) — user guide,
+settings/shortcut reference, agent integration, architecture, development, and
+packaging. See `AGENTS.md` for contributor-facing rules.

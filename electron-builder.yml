@@ -19,6 +19,10 @@ extraResources:
     to: webview-preload.cjs
   - from: resources/agents
     to: agents
+  - from: resources/ade-hook.cjs
+    to: ade-hook.cjs
+  - from: resources/ade-opencode-plugin.js
+    to: ade-opencode-plugin.js
   # pty-host runs under system Node outside the asar — ship node-pty where its
   # require('@homebridge/node-pty-prebuilt-multiarch') can resolve it.
   - from: node_modules/@homebridge/node-pty-prebuilt-multiarch
