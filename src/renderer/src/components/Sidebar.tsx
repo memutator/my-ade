@@ -10,8 +10,10 @@ import {
 import type { TodoItem } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { shortPath } from '../utils'
 import Tooltip from './Tooltip'
 import FileTree, { type FileTreeApi } from './FileTree'
+import TreeRootMenu from './TreeRootMenu'
 import TodoList from './TodoList'
 
 const EMPTY_TODOS: TodoItem[] = []
@@ -20,6 +22,10 @@ export default function Sidebar(): React.JSX.Element | null {
   const open = useStore((s) => s.sidebarOpen)
   const activeWs = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const project = useStore((s) => s.projects.find((p) => p.id === activeWs?.projectId))
+  // the tree root is per-project state — defaults to the project dir but the
+  // header dropdown can re-point it at another project or an arbitrary dir
+  const root = useStore((s) => (project ? (s.sidebarRoots[project.id] ?? project.path) : ''))
+  const setSidebarRoot = useStore((s) => s.setSidebarRoot)
   const todos = useStore((s) => (project ? (s.todos[project.id] ?? EMPTY_TODOS) : EMPTY_TODOS))
   const [todosOpen, setTodosOpen] = useState(true)
   const treeApi = useRef<FileTreeApi | null>(null)
@@ -55,9 +61,16 @@ export default function Sidebar(): React.JSX.Element | null {
             </Tooltip>
           </span>
         </div>
-        <span className="sidebar-path">{project.path}</span>
+        <span className="sidebar-path">
+          <TreeRootMenu
+            root={root}
+            onPick={(p) => setSidebarRoot(project.id, p)}
+            label={shortPath(root)}
+            className="rp-path"
+          />
+        </span>
       </div>
-      <FileTree key={project.path} rootPath={project.path} apiRef={treeApi} />
+      <FileTree key={root} rootPath={root} apiRef={treeApi} />
       <div className="sidebar-todos">
         <button className="sidebar-todos-head" onClick={() => setTodosOpen(!todosOpen)}>
           <ChevronRight size={11} className={`tchev${todosOpen ? ' open' : ''}`} />

@@ -87,10 +87,9 @@ export interface EditorPaneState extends PaneBase {
   type: 'editor'
   tabs: EditorTab[]
   activeTabId?: string
-  /** show the pane's own file tree column (works docked, floating, detached) */
-  treeOpen?: boolean
-  /** the pane tree's root dir — independent of the workspace's project; falls
-   *  back to the project path, materialized onto the pane on float/detach */
+  /** the pane tree's root dir (icon-hover peek overlay) — independent of the
+   *  workspace's project; falls back to the project path, materialized onto
+   *  the pane on float/detach */
   treeRoot?: string
 }
 
@@ -131,6 +130,9 @@ export interface AppNotification {
   session?: string
   /** agent provider id — renders the vendor icon in the notification list */
   agent?: string
+  /** 'needs-input' pings auto-resolve when the same tab's turn resumes
+   *  (a later non-needs-input notification marks them read) */
+  kind?: 'needs-input'
   ts: number
   read: boolean
 }

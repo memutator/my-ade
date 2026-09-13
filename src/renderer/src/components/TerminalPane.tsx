@@ -11,6 +11,7 @@ import { agentLabel } from '../agents'
 import { shortPath } from '../utils'
 import AgentIcon from './AgentIcon'
 import { useT, translate } from '../i18n'
+import { isDetachedWin } from '../detached'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 import TabStrip, { type TabItem } from './TabStrip'
@@ -475,9 +476,12 @@ export default function TerminalPane({
   const closeTab = (tabId: string): void => {
     const next = tabs.filter((x) => x.id !== tabId)
     // closing the last tab closes the pane — a terminal without a shell is dead
-    // weight; unmounting the pane kills the pty via the tab view's cleanup
+    // weight; unmounting the pane kills the pty via the tab view's cleanup.
+    // in a detached window the record lives in the main store — pane:cmd
+    // closes it there and tears this window down
     if (next.length === 0) {
-      closePane(pane.id, wsId)
+      if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
+      else closePane(pane.id, wsId)
       return
     }
     const keep = activeTabId && activeTabId !== tabId ? activeTabId : next.at(-1)!.id

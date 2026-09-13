@@ -45,6 +45,9 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   )
 }
 
+// hook events that surface a notification — the rest are tracking-only
+const NOTIFY_EVENTS = new Set(['turn-complete', 'needs-input', 'error'])
+
 // cwd → workspace/pane/tab resolution for harness hook events. Longest project
 // path prefix wins; pane+tab hint only when a terminal tab's cwd matches
 // exactly (background tabs count — the shell that emitted the event may not be
@@ -227,7 +230,16 @@ export default function App(): React.JSX.Element {
         (ev.cwd ? shortPath(ev.cwd) : undefined)
       const body = ev.message || ''
       if (wsId)
-        st.notify({ workspaceId: wsId, paneId, tabId, title, body, session, agent: ev.provider })
+        st.notify({
+          workspaceId: wsId,
+          paneId,
+          tabId,
+          title,
+          body,
+          session,
+          agent: ev.provider,
+          kind: ev.event === 'needs-input' ? 'needs-input' : undefined
+        })
       if (st.settings.osNotifications) {
         window.ade.notify.show(title, [session, body].filter(Boolean).join(' — '), {
           workspaceId: wsId ?? undefined,

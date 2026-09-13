@@ -26,17 +26,29 @@ interface AnchorProps {
 export default function Tooltip({
   label,
   children,
-  delay = 300
+  delay = 300,
+  disabled = false
 }: {
   label: ReactNode
   children: ReactElement<AnchorProps>
   delay?: number
+  /** suppress the tip entirely — pending timers are cancelled and a visible
+      tip hides (used when a hover action opens something bigger, like the
+      tree-peek overlay, that would collide with the bubble) */
+  disabled?: boolean
 }): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const rectRef = useRef<DOMRect | null>(null)
   const tipRef = useRef<HTMLDivElement | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // checked inside the delay timer — a flip to disabled after scheduling
+  // must veto the pending tip; and `visible && !disabled` gates the portal
+  // so an already-shown tip vanishes without a setState-in-effect
+  const disabledRef = useRef(disabled)
+  useEffect(() => {
+    disabledRef.current = disabled
+  }, [disabled])
 
   const clear = (): void => {
     if (timer.current) {
@@ -47,7 +59,9 @@ export default function Tooltip({
   const show = (e: React.SyntheticEvent): void => {
     rectRef.current = (e.currentTarget as HTMLElement).getBoundingClientRect()
     clear()
-    timer.current = setTimeout(() => setVisible(true), delay)
+    timer.current = setTimeout(() => {
+      if (!disabledRef.current) setVisible(true)
+    }, delay)
   }
   const hide = (): void => {
     clear()
@@ -76,6 +90,8 @@ export default function Tooltip({
     setPos({ top: Math.round(top), left: Math.round(left) })
   }, [visible])
 
+  // keep handlers attached even when disabled — leave/blur still need to
+  // clear a stale `visible`, and the portal below is gated on `!disabled`
   if (!label) return children
 
   // eslint-disable-next-line react-hooks/refs -- cloneElement only adds handlers; the child's own ref is preserved untouched
@@ -106,6 +122,7 @@ export default function Tooltip({
     <>
       {anchor}
       {visible &&
+        !disabled &&
         createPortal(
           <div
             ref={tipRef}

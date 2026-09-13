@@ -12,7 +12,6 @@ const en = {
   todos: 'todos',
 
   // top bar
-  filesPeek: 'Files — hover to peek, click to pin',
   newTerminal: 'New terminal (Alt+T)',
   newBrowser: 'New browser (Alt+B)',
   newEditor: 'New editor (Alt+E)',
@@ -58,7 +57,6 @@ const en = {
 
   // editor pane
   openFileTooltip: 'Open file…',
-  fileTree: 'File tree',
   noFileOpen: 'no file open',
   openFile: 'open file…',
   saveFailed: 'save failed: {name}',
@@ -103,6 +101,7 @@ const en = {
   clearAll: 'Clear all',
   noNotifications: 'no notifications',
   agentNeedsInput: '{agent} needs input',
+  agentError: '{agent} error',
 
   // settings modal
   settings: 'settings',
@@ -216,7 +215,6 @@ const ko: Record<TKey, string> = {
   editor: '에디터',
   todos: '할 일',
 
-  filesPeek: '파일 — 호버로 미리보기, 클릭으로 고정',
   newTerminal: '새 터미널 (Alt+T)',
   newBrowser: '새 브라우저 (Alt+B)',
   newEditor: '새 에디터 (Alt+E)',
@@ -258,7 +256,6 @@ const ko: Record<TKey, string> = {
   ptyError: 'pty 오류',
 
   openFileTooltip: '파일 열기…',
-  fileTree: '파일 트리',
   noFileOpen: '열린 파일 없음',
   openFile: '파일 열기…',
   saveFailed: '저장 실패: {name}',
@@ -300,6 +297,7 @@ const ko: Record<TKey, string> = {
   clearAll: '모두 지우기',
   noNotifications: '알림 없음',
   agentNeedsInput: '{agent} 입력 필요',
+  agentError: '{agent} 오류',
 
   settings: '설정',
   appearance: '모양',

@@ -1473,6 +1473,11 @@ webview.browser-view {
   background: var(--tab-hover);
 }
 
+/* press-and-hold armed the reorder drag — signal it can move now */
+.ctab.drag-armed {
+  cursor: grabbing;
+}
+
 /* active tab: fills with its surface color and merges into it (no border).
    flex-shrink:0 — the current tab never squeezes below its content width
    when the strip overflows; inactive tabs absorb the shrink instead */
@@ -1545,25 +1550,6 @@ html[data-theme='light'] .ctab.active {
   border-radius: 50%;
   background: var(--accent);
   flex-shrink: 0;
-}
-
-/* sub (cwd / project name) is hover-only: it used to sit next to the label
-   capped at 60px, which clipped the label itself. On hover the label yields
-   its slot to the sub so the path gets the tab's full width. */
-.ctab-sub {
-  display: none;
-  font-size: 10px;
-  color: var(--text-faint);
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ctab.has-sub:hover .ctab-sub {
-  display: inline;
-}
-.ctab.has-sub:hover .ctab-label {
-  display: none;
 }
 
 .ctab-rename {
@@ -2305,12 +2291,15 @@ html[data-theme='light'] .ctab.active {
 
 /* ── pane drag & drop ────────────────────── */
 
-/* the titlebar icon doubles as the drag grip — subtle grab affordance */
+/* the titlebar icon doubles as the drag grip — grab only while held; the
+   dragging cursor itself comes from body.pane-dragging once the drag arms */
 .pane-grip {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  cursor: grab;
+}
+.pane-grip:active {
+  cursor: grabbing;
 }
 .pane-grip:hover .picon {
   color: var(--text-dim);
@@ -2816,24 +2805,64 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   color: var(--danger, #e5534b);
 }
 
+/* ── tree root picker ── */
+
+/* trigger: name/path text + a chevron — sits inside tree headers */
+.rootpick {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+.rootpick:hover {
+  background: var(--hover);
+}
+.rootpick svg {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.rp-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.rootmenu {
+  min-width: 220px;
+  max-width: 340px;
+}
+.root-item {
+  min-width: 0;
+}
+.root-item .root-name {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.root-item .root-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* ellipsis clips the head, keeping the tail visible */
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
 /* ── detached window extras ──────────────────────────────────── */
 
 .pbtn.on {
   color: var(--accent);
-}
-
-/* tree button lives inside the drag bar — must not drag */
-.det-tree-btn {
-  -webkit-app-region: no-drag;
-  display: flex;
-}
-
-/* the peek overlay anchors under the detached bar, not the main topbar */
-.det-tree-overlay {
-  top: 38px;
-  left: 6px;
-}
-
-.det-side {
-  width: 220px;
 }

@@ -34,10 +34,12 @@ splittable pane layout scoped to a project directory.
   its session explicitly before clearing `pty`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
   Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
-  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted. A `treeOpen`
-  toggle shows a resizable `FileTree` column beside the tabs — docked, floating,
-  and detached alike — rooted at `pane.treeRoot`. Closing the last tab closes
-  the pane (`closeFilesUnder` does the same when a tree delete empties it).
+  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted. Closing
+  the last tab closes the pane (`closeFilesUnder` does the same when a tree
+  delete empties it). The pane icon is the tree control — identical docked,
+  floating, detached: hover ~350ms dwell pops a portaled peek overlay
+  (`pane.treeRoot` + `TreeRootMenu` + `FileTree`, opens into this pane),
+  press-and-hold then move starts the pane drag.
 - **closing the last tab of any pane closes the pane** (terminal, editor,
   browser). In a detached window the close routes through `pane:cmd` → the
   main store's `closePane`, which kills detached ptys and tears the window

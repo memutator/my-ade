@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, FolderTree, Minus, Pin, PinOff, Square, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowDownToLine, Minus, Pin, PinOff, Square, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import { comboOf, effectiveBindings } from '../shortcuts'
 import type { PaneState } from '../types'
 import { PaneFor } from './SplitView'
 import Tooltip from './Tooltip'
-import FileTree from './FileTree'
 
 // A detached pane lives here: its own frameless OS window with a minimal bar
 // (drag anywhere, reattach, window controls). The pane keeps its wsId/paneId
 // identity in the main store — this window is just another view onto it.
 // Local edits (tab ops, renames) sync up via pane:syncUp; close goes through
-// pane:cmd so the main store stays the single source of truth.
+// pane:cmd so the main store stays the single source of truth. The pane icon
+// carries the whole editor tree flow (hover-peek / hold-drag), identical to
+// docked/floating — no detached-specific tree chrome lives here.
 export default function DetachedApp({
   wsId,
   paneId
@@ -21,21 +21,10 @@ export default function DetachedApp({
   paneId: string
 }): React.JSX.Element {
   const pane = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.panes[paneId])
-  const project = useStore((s) => {
-    const w = s.workspaces.find((x) => x.id === wsId)
-    return s.projects.find((p) => p.id === w?.projectId)
-  })
   const settings = useStore((s) => s.settings)
   const setResolvedTheme = useStore((s) => s.setResolvedTheme)
-  const sidebarOpen = useStore((s) => s.sidebarOpen)
-  const setSidebarOpen = useStore((s) => s.setSidebarOpen)
-  const treeOverlay = useStore((s) => s.treeOverlayOpen)
-  const setTreeOverlay = useStore((s) => s.setTreeOverlayOpen)
   const t = useT()
   const [pinned, setPinned] = useState(false)
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const isEditor = pane?.type === 'editor'
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
@@ -87,62 +76,6 @@ export default function DetachedApp({
     return unsub
   }, [wsId, paneId])
 
-  // sidebar + tree overlay shortcuts — resolved through the shared binding
-  // table so user remaps apply here too (the store is per-window, so the
-  // toggles stay local)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const st = useStore.getState()
-      const combo = comboOf({
-        key: e.key,
-        alt: e.altKey,
-        ctrl: e.ctrlKey,
-        shift: e.shiftKey,
-        meta: e.metaKey
-      })
-      const b = effectiveBindings(st.settings)
-      if (combo === b['sidebar.toggle']) {
-        setSidebarOpen(!st.sidebarOpen)
-        e.preventDefault()
-      } else if (combo === b['tree.toggle']) {
-        setTreeOverlay(!st.treeOverlayOpen)
-        e.preventDefault()
-      } else if (e.key === 'Escape' && st.treeOverlayOpen) {
-        setTreeOverlay(false)
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [setSidebarOpen, setTreeOverlay])
-
-  const onIconEnter = (): void => {
-    hoverTimer.current = setTimeout(() => setTreeOverlay(true), 200)
-  }
-  const onIconLeave = (): void => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current)
-    hoverTimer.current = null
-  }
-  const closeOverlay = (): void => setTreeOverlay(false)
-
-  // files open into THIS pane — the store default would hunt for the
-  // focused/first editor in the (stale) workspace copy and could land on a
-  // pane that actually lives in the main window
-  const openHere = useCallback(
-    (path: string, name: string): void => {
-      const st = useStore.getState()
-      const p = st.workspaces.find((w) => w.id === wsId)?.panes[paneId]
-      if (p?.type !== 'editor') return
-      const existing = p.tabs.find((x) => x.path === path)
-      const tab = existing ?? { id: crypto.randomUUID(), path, name }
-      st.updatePane(
-        paneId,
-        { tabs: existing ? p.tabs : [...p.tabs, tab], activeTabId: tab.id },
-        wsId
-      )
-    },
-    [wsId, paneId]
-  )
-
   const togglePin = (): void => {
     const next = !pinned
     setPinned(next)
@@ -152,22 +85,6 @@ export default function DetachedApp({
   return (
     <div className="app detached">
       <div className="detached-bar">
-        {isEditor && project && (
-          <div
-            className="app-icon det-tree-btn"
-            onMouseEnter={onIconEnter}
-            onMouseLeave={onIconLeave}
-          >
-            <Tooltip label={t('filesPeek')}>
-              <button
-                className={`tbtn icon-btn${sidebarOpen ? ' on' : ''}`}
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <FolderTree />
-              </button>
-            </Tooltip>
-          </div>
-        )}
         <span className="dt-title">{pane?.title ?? ''}</span>
         <div className="dt-actions">
           <Tooltip label={t(pinned ? 'unpinTop' : 'alwaysOnTop')}>
@@ -197,26 +114,7 @@ export default function DetachedApp({
           </Tooltip>
         </div>
       </div>
-      <div className="detached-body">
-        {sidebarOpen && project && (
-          <aside className="sidebar det-side">
-            <div className="sidebar-head">
-              <div className="sidebar-title-row">
-                <span className="sidebar-title">{project.name}</span>
-              </div>
-              <span className="sidebar-path">{project.path}</span>
-            </div>
-            <FileTree key={project.path} rootPath={project.path} onOpenFile={openHere} />
-          </aside>
-        )}
-        {pane ? <PaneFor paneId={paneId} wsId={wsId} /> : null}
-      </div>
-      {treeOverlay && project && (
-        <div className="tree-overlay det-tree-overlay" onMouseLeave={closeOverlay}>
-          <div className="tree-overlay-head">{project.name}</div>
-          <FileTree key={`ov-${project.path}`} rootPath={project.path} onOpenFile={openHere} />
-        </div>
-      )}
+      <div className="detached-body">{pane ? <PaneFor paneId={paneId} wsId={wsId} /> : null}</div>
     </div>
   )
 }

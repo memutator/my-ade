@@ -20,8 +20,7 @@ export default function TabStrip({
   onClose,
   onRename,
   onReorder,
-  addControl,
-  tooltips = true
+  addControl
 }: {
   tabs: TabItem[]
   activeId?: string | null
@@ -30,14 +29,16 @@ export default function TabStrip({
   onRename?: (id: string, name: string) => void
   onReorder?: (from: number, to: number) => void
   addControl?: ReactNode
-  /** hover tooltip per tab ('label — sub'). WorkspaceStrip turns it off — for
-     workspace tabs the card only repeats the tab's own text. The dirty-dot
-     tooltip is unaffected. */
-  tooltips?: boolean
 }): React.JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const dragIdx = useRef(-1)
+  // reorder drags need a press-and-hold — with plain `draggable` any
+  // mousedown+wiggle becomes an HTML5 drag and eats the click. The tab only
+  // turns draggable after DRAG_HOLD_MS; Chromium re-checks `draggable` on
+  // every move while the button is held, so hold-then-drag still works.
+  const [armedTab, setArmedTab] = useState<string | null>(null)
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
@@ -136,6 +137,36 @@ export default function TabStrip({
     window.addEventListener('mouseup', up)
   }
 
+  const DRAG_HOLD_MS = 200
+  const armDrag = (id: string): void => {
+    if (armTimer.current) clearTimeout(armTimer.current)
+    armTimer.current = setTimeout(() => setArmedTab(id), DRAG_HOLD_MS)
+  }
+  const disarmDrag = (): void => {
+    if (armTimer.current) {
+      clearTimeout(armTimer.current)
+      armTimer.current = null
+    }
+    setArmedTab(null)
+  }
+  // a release anywhere (incl. off-tab) ends the armed state
+  useEffect(() => {
+    if (!armedTab) return
+    const up = (): void => setArmedTab(null)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
+    return () => {
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+    }
+  }, [armedTab])
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current)
+    },
+    []
+  )
+
   const commit = (id: string): void => {
     onRename?.(id, editValue)
     setEditingId(null)
@@ -153,14 +184,24 @@ export default function TabStrip({
           if ((e.target as HTMLElement).closest('.ctab, button, input')) e.stopPropagation()
         }}
       >
-        {tabs.map((tab, i) => {
-          const el = (
+        {tabs.map((tab, i) => (
+          // tab info (sub) lives in the tooltip only — the tab body itself
+          // never changes on hover, so the close button keeps a fixed spot
+          <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
             <div
-              key={tab.id}
-              className={`ctab${tab.id === activeId ? ' active' : ''}${tab.sub ? ' has-sub' : ''}`}
+              className={`ctab${tab.id === activeId ? ' active' : ''}${armedTab === tab.id ? ' drag-armed' : ''}`}
               data-tab-id={tab.id}
-              draggable={!!onReorder && editingId !== tab.id}
+              draggable={!!onReorder && editingId !== tab.id && armedTab === tab.id}
+              onPointerDown={(e) => {
+                if (e.button !== 0 || (e.target as HTMLElement).closest('button, input')) return
+                armDrag(tab.id)
+              }}
+              onPointerUp={disarmDrag}
               onDragStart={() => (dragIdx.current = i)}
+              onDragEnd={() => {
+                dragIdx.current = -1
+                disarmDrag()
+              }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => {
                 if (onReorder && dragIdx.current >= 0 && dragIdx.current !== i)
@@ -191,7 +232,6 @@ export default function TabStrip({
               ) : (
                 <span className="ctab-label">{tab.label}</span>
               )}
-              {tab.sub && <span className="ctab-sub">{tab.sub}</span>}
               {tab.dirty && (
                 <Tooltip label={tab.dotTip ?? t('unsavedChanges')}>
                   <span className="ctab-dot" />
@@ -209,15 +249,8 @@ export default function TabStrip({
                 </button>
               )}
             </div>
-          )
-          return tooltips ? (
-            <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
-              {el}
-            </Tooltip>
-          ) : (
-            el
-          )
-        })}
+          </Tooltip>
+        ))}
         {addControl}
       </div>
       <div

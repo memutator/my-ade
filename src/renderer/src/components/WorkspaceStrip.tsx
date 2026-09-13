@@ -178,7 +178,6 @@ export default function WorkspaceStrip(): React.JSX.Element {
         onRename={renameWorkspace}
         onReorder={moveWorkspace}
         addControl={<AddWorkspaceButton onWorktree={setWtProject} />}
-        tooltips={false}
       />
       {wtProject && <WorktreeModal project={wtProject} onClose={() => setWtProject(null)} />}
     </div>

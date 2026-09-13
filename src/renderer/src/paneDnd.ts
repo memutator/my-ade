@@ -17,6 +17,9 @@ export interface PaneDragInfo {
   iconEl: HTMLElement | null
   /** the .pane being dragged (dimmed while dragging) */
   paneEl: HTMLElement | null
+  /** fired when the hold elapses and the drag arms — lets callers suppress
+      the click that a held press would still emit on release */
+  onArm?: () => void
 }
 
 const HOLD_MS = 180 // press-and-hold before the drag arms
@@ -173,6 +176,7 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
 
   const arm = (): void => {
     armed = true
+    info.onArm?.()
     document.body.classList.add('pane-dragging')
     info.paneEl?.classList.add('drag-src')
     // a dragged float must also become hit-transparent (its overlay wrapper

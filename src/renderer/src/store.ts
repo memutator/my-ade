@@ -120,6 +120,23 @@ function removeLeaf(node: LayoutNode, paneId: string): LayoutNode | null {
   return { ...node, a, b }
 }
 
+// Drop a pane record + its layout leaf and re-aim focus at the nearest
+// visible leaf (or a non-minimized float). IPC side effects for detached
+// panes (pty kill, window close) are the caller's job — this is pure state.
+function removePaneFromWs(w: Workspace, paneId: string): Workspace {
+  if (!w.panes[paneId]) return w
+  const root = w.root ? removeLeaf(w.root, paneId) : w.root
+  const panes = { ...w.panes }
+  delete panes[paneId]
+  const focusedPaneId =
+    w.focusedPaneId === paneId
+      ? (visibleLeafIds(root, panes)[0] ??
+        Object.values(panes).find((p) => p.floating && !p.minimized)?.id ??
+        null)
+      : w.focusedPaneId
+  return { ...w, root, panes, focusedPaneId }
+}
+
 function swapPaneIds(node: LayoutNode, a: string, b: string): LayoutNode {
   if (node.kind === 'leaf') {
     if (node.paneId === a) return { ...node, paneId: b }
@@ -167,6 +184,14 @@ function siblingOf(node: LayoutNode | null, paneId: string): LayoutNode | null {
   if (node.a.kind === 'leaf' && node.a.paneId === paneId) return node.b
   if (node.b.kind === 'leaf' && node.b.paneId === paneId) return node.a
   return siblingOf(node.a, paneId) ?? siblingOf(node.b, paneId)
+}
+
+// When an editor pane leaves the layout (float/detach) its tree root
+// materializes to the project path if it never had one — the pane keeps its
+// own root from then on, independent of the workspace it sits in.
+function withEditorTreeRoot(pane: PaneState, projectPath: string | undefined): PaneState {
+  if (pane.type !== 'editor' || pane.treeRoot || !projectPath) return pane
+  return { ...pane, treeRoot: projectPath }
 }
 
 // Clear a pane's minimized flag and focus it. Its leaf is still in the layout
@@ -225,20 +250,31 @@ function normalizePane(p: PaneState): PaneState {
 
 function normalizeWorkspace(w: Workspace): Workspace {
   let changed = false
+  let root = w.root
   const panes: Record<string, PaneState> = {}
   for (const [id, p] of Object.entries(w.panes)) {
+    // tab-less editors can't be produced anymore (closing the last tab closes
+    // the pane) — drop strays from older saves, leaf included
+    if (p.type === 'editor' && Array.isArray(p.tabs) && p.tabs.length === 0) {
+      if (root) root = removeLeaf(root, id)
+      changed = true
+      continue
+    }
     panes[id] = normalizePane(p)
     if (panes[id] !== p) changed = true
   }
-  // a persisted focus on a minimized/detached pane would be invisible — snap
-  // it back to the first visible leaf (or a float)
+  // a persisted focus on a minimized/detached/removed pane would be
+  // invisible — snap it back to the first visible leaf (or a float)
   let focusedPaneId = w.focusedPaneId
-  if (focusedPaneId && (panes[focusedPaneId]?.minimized || panes[focusedPaneId]?.detached)) {
+  if (
+    focusedPaneId &&
+    (!panes[focusedPaneId] || panes[focusedPaneId]?.minimized || panes[focusedPaneId]?.detached)
+  ) {
     focusedPaneId =
-      visibleLeafIds(w.root, panes)[0] ?? Object.values(panes).find((p) => p.floating)?.id ?? null
+      visibleLeafIds(root, panes)[0] ?? Object.values(panes).find((p) => p.floating)?.id ?? null
     changed = true
   }
-  return changed ? { ...w, panes, focusedPaneId } : w
+  return changed ? { ...w, panes, focusedPaneId, root } : w
 }
 
 // todos: order is only meaningful within a sibling group (same parentId)
@@ -280,6 +316,11 @@ export interface PersistedState {
   todos: Record<string, TodoItem[]>
   /** harness sessionId → observed info (name set via session-rename) */
   agentSessions: Record<string, AgentSessionInfo>
+  /** most-recently-picked file-tree roots (any host: sidebar, overlay, pane) */
+  treeRoots: string[]
+  /** per-project sidebar tree root overrides — sidebar trees can point
+   *  somewhere other than the project dir */
+  sidebarRoots: Record<string, string>
 }
 
 interface AdeState extends PersistedState {
@@ -359,6 +400,8 @@ interface AdeState extends PersistedState {
   ) => void
 
   setSidebarOpen: (open: boolean) => void
+  setSidebarRoot: (projectId: string, path: string) => void
+  pushTreeRoot: (path: string) => void
   setTreeOverlayOpen: (open: boolean) => void
   setNotifOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -407,6 +450,8 @@ export const useStore = create<AdeState>((set, get) => {
     bookmarks: [],
     todos: {},
     agentSessions: {},
+    treeRoots: [],
+    sidebarRoots: {},
     notifications: [],
     notifOpen: false,
     settingsOpen: false,
@@ -422,7 +467,9 @@ export const useStore = create<AdeState>((set, get) => {
         sidebarOpen: s.sidebarOpen ?? false,
         bookmarks: s.bookmarks ?? [],
         todos: s.todos ?? {},
-        agentSessions: s.agentSessions ?? {}
+        agentSessions: s.agentSessions ?? {},
+        treeRoots: s.treeRoots ?? [],
+        sidebarRoots: s.sidebarRoots ?? {}
       }),
 
     addProject: (path, name) => {
@@ -545,19 +592,7 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => {
         const wsId = wsId0
         return {
-          workspaces: updWs(s.workspaces, wsId, (w) => {
-            if (!w.panes[paneId]) return w
-            const root = w.root ? removeLeaf(w.root, paneId) : w.root
-            const panes = { ...w.panes }
-            delete panes[paneId]
-            const focusedPaneId =
-              w.focusedPaneId === paneId
-                ? (visibleLeafIds(root, panes)[0] ??
-                  Object.values(panes).find((p) => p.floating && !p.minimized)?.id ??
-                  null)
-                : w.focusedPaneId
-            return { ...w, root, panes, focusedPaneId }
-          })
+          workspaces: updWs(s.workspaces, wsId, (w) => removePaneFromWs(w, paneId))
         }
       })
     },
@@ -602,8 +637,12 @@ export const useStore = create<AdeState>((set, get) => {
         if (!wsId) return s
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
-            const pane = w.panes[paneId]
-            if (!pane || pane.floating || pane.detached) return w
+            const pane0 = w.panes[paneId]
+            if (!pane0 || pane0.floating || pane0.detached) return w
+            const pane = withEditorTreeRoot(
+              pane0,
+              s.projects.find((x) => x.id === w.projectId)?.path
+            )
             const floating = {
               x: 0.28,
               y: 0.18,
@@ -684,8 +723,12 @@ export const useStore = create<AdeState>((set, get) => {
         if (!wsId) return s
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
-            const pane = w.panes[paneId]
-            if (!pane || pane.detached) return w
+            const pane0 = w.panes[paneId]
+            if (!pane0 || pane0.detached) return w
+            const pane = withEditorTreeRoot(
+              pane0,
+              s.projects.find((x) => x.id === w.projectId)?.path
+            )
             const panes = { ...w.panes, [paneId]: { ...pane, detached: true } }
             const focusedPaneId =
               w.focusedPaneId === paneId
@@ -1052,35 +1095,48 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
-    closeFilesUnder: (paths) =>
-      set((s) => {
-        const under = (p: string): boolean =>
-          paths.some((d) => p === d || p.startsWith(d.endsWith('/') ? d : d + '/'))
-        return {
-          workspaces: s.workspaces.map((w) => {
-            let changed = false
-            const panes: Record<string, PaneState> = {}
-            for (const [id, p] of Object.entries(w.panes)) {
-              if (p.type !== 'editor') {
-                panes[id] = p
-                continue
-              }
-              const tabs = p.tabs.filter((t) => !under(t.path))
-              if (tabs.length !== p.tabs.length) {
-                const activeTabId =
-                  p.activeTabId && tabs.some((t) => t.id === p.activeTabId)
-                    ? p.activeTabId
-                    : (tabs.at(-1)?.id ?? undefined)
-                panes[id] = { ...p, tabs, activeTabId }
-                changed = true
-              } else {
-                panes[id] = p
-              }
-            }
-            return changed ? { ...w, panes } : w
-          })
+    closeFilesUnder: (paths) => {
+      const under = (p: string): boolean =>
+        paths.some((d) => p === d || p.startsWith(d.endsWith('/') ? d : d + '/'))
+      // an editor whose last tab just died gets closed like any tab-empty
+      // pane — detached ones also need their window torn down from here
+      // (their renderer can't observe the removal)
+      const dead = new Set<string>()
+      for (const w of get().workspaces) {
+        for (const p of Object.values(w.panes)) {
+          if (p.type === 'editor' && p.tabs.length && p.tabs.every((t) => under(t.path))) {
+            dead.add(p.id)
+            if (p.detached) window.ade.win.closeDetached?.(w.id, p.id)
+          }
         }
-      }),
+      }
+      set((s) => ({
+        workspaces: s.workspaces.map((w) => {
+          let cur = w
+          for (const id of dead) cur = removePaneFromWs(cur, id)
+          let changed = cur !== w
+          const panes: Record<string, PaneState> = {}
+          for (const [id, p] of Object.entries(cur.panes)) {
+            if (p.type !== 'editor') {
+              panes[id] = p
+              continue
+            }
+            const tabs = p.tabs.filter((t) => !under(t.path))
+            if (tabs.length !== p.tabs.length) {
+              const activeTabId =
+                p.activeTabId && tabs.some((t) => t.id === p.activeTabId)
+                  ? p.activeTabId
+                  : (tabs.at(-1)?.id ?? undefined)
+              panes[id] = { ...p, tabs, activeTabId }
+              changed = true
+            } else {
+              panes[id] = p
+            }
+          }
+          return changed ? { ...cur, panes } : cur
+        })
+      }))
+    },
 
     addTodo: (projectId, text = '', parentId) => {
       const sibs = todoSiblings(get().todos[projectId] ?? [], parentId)
@@ -1254,11 +1310,22 @@ export const useStore = create<AdeState>((set, get) => {
           (x) => x.title === n.title && x.workspaceId === n.workspaceId && now - x.ts < 15000
         )
         if (dupe) return s
+        // a resuming/finishing turn settles pending "needs input" pings on
+        // the same tab — mark them read so the list doesn't go stale
+        const notifications =
+          n.kind === 'needs-input'
+            ? s.notifications
+            : s.notifications.map((x) =>
+                x.kind === 'needs-input' &&
+                !x.read &&
+                x.workspaceId === n.workspaceId &&
+                x.paneId === n.paneId &&
+                x.tabId === n.tabId
+                  ? { ...x, read: true }
+                  : x
+              )
         return {
-          notifications: [{ ...n, id: uid(), ts: now, read: false }, ...s.notifications].slice(
-            0,
-            100
-          )
+          notifications: [{ ...n, id: uid(), ts: now, read: false }, ...notifications].slice(0, 100)
         }
       }),
 

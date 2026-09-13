@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo, Minus, Square, X, Settings } from 'lucide-react'
+import type { Project } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
@@ -7,7 +8,28 @@ import WorkspaceStrip from './WorkspaceStrip'
 import NotificationBell from './NotificationBell'
 import PaneDock from './PaneDock'
 import FileTree from './FileTree'
+import TreeRootMenu from './TreeRootMenu'
 import AdeLogo from './AdeLogo'
+
+// peek overlay tree — the header is a root picker (recents → projects →
+// browse). It shares the sidebar's per-project root so the peek and the
+// pinned tree always agree (and the pick survives the transient overlay).
+function OverlayTree({ project }: { project: Project }): React.JSX.Element {
+  const root = useStore((s) => s.sidebarRoots[project.id] ?? project.path)
+  const setSidebarRoot = useStore((s) => s.setSidebarRoot)
+  return (
+    <>
+      <div className="tree-overlay-head">
+        <TreeRootMenu
+          root={root}
+          onPick={(p) => setSidebarRoot(project.id, p)}
+          label={root === project.path ? project.name : root}
+        />
+      </div>
+      <FileTree key={root} rootPath={root} />
+    </>
+  )
+}
 
 export default function TopBar(): React.JSX.Element {
   const sidebarOpen = useStore((s) => s.sidebarOpen)
@@ -55,8 +77,7 @@ export default function TopBar(): React.JSX.Element {
         </button>
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>
-            <div className="tree-overlay-head">{activeProject.name}</div>
-            <FileTree key={activeProject.path} rootPath={activeProject.path} />
+            <OverlayTree key={activeProject.id} project={activeProject} />
           </div>
         )}
       </div>

@@ -4,6 +4,7 @@ import type { Bookmark, BrowserPaneState, BrowserTab } from '../types'
 import { useStore } from '../store'
 import { useT, translate } from '../i18n'
 import { applyShortcut, effectiveBindings } from '../shortcuts'
+import { isDetachedWin } from '../detached'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
@@ -607,10 +608,15 @@ export default function BrowserPane({
   }
 
   const closeTab = (tabId: string): void => {
-    let next = tabs.filter((t) => t.id !== tabId)
-    // never leave the pane tab-less — closing the last tab opens a fresh one
-    if (next.length === 0)
-      next = [{ id: crypto.randomUUID(), url: homeUrl || 'https://', title: '' }]
+    const next = tabs.filter((t) => t.id !== tabId)
+    // closing the last tab closes the pane — in a detached window the record
+    // lives in the main store, so the close goes through pane:cmd (which also
+    // tears this window down via closeDetached)
+    if (next.length === 0) {
+      if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
+      else useStore.getState().closePane(pane.id, wsId)
+      return
+    }
     if (tabId === activeTabId) {
       const t = next[next.length - 1]
       updatePane(pane.id, { tabs: next, activeTabId: t.id, url: t.url }, wsId)
