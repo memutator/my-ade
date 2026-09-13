@@ -106,6 +106,12 @@ export function applyShortcut(input: ShortcutInput): boolean {
     case 'm':
       st.updateSettings({ theme: st.resolvedTheme === 'dark' ? 'light' : 'dark' })
       break
+    case 'x':
+      st.setSidebarOpen(!st.sidebarOpen)
+      break
+    case 'o':
+      st.setTreeOverlayOpen(!st.treeOverlayOpen)
+      break
     case 'arrowright':
     case 'arrowleft':
     case 'arrowdown':

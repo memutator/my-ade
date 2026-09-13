@@ -1,7 +1,9 @@
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Columns2,
   Minus,
+  MoreVertical,
   PictureInPicture,
   PictureInPicture2,
   Rows2,
@@ -77,74 +79,121 @@ export default function PaneFrame({
         {title ?? <span className="pane-title">{pane.title}</span>}
         <div className="actions">
           {extraActions}
-          {!detachedCtx && (
-            <>
-              {floating ? (
-                <Tooltip label={t('dockPane')}>
-                  <button className="pbtn" onClick={() => dockPane(pane.id, wsId)}>
-                    <PictureInPicture />
-                  </button>
-                </Tooltip>
-              ) : (
-                <Tooltip label={t('floatPane')}>
-                  <button className="pbtn" onClick={() => floatPane(pane.id, wsId)}>
-                    <PictureInPicture2 />
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip label={t('detachPane')}>
-                <button
-                  className="pbtn"
-                  onClick={() => {
-                    window.ade.win.detach(wsId, pane.id, pane)
-                    detachPane(pane.id, wsId)
-                  }}
-                >
-                  <SquareArrowOutUpRight />
-                </button>
-              </Tooltip>
+          {detachedCtx ? (
+            <Tooltip label={t('closePane')}>
+              <button
+                className="pbtn"
+                onClick={() =>
+                  window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
+                }
+              >
+                <X />
+              </button>
+            </Tooltip>
+          ) : (
+            /* all pane ops live behind one ⋯ so the tab strip keeps the room */
+            <PactMenu label={t('paneMenu')}>
+              <button
+                className="pact-item"
+                onClick={() => (floating ? dockPane(pane.id, wsId) : floatPane(pane.id, wsId))}
+              >
+                {floating ? <PictureInPicture /> : <PictureInPicture2 />}
+                {t(floating ? 'dockPane' : 'floatPane')}
+              </button>
+              <button
+                className="pact-item"
+                onClick={() => {
+                  window.ade.win.detach(wsId, pane.id, pane)
+                  detachPane(pane.id, wsId)
+                }}
+              >
+                <SquareArrowOutUpRight />
+                {t('detachPane')}
+              </button>
               {!floating && (
                 <>
-                  <Tooltip label={t('splitRight')}>
-                    <button
-                      className="pbtn"
-                      onClick={() => splitPane(pane.id, 'row', 'terminal', wsId)}
-                    >
-                      <Columns2 />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t('splitDown')}>
-                    <button
-                      className="pbtn"
-                      onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}
-                    >
-                      <Rows2 />
-                    </button>
-                  </Tooltip>
+                  <button
+                    className="pact-item"
+                    onClick={() => splitPane(pane.id, 'row', 'terminal', wsId)}
+                  >
+                    <Columns2 />
+                    {t('splitRight')}
+                  </button>
+                  <button
+                    className="pact-item"
+                    onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}
+                  >
+                    <Rows2 />
+                    {t('splitDown')}
+                  </button>
                 </>
               )}
-              <Tooltip label={t('minimizePane')}>
-                <button className="pbtn" onClick={() => minimizePane(pane.id, wsId)}>
-                  <Minus />
-                </button>
-              </Tooltip>
-            </>
+              <button className="pact-item" onClick={() => minimizePane(pane.id, wsId)}>
+                <Minus />
+                {t('minimizePane')}
+              </button>
+              <button className="pact-item danger" onClick={() => closePane(pane.id, wsId)}>
+                <X />
+                {t('closePane')}
+              </button>
+            </PactMenu>
           )}
-          <Tooltip label={t('closePane')}>
-            <button
-              className="pbtn"
-              onClick={() =>
-                detachedCtx
-                  ? window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
-                  : closePane(pane.id, wsId)
-              }
-            >
-              <X />
-            </button>
-          </Tooltip>
         </div>
       </div>
       <div className="pane-body">{children}</div>
+    </div>
+  )
+}
+
+// One ⋯ trigger opens a fixed-position popover on hover — portal-mounted so a
+// short pane's overflow:hidden can't clip it. A close-delay bridges the gap
+// between the trigger and the floating card while the pointer crosses.
+function PactMenu({ label, children }: { label: string; children: ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const anchorRef = useRef<HTMLDivElement>(null)
+  const closeT = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openNow = (): void => {
+    if (closeT.current) clearTimeout(closeT.current)
+    closeT.current = null
+    if (anchorRef.current) {
+      const r = anchorRef.current.getBoundingClientRect()
+      setPos({
+        top: r.bottom + 5,
+        left: Math.max(4, Math.min(r.right - 176, window.innerWidth - 184))
+      })
+    }
+    setOpen(true)
+  }
+  const closeSoon = (): void => {
+    if (closeT.current) clearTimeout(closeT.current)
+    closeT.current = setTimeout(() => setOpen(false), 140)
+  }
+
+  return (
+    <div className="pact" data-nodrag onMouseEnter={openNow} onMouseLeave={closeSoon}>
+      <div ref={anchorRef} className="pact-anchor">
+        <Tooltip label={label}>
+          <button className="pbtn">
+            <MoreVertical />
+          </button>
+        </Tooltip>
+      </div>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            className="pact-card"
+            style={{ top: pos.top, left: pos.left }}
+            onMouseEnter={openNow}
+            onMouseLeave={closeSoon}
+            onClick={() => setOpen(false)}
+          >
+            {children}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

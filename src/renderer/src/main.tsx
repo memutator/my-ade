@@ -7,10 +7,8 @@ import { useStore } from './store'
 import { loadAgentManifest } from './agents'
 import './styles.css'
 
-if (import.meta.env.DEV) {
-  // @ts-expect-error dev-only debugging handle
-  window.__ade = useStore
-}
+// @ts-expect-error debugging handle (CDP / console poking)
+window.__ade = useStore
 
 async function bootstrap(): Promise<void> {
   const [saved] = await Promise.all([

@@ -251,6 +251,7 @@ const ade = {
     hello: (): Promise<{ wsId: string; paneId: string; pane: unknown } | null> =>
       ipcRenderer.invoke('pane:hello'),
     reattach: (): void => ipcRenderer.send('win:reattach'),
+    setAlwaysOnTop: (flag: boolean): void => ipcRenderer.send('win:alwaysOnTop', flag),
     closeDetached: (wsId: string, paneId: string): void =>
       ipcRenderer.send('win:closeDetached', { wsId, paneId }),
     focusDetached: (wsId: string, paneId: string): void =>

@@ -302,13 +302,24 @@ function CreateRow({ depth }: { depth: number }): React.JSX.Element {
 
 export default function FileTree({
   rootPath,
-  apiRef
+  apiRef,
+  onOpenFile
 }: {
   rootPath: string
   apiRef?: RefObject<FileTreeApi | null>
+  // where file activations go — defaults to the store's focused/first editor
+  // pane; detached windows pass a callback that opens into their own pane
+  onOpenFile?: (path: string, name: string) => void
 }): React.JSX.Element {
   const t = useT()
   const clip = useTreeClip()
+  const openFile = useCallback(
+    (path: string, name: string): void => {
+      if (onOpenFile) onOpenFile(path, name)
+      else useStore.getState().openFileInEditor(path, name)
+    },
+    [onOpenFile]
+  )
   const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({})
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -589,9 +600,9 @@ export default function FileTree({
       setSelected(new Set([r.path]))
       setFocused(r.path)
       setAnchor(r.path)
-      if (c.kind === 'file') useStore.getState().openFileInEditor(r.path, nm)
+      if (c.kind === 'file') openFile(r.path, nm)
     },
-    [creating, flash, reload]
+    [creating, flash, reload, openFile]
   )
 
   const cancelEdit = useCallback((): void => {
@@ -642,9 +653,9 @@ export default function FileTree({
     (e: ReactMouseEvent, entry: DirEntry): void => {
       if (e.shiftKey || e.ctrlKey || e.metaKey) return
       if (entry.isDir) setDirOpen(entry.path, !open.has(entry.path))
-      else useStore.getState().openFileInEditor(entry.path, entry.name)
+      else openFile(entry.path, entry.name)
     },
-    [open, setDirOpen]
+    [open, setDirOpen, openFile]
   )
 
   const onRowContextMenu = useCallback(
@@ -776,7 +787,7 @@ export default function FileTree({
         case 'Enter':
           if (cur) {
             if (cur.entry.isDir) setDirOpen(cur.entry.path, !open.has(cur.entry.path))
-            else useStore.getState().openFileInEditor(cur.entry.path, cur.entry.name)
+            else openFile(cur.entry.path, cur.entry.name)
           } else handled = false
           break
         case 'F2':
@@ -827,7 +838,8 @@ export default function FileTree({
       doTrash,
       doPaste,
       targetDirFor,
-      cancelEdit
+      cancelEdit,
+      openFile
     ]
   )
 
@@ -873,7 +885,7 @@ export default function FileTree({
         : [
             {
               label: t('open'),
-              act: () => useStore.getState().openFileInEditor(entry.path, entry.name)
+              act: () => openFile(entry.path, entry.name)
             }
           ]),
       ...newItems,
@@ -915,7 +927,8 @@ export default function FileTree({
     doPaste,
     doDuplicate,
     doTrash,
-    refreshAll
+    refreshAll,
+    openFile
   ])
 
   /* imperative api for the sidebar header icons */

@@ -42,6 +42,10 @@ const en = {
   detachPane: 'Detach to window',
   reattachPane: 'Back to workspace',
   focusDetached: 'Focus detached window',
+  paneMenu: 'Pane actions',
+  alwaysOnTop: 'Always on top',
+  unpinTop: 'Unpin from top',
+  sidebarToggle: 'Sidebar (Alt+X)',
 
   // terminal pane
   restartShell: 'Restart shell',
@@ -199,6 +203,10 @@ const ko: Record<TKey, string> = {
   detachPane: '별도 창으로 분리',
   reattachPane: '워크스페이스로 복귀',
   focusDetached: '분리된 창 포커스',
+  paneMenu: '패널 동작',
+  alwaysOnTop: '항상 위에',
+  unpinTop: '항상 위 해제',
+  sidebarToggle: '사이드바 (Alt+X)',
 
   restartShell: '셸 다시 시작',
   processExited: '프로세스가 종료됨 — 클릭하여 다시 시작',

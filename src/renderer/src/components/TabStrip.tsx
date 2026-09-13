@@ -138,7 +138,16 @@ export default function TabStrip({
 
   return (
     <div className="tstrip-wrap" ref={wrapRef}>
-      <div className="tstrip" ref={stripRef} onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="tstrip"
+        ref={stripRef}
+        onPointerDown={(e) => {
+          // only interactive children keep the gesture to themselves — the
+          // strip's empty space must bubble up to .pane-titlebar, where a
+          // floating pane starts its move drag
+          if ((e.target as HTMLElement).closest('.ctab, button, input')) e.stopPropagation()
+        }}
+      >
         {tabs.map((tab, i) => (
           <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
             <div

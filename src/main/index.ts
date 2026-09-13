@@ -229,6 +229,9 @@ function registerWindowIpc(): void {
     win.isMaximized() ? win.unmaximize() : win.maximize()
   })
   ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  ipcMain.on('win:alwaysOnTop', (e, flag: boolean) => {
+    BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(!!flag)
+  })
 
   ipcMain.on('win:detach', (_e, m: { wsId: string; paneId: string; pane?: unknown }) => {
     if (!m?.wsId || !m?.paneId) return

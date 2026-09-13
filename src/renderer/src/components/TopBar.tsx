@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   TerminalSquare,
   Globe,
@@ -29,7 +29,8 @@ export default function TopBar(): React.JSX.Element {
   const t = useT()
 
   const resolvedTheme = useStore((s) => s.resolvedTheme)
-  const [treeOverlay, setTreeOverlay] = useState(false)
+  const treeOverlay = useStore((s) => s.treeOverlayOpen)
+  const setTreeOverlay = useStore((s) => s.setTreeOverlayOpen)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const onIconEnter = (): void => {
@@ -48,6 +49,8 @@ export default function TopBar(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // closeOverlay is a stable setter — re-running on its identity would be noise
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeOverlay])
 
   return (

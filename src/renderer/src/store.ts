@@ -274,6 +274,7 @@ export interface PersistedState {
   activeWorkspaceId: string | null
   settings: Settings
   sidebarOpen: boolean
+  treeOverlayOpen: boolean
   bookmarks: Bookmark[]
   todos: Record<string, TodoItem[]>
   /** harness sessionId → observed info (name set via session-rename) */
@@ -357,6 +358,7 @@ interface AdeState extends PersistedState {
   ) => void
 
   setSidebarOpen: (open: boolean) => void
+  setTreeOverlayOpen: (open: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setNotifOpen: (open: boolean) => void
   updateSettings: (patch: Partial<Settings>) => void
@@ -400,6 +402,7 @@ export const useStore = create<AdeState>((set, get) => {
     activeWorkspaceId: null,
     settings: DEFAULT_SETTINGS,
     sidebarOpen: false,
+    treeOverlayOpen: false,
     bookmarks: [],
     todos: {},
     agentSessions: {},
@@ -1211,6 +1214,7 @@ export const useStore = create<AdeState>((set, get) => {
       }),
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
+    setTreeOverlayOpen: (open) => set({ treeOverlayOpen: open }),
     setSettingsOpen: (open) => set({ settingsOpen: open }),
     setNotifOpen: (open) => set({ notifOpen: open }),
 
