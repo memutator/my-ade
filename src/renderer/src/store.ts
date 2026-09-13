@@ -283,8 +283,8 @@ export interface PersistedState {
 
 interface AdeState extends PersistedState {
   notifications: AppNotification[]
-  settingsOpen: boolean
   notifOpen: boolean
+  settingsOpen: boolean
   resolvedTheme: 'dark' | 'light'
   setResolvedTheme: (t: 'dark' | 'light') => void
 
@@ -359,8 +359,8 @@ interface AdeState extends PersistedState {
 
   setSidebarOpen: (open: boolean) => void
   setTreeOverlayOpen: (open: boolean) => void
-  setSettingsOpen: (open: boolean) => void
   setNotifOpen: (open: boolean) => void
+  setSettingsOpen: (open: boolean) => void
   updateSettings: (patch: Partial<Settings>) => void
 
   addBookmark: (b: { title: string; url: string; scope: string }) => void
@@ -407,8 +407,8 @@ export const useStore = create<AdeState>((set, get) => {
     todos: {},
     agentSessions: {},
     notifications: [],
-    settingsOpen: false,
     notifOpen: false,
+    settingsOpen: false,
     resolvedTheme: 'dark',
     setResolvedTheme: (t) => set({ resolvedTheme: t }),
 
@@ -923,7 +923,7 @@ export const useStore = create<AdeState>((set, get) => {
       if (!wsId) return
       const ws = get().workspaces.find((w) => w.id === wsId)
       const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
-      if (!p || p.type === 'todo' || p.tabs.length < 2) return
+      if (!p || !('tabs' in p) || p.tabs.length < 2) return
       const i = Math.max(
         0,
         p.tabs.findIndex((t) => t.id === p.activeTabId)
@@ -1215,8 +1215,8 @@ export const useStore = create<AdeState>((set, get) => {
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
     setTreeOverlayOpen: (open) => set({ treeOverlayOpen: open }),
-    setSettingsOpen: (open) => set({ settingsOpen: open }),
     setNotifOpen: (open) => set({ notifOpen: open }),
+    setSettingsOpen: (open) => set({ settingsOpen: open }),
 
     updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 

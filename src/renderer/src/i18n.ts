@@ -46,6 +46,7 @@ const en = {
   alwaysOnTop: 'Always on top',
   unpinTop: 'Unpin from top',
   sidebarToggle: 'Sidebar (Alt+X)',
+  backToApp: 'Back to app',
 
   // terminal pane
   restartShell: 'Restart shell',
@@ -207,6 +208,7 @@ const ko: Record<TKey, string> = {
   alwaysOnTop: '항상 위에',
   unpinTop: '항상 위 해제',
   sidebarToggle: '사이드바 (Alt+X)',
+  backToApp: '앱으로 돌아가기',
 
   restartShell: '셸 다시 시작',
   processExited: '프로세스가 종료됨 — 클릭하여 다시 시작',

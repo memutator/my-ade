@@ -12,7 +12,7 @@ import SplitView from './components/SplitView'
 import FloatLayer from './components/FloatLayer'
 import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
-import SettingsModal from './components/SettingsModal'
+import SettingsPage from './components/SettingsPage'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   const newPane = useStore((s) => s.newPane)
@@ -323,7 +323,7 @@ export default function App(): React.JSX.Element {
           })}
         </div>
       </div>
-      <SettingsModal />
+      <SettingsPage />
     </div>
   )
 }

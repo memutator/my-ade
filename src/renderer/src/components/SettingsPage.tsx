@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { ArrowLeft, Bell, Bot, Globe, Palette, Webhook } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import Tooltip from './Tooltip'
 import { loadAgentManifest } from '../agents'
 import AgentIcon from './AgentIcon'
 import type { AgentHookStatus, AgentProviderInfo, Language, Theme } from '../types'
@@ -15,45 +14,81 @@ const LANG_LABELS: Record<Language, string> = {
   ko: '한국어'
 }
 
-export default function SettingsModal(): React.JSX.Element | null {
+type Section = 'appearance' | 'browser' | 'notifications' | 'agents' | 'hooks'
+
+const SECTIONS: Section[] = ['appearance', 'browser', 'notifications', 'agents', 'hooks']
+
+const SECTION_ICON: Record<Section, React.JSX.Element> = {
+  appearance: <Palette />,
+  browser: <Globe />,
+  notifications: <Bell />,
+  agents: <Bot />,
+  hooks: <Webhook />
+}
+
+// Settings as a full page — slides over the workspace area (terminals stay
+// mounted underneath). Left nav switches sections; content is card-grouped.
+export default function SettingsPage(): React.JSX.Element | null {
   const open = useStore((s) => s.settingsOpen)
   const settings = useStore((s) => s.settings)
   const { setSettingsOpen, updateSettings } = useStore()
   const [providers, setProviders] = useState<Record<string, AgentProviderInfo>>({})
   const [hooks, setHooks] = useState<AgentHookStatus[]>([])
+  const [section, setSection] = useState<Section>('appearance')
   const t = useT()
 
-  useEffect(() => {
-    if (open && Object.keys(providers).length === 0) {
-      loadAgentManifest().then(setProviders)
-    }
-    if (open) window.ade.hooks?.status().then(setHooks)
-  }, [open, providers])
+  const SECTION_LABEL: Record<Section, string> = {
+    appearance: t('appearance'),
+    browser: t('browser'),
+    notifications: t('notifications'),
+    agents: t('agentProviders'),
+    hooks: t('agentHooks')
+  }
 
   useEffect(() => {
+    if (!open) return
+    loadAgentManifest().then(setProviders)
+    window.ade.hooks?.status().then(setHooks)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setSettingsOpen(false)
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setSettingsOpen(false)
+      }
     }
-    if (open) window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [open, setSettingsOpen])
 
   if (!open) return null
 
   return (
-    <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <span>{t('settings')}</span>
-          <Tooltip label={t('close')}>
-            <button className="pbtn" onClick={() => setSettingsOpen(false)}>
-              <X />
-            </button>
-          </Tooltip>
-        </div>
-        <div className="modal-body">
-          <section>
-            <h3>{t('appearance')}</h3>
+    <div className="spage">
+      <nav className="spage-nav">
+        <button className="sback" onClick={() => setSettingsOpen(false)}>
+          <ArrowLeft />
+          {t('backToApp')}
+        </button>
+        <div className="spage-nav-title">{t('settings')}</div>
+        {SECTIONS.map((s) => (
+          <button
+            key={s}
+            className={`snav${section === s ? ' on' : ''}`}
+            onClick={() => setSection(s)}
+          >
+            {SECTION_ICON[s]}
+            {SECTION_LABEL[s]}
+          </button>
+        ))}
+      </nav>
+      <div className="spage-body">
+        <h2 className="spage-h">{SECTION_LABEL[section]}</h2>
+
+        {section === 'appearance' && (
+          <div className="scard">
             <div className="srow">
               <label>{t('theme')}</label>
               <div className="seg">
@@ -125,10 +160,11 @@ export default function SettingsModal(): React.JSX.Element | null {
                 onChange={(e) => updateSettings({ termFontSize: Number(e.target.value) || 12.5 })}
               />
             </div>
-          </section>
+          </div>
+        )}
 
-          <section>
-            <h3>{t('browser')}</h3>
+        {section === 'browser' && (
+          <div className="scard">
             <div className="srow">
               <label>{t('homeUrl')}</label>
               <input
@@ -139,10 +175,11 @@ export default function SettingsModal(): React.JSX.Element | null {
                 spellCheck={false}
               />
             </div>
-          </section>
+          </div>
+        )}
 
-          <section>
-            <h3>{t('notifications')}</h3>
+        {section === 'notifications' && (
+          <div className="scard">
             <div className="srow">
               <label>{t('osNotifications')}</label>
               <button
@@ -152,10 +189,11 @@ export default function SettingsModal(): React.JSX.Element | null {
                 <span className="knob" />
               </button>
             </div>
-          </section>
+          </div>
+        )}
 
-          <section>
-            <h3>{t('agentProviders')}</h3>
+        {section === 'agents' && (
+          <div className="scard">
             {Object.keys(providers).length === 0 && (
               <div className="srow dim">{t('noProviders')}</div>
             )}
@@ -177,10 +215,11 @@ export default function SettingsModal(): React.JSX.Element | null {
                 </button>
               </div>
             ))}
-          </section>
+          </div>
+        )}
 
-          <section>
-            <h3>{t('agentHooks')}</h3>
+        {section === 'hooks' && (
+          <div className="scard">
             {hooks.length === 0 && <div className="srow dim">{t('noHookableProviders')}</div>}
             {hooks.map((h) => (
               <div className="srow" key={h.id}>
@@ -214,8 +253,8 @@ export default function SettingsModal(): React.JSX.Element | null {
                 )}
               </div>
             ))}
-          </section>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
