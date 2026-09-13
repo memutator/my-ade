@@ -87,6 +87,11 @@ export interface EditorPaneState extends PaneBase {
   type: 'editor'
   tabs: EditorTab[]
   activeTabId?: string
+  /** show the pane's own file tree column (works docked, floating, detached) */
+  treeOpen?: boolean
+  /** the pane tree's root dir — independent of the workspace's project; falls
+   *  back to the project path, materialized onto the pane on float/detach */
+  treeRoot?: string
 }
 
 export interface TodoPaneState extends PaneBase {

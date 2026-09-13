@@ -8,7 +8,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { EventLogTailer, eventsFilePath, appendEvent, AgentHookEvent } from './eventsFile'
-import { hookStatuses, installHook } from './hookInstallers'
+import { hookStatuses, installHook, refreshInstalledHooks } from './hookInstallers'
 
 function resourceFile(name: string): string {
   if (is.dev) return join(app.getAppPath(), 'resources', name)
@@ -18,6 +18,9 @@ function resourceFile(name: string): string {
 let tailer: EventLogTailer | null = null
 
 export function startEventIngest(getWindow: () => BrowserWindow | null): void {
+  // keep ade-owned hook artifacts (script copy, grok hook file, opencode
+  // plugin) in sync with the shipped version before events start flowing
+  refreshInstalledHooks(resourceFile('ade-hook.cjs'), resourceFile('ade-opencode-plugin.js'))
   tailer?.stop()
   tailer = new EventLogTailer(
     eventsFilePath(),

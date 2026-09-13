@@ -10,7 +10,11 @@ splittable pane layout scoped to a project directory.
 - **workspace** = a tab = one split-pane layout, belongs to a project (`project:workspace = 1:N`).
   All workspaces across projects share the single `WorkspaceStrip` in the title bar.
   Switching happens only via workspace tabs; project is chosen when creating a workspace.
-- Terminal cwd and the file-tree root come from the workspace's `project.path`.
+- Terminal cwd defaults to the workspace's `project.path`. File-tree roots are
+  re-pickable via `TreeRootMenu` (MRU `treeRoots` → other projects → dir
+  picker): the sidebar/peek-overlay share `sidebarRoots[projectId]` (default
+  `project.path`), while an editor pane owns `pane.treeRoot` (default project
+  path, materialized onto the pane on float/detach).
 - **terminal pane** owns an internal `TabStrip` of shell tabs (`tabs[]` +
   `activeTabId`); every tab keeps a mounted xterm + live pty in the background,
   and closing the last tab closes the pane. New tabs spawn in `project.path`.
@@ -30,7 +34,14 @@ splittable pane layout scoped to a project directory.
   its session explicitly before clearing `pty`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
   Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
-  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted.
+  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted. A `treeOpen`
+  toggle shows a resizable `FileTree` column beside the tabs — docked, floating,
+  and detached alike — rooted at `pane.treeRoot`. Closing the last tab closes
+  the pane (`closeFilesUnder` does the same when a tree delete empties it).
+- **closing the last tab of any pane closes the pane** (terminal, editor,
+  browser). In a detached window the close routes through `pane:cmd` → the
+  main store's `closePane`, which kills detached ptys and tears the window
+  down via `closeDetached`.
 - **todo items** live per project (`todos: Record<projectId, TodoItem[]>`) — checklist
   with `todo`/`doing`/`done`, arbitrary `parentId` depth, `dependsOn` blocking, drag
   reorder. Surfaced as a sidebar section and as a `'todo'` pane type.
@@ -74,20 +85,25 @@ splittable pane layout scoped to a project directory.
   disk-caches under `userData/agent-icons/`, returns a data URL; `AgentIcon.tsx`
   falls back to a brand-colored letter monogram.
 - **agent hooks** (`src/main/hooks.ts` + `hookInstallers.ts` + `eventsFile.ts`):
-  per-harness Stop/idle hooks append NDJSON events to a userData file; a tailer
-  forwards them to the renderer as `agent:event` (`turn-complete` / `needs-input`
-  → notification). Installers: codex (`~/.codex/config.toml` notify), grok
-  (`~/.grok/hooks/ade.json`), devin (`~/.config/devin/config.json`), zcode
-  (`~/.zcode/cli/config.json`), opencode (plugin). `hooks:test` writes a synthetic
-  event through the real channel — the Settings "agent hooks" section has
-  status/install/test per provider. Process-detection idle is the fallback.
-  Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run UUID set in
-  main): the env chain is pty-host → spawned shell → agent → hook. The tailer
-  stamps `ours` (`adeSession === ours`) instead of dropping foreign events;
-  the renderer applies the policy: ours → always notify, foreign → notify
-  only when the event's cwd sits inside a registered project (agents in
-  unrelated dirs stay silent — hooks are global, so every codex run on the
-  machine appends here).
+  per-harness hooks append NDJSON events to `~/.config/ade/agent-events.log`;
+  a tailer forwards them to the renderer as `agent:event`. `ade-hook.cjs`
+  normalizes every harness into one taxonomy — `turn-complete` / `needs-input`
+  / `error` notify, `idle` / `turn-cancelled` / `turn-start` /
+  `session-start` / `session-end` are tracking-only. Installers: codex
+  (`~/.codex/config.toml` notify), grok (`~/.grok/hooks/ade.json` — Stop,
+  StopCancelled→error-or-silent, StopFailure→error, Notification classified by
+  `notificationType`: `permission_prompt`→needs-input, `idle_prompt`→idle),
+  claude (`~/.claude/settings.json` Stop+Notification), devin/zcode
+  (Stop+PermissionRequest), opencode (plugin: session.idle/error,
+  permission/question.asked). `hooks:test` writes a synthetic event through the
+  real channel — the Settings "agent hooks" section has status/install/test
+  per provider. Process-detection idle is the fallback. Events carry
+  `adeSession` (`process.env.ADE_SESSION`, a per-run UUID set in main): the env
+  chain is pty-host → spawned shell → agent → hook. The tailer stamps `ours`
+  (`adeSession === ours`); the renderer drops every event that isn't ours —
+  hooks are global so agents in foreign terminals never notify. Ade-owned hook
+  artifacts (script copy, grok's hook file, opencode plugin) refresh to the
+  shipped version on app start; user-owned configs need a re-Install click.
 - **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,

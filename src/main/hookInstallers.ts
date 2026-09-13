@@ -134,13 +134,23 @@ const PROVIDERS: ProviderDef[] = [
     id: 'claude',
     label: 'Claude',
     bin: 'claude',
-    mechanism: 'Stop hook — ~/.claude/settings.json',
+    mechanism: 'Stop + Notification hooks — ~/.claude/settings.json',
     configPath: (home) => path.join(home, '.claude', 'settings.json'),
     installed: (home) => fileMentions(path.join(home, '.claude', 'settings.json'), HOOK_MARK),
-    install: (home, cmd) =>
-      appendJsonHook(path.join(home, '.claude', 'settings.json'), 'Stop', {
-        hooks: [{ type: 'command', command: cmd, timeout: 10 }]
-      })
+    install: (home, cmd) => {
+      const file = path.join(home, '.claude', 'settings.json')
+      const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
+      // Stop = turn end; Notification = permission prompts / idle waits.
+      // Installing both gives each event once — grok/devin compat-load this
+      // file too, but the script relabels provider by env and the tailer
+      // dedupes the double fire.
+      const r = appendJsonHook(file, 'Stop', group)
+      const r2 = appendJsonHook(file, 'Notification', group)
+      return {
+        ok: r.ok && r2.ok,
+        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+      }
+    }
   },
   {
     id: 'codex',
@@ -220,7 +230,7 @@ const PROVIDERS: ProviderDef[] = [
     id: 'grok',
     label: 'Grok',
     bin: 'grok',
-    mechanism: 'Stop + idle hooks — ~/.grok/hooks/ade.json',
+    mechanism: 'Stop/StopCancelled/StopFailure + Notification hooks — ~/.grok/hooks/ade.json',
     configPath: (home) => path.join(home, '.grok', 'hooks', 'ade.json'),
     installed: (home) => fileMentions(path.join(home, '.grok', 'hooks', 'ade.json'), HOOK_MARK),
     install: (home, cmd) => {
@@ -231,11 +241,22 @@ const PROVIDERS: ProviderDef[] = [
           Stop: [{ hooks: [{ type: 'command', command: cmd, timeout: 10 }] }],
           StopCancelled: [{ hooks: [{ type: 'command', command: cmd }] }],
           StopFailure: [{ hooks: [{ type: 'command', command: cmd }] }],
-          Notification: [{ matcher: 'idle_prompt', hooks: [{ type: 'command', command: cmd }] }]
+          // no matcher: the hook script classifies notificationType itself —
+          // permission_prompt → needs-input, idle_prompt → silent backstop
+          Notification: [{ hooks: [{ type: 'command', command: cmd }] }]
         }
       }
+      const text = JSON.stringify(doc, null, 2) + '\n'
+      try {
+        if (fs.readFileSync(file, 'utf8') === text) {
+          return { ok: true, detail: 'already installed' }
+        }
+      } catch {
+        /* fresh file */
+      }
       fs.mkdirSync(path.dirname(file), { recursive: true })
-      fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8')
+      backup(file)
+      fs.writeFileSync(file, text, 'utf8')
       return { ok: true }
     }
   },
@@ -243,35 +264,50 @@ const PROVIDERS: ProviderDef[] = [
     id: 'devin',
     label: 'Devin',
     bin: 'devin',
-    mechanism: 'Stop hook — ~/.config/devin/config.json',
+    mechanism: 'Stop + PermissionRequest hooks — ~/.config/devin/config.json',
     configPath: (home) => path.join(configHome(home), 'devin', 'config.json'),
     installed: (home) =>
       fileMentions(path.join(configHome(home), 'devin', 'config.json'), HOOK_MARK),
-    install: (home, cmd) =>
-      appendJsonHook(path.join(configHome(home), 'devin', 'config.json'), 'Stop', {
+    install: (home, cmd) => {
+      const file = path.join(configHome(home), 'devin', 'config.json')
+      const r = appendJsonHook(file, 'Stop', {
         hooks: [{ type: 'command', command: cmd, timeout: 10 }]
       })
+      // passive observer: the script prints no decision, so the normal
+      // permission prompt still runs — ade just gets told it's waiting
+      const r2 = appendJsonHook(file, 'PermissionRequest', {
+        hooks: [{ type: 'command', command: cmd }]
+      })
+      return {
+        ok: r.ok && r2.ok,
+        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+      }
+    }
   },
   {
     id: 'zcode',
     label: 'ZCode',
     bin: 'zcode',
-    mechanism: 'Stop hook — ~/.zcode/cli/config.json',
+    mechanism: 'Stop + PermissionRequest hooks — ~/.zcode/cli/config.json',
     configPath: (home) => path.join(home, '.zcode', 'cli', 'config.json'),
     installed: (home) => fileMentions(path.join(home, '.zcode', 'cli', 'config.json'), HOOK_MARK),
-    install: (home, cmd) =>
-      appendJsonHook(
-        path.join(home, '.zcode', 'cli', 'config.json'),
-        'Stop',
-        { hooks: [{ type: 'command', command: cmd }] },
-        { eventsKey: true, enable: true }
-      )
+    install: (home, cmd) => {
+      const file = path.join(home, '.zcode', 'cli', 'config.json')
+      const group = { hooks: [{ type: 'command', command: cmd }] }
+      const opts = { eventsKey: true, enable: true }
+      const r = appendJsonHook(file, 'Stop', group, opts)
+      const r2 = appendJsonHook(file, 'PermissionRequest', group, opts)
+      return {
+        ok: r.ok && r2.ok,
+        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+      }
+    }
   },
   {
     id: 'opencode',
     label: 'OpenCode',
     bin: 'opencode',
-    mechanism: 'plugin session.idle — ~/.config/opencode/plugins',
+    mechanism: 'plugin session.idle/error + permission/question.asked — ~/.config/opencode/plugins',
     configPath: (home) => path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
     installed: (home) =>
       fileMentions(
@@ -281,6 +317,14 @@ const PROVIDERS: ProviderDef[] = [
     install: (home, _cmd, _argv, pluginSrc) => {
       const dest = path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js')
       fs.mkdirSync(path.dirname(dest), { recursive: true })
+      let same = false
+      try {
+        same = fs.readFileSync(dest, 'utf8') === fs.readFileSync(pluginSrc, 'utf8')
+      } catch {
+        /* dest absent or unreadable */
+      }
+      if (same) return { ok: true, detail: 'already installed' }
+      backup(dest)
       fs.copyFileSync(pluginSrc, dest)
       return { ok: true }
     }
@@ -341,5 +385,32 @@ export function installHook(
     return p.install(home, cmd, argv, pluginSrc)
   } catch (e) {
     return { ok: false, error: String(e instanceof Error ? e.message : e) }
+  }
+}
+
+// Refresh ade-owned hook artifacts at startup. The hook script copy under
+// ~/.config/ade and grok's hook file are ours end-to-end, and the opencode
+// plugin file is a file we own inside opencode's plugins dir — all three
+// track the shipped version so fixes land without a re-Install click.
+// User-owned config files (claude settings.json, devin/zcode config.json,
+// codex config.toml) are never touched here — new event registrations for
+// those still require clicking Install again.
+export function refreshInstalledHooks(
+  hookScriptSrc: string,
+  pluginSrc: string,
+  home: string = os.homedir()
+): void {
+  try {
+    const dest = ensureHookCopy(home, hookScriptSrc)
+    for (const id of ['grok', 'opencode']) {
+      const p = PROVIDERS.find((x) => x.id === id)
+      try {
+        if (p?.installed(home)) p.install(home, hookCommand(dest, p.id), [], pluginSrc)
+      } catch {
+        /* best-effort */
+      }
+    }
+  } catch {
+    /* best-effort */
   }
 }

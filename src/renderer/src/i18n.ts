@@ -58,6 +58,7 @@ const en = {
 
   // editor pane
   openFileTooltip: 'Open file…',
+  fileTree: 'File tree',
   noFileOpen: 'no file open',
   openFile: 'open file…',
   saveFailed: 'save failed: {name}',
@@ -257,6 +258,7 @@ const ko: Record<TKey, string> = {
   ptyError: 'pty 오류',
 
   openFileTooltip: '파일 열기…',
+  fileTree: '파일 트리',
   noFileOpen: '열린 파일 없음',
   openFile: '파일 열기…',
   saveFailed: '저장 실패: {name}',

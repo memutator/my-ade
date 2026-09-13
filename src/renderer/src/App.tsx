@@ -144,7 +144,9 @@ export default function App(): React.JSX.Element {
           sidebarOpen: s.sidebarOpen,
           bookmarks: s.bookmarks,
           todos: s.todos,
-          agentSessions: s.agentSessions
+          agentSessions: s.agentSessions,
+          treeRoots: s.treeRoots,
+          sidebarRoots: s.sidebarRoots
         })
       }, 400)
     })
@@ -190,6 +192,10 @@ export default function App(): React.JSX.Element {
         if (ev.sessionId) st.renameAgentSession(ev.sessionId, ev.name ?? '')
         return
       }
+      // hooks are installed globally, so agents launched in terminals outside
+      // ade (no ADE_SESSION in their env) append here too — never notify for
+      // those, not even when their cwd happens to sit inside a project
+      if (!ev.ours) return
       const { ws, paneId, tabId, tab } = resolveHookTarget(st, ev.cwd)
       // track the session ↔ tab association so renames and notification
       // labels can resolve this sessionId later
@@ -202,17 +208,17 @@ export default function App(): React.JSX.Element {
           tabId
         })
       }
-      if (ev.event !== 'turn-complete' && ev.event !== 'needs-input') return
+      if (!NOTIFY_EVENTS.has(ev.event)) return
       if (st.settings.providers[ev.provider] === false) return
-      // foreign sessions (hook ran outside ade — global hooks append here too):
-      // notify only when the agent worked inside a registered project; agents
-      // in unrelated dirs stay silent
-      if (!ev.ours && !ws) return
       const wsId = ws?.id ?? st.activeWorkspaceId
       const label = agentLabel(ev.provider)
       const title = translate(
         st.settings.language,
-        ev.event === 'needs-input' ? 'agentNeedsInput' : 'agentFinished',
+        ev.event === 'needs-input'
+          ? 'agentNeedsInput'
+          : ev.event === 'error'
+            ? 'agentError'
+            : 'agentFinished',
         { agent: label }
       )
       const session =

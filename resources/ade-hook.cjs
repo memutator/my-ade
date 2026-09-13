@@ -47,8 +47,13 @@ function resolveProvider(argProvider) {
   return argProvider || 'unknown'
 }
 
-// Map each harness's raw hook event name to an ade event.
-function normalizeEvent(raw, fallback) {
+// Map each harness's raw hook event name to an ade event. Three kinds notify —
+// `turn-complete`, `needs-input`, `error`; everything else is tracking-only:
+// `turn-start`, `session-start`, `session-end`, `turn-cancelled` (user stopped
+// the turn themselves), `idle` (grok's post-settle backstop ping — redundant
+// with the turn-end report), `other`, `session-rename` (renderer-internal).
+function normalizeEvent(raw, fallback, payload) {
+  const p = payload && typeof payload === 'object' ? payload : {}
   const name = String(raw || fallback || '')
     .trim()
     .toLowerCase()
@@ -57,12 +62,45 @@ function normalizeEvent(raw, fallback) {
     case 'stop':
     case 'stopped':
     case 'agentturncomplete':
-    case 'stopcancelled':
-    case 'stopfailure':
     case 'taskcomplete':
       return 'turn-complete'
-    case 'notification':
-      return 'turn-complete' // grok idle_prompt / permission pings settle the turn
+    case 'stopfailure':
+      return 'error'
+    case 'stopcancelled': {
+      // cancelledBy === 'user' (or a user-* reason) = the user stopped it —
+      // they know; runtime cancels (max_turns, no_progress, …) are failures
+      const by = String(p.cancelledBy || p.cancelled_by || '').toLowerCase()
+      const reason = String(p.reason || '').toLowerCase()
+      const userish =
+        by === 'user' ||
+        reason === 'user_interrupt' ||
+        reason === 'permission_rejected' ||
+        reason === 'permission_cancelled'
+      return userish ? 'turn-cancelled' : 'error'
+    }
+    case 'notification': {
+      // grok discriminates by notificationType; claude only sends a display
+      // message, so fall back to matching its idle phrasing
+      const ntype = String(
+        firstString(p.notificationType, p.notification_type, p.notifType)
+      )
+        .toLowerCase()
+        .replace(/[\s_-]/g, '')
+      if (ntype === 'idleprompt') return 'idle'
+      if (ntype === 'taskcomplete') return 'turn-complete'
+      if (ntype) return 'needs-input' // permission_prompt + any new attention type
+      const msg = String(firstString(p.message, p.title))
+      return /waiting for your input|idle/i.test(msg) ? 'idle' : 'needs-input'
+    }
+    case 'permissionrequest':
+    case 'permissionprompt':
+    case 'permissionneeded':
+    case 'elicitation':
+    case 'questionasked':
+    case 'question':
+      return 'needs-input'
+    case 'permissiondenied':
+      return 'other' // policy auto-deny — the agent keeps going
     case 'sessionstart':
       return 'session-start'
     case 'sessionend':
@@ -90,7 +128,8 @@ function buildEvent(provider, argEvent, payload) {
   const p = payload && typeof payload === 'object' ? payload : {}
   let event = normalizeEvent(
     p.hook_event_name || p.hookEventName || p.type || p.event,
-    argEvent
+    argEvent,
+    p
   )
   // grok fires an extra observe-only Stop at teardown; reclassify it.
   if (
@@ -117,15 +156,42 @@ function buildEvent(provider, argEvent, payload) {
     p.threadId,
     process.env.GROK_SESSION_ID
   )
+  const tool = firstString(p.tool_name, p.toolName, p.tool)
+  const toolInput = p.tool_input || p.toolInput
+  const toolCmd = clip(
+    toolInput && typeof toolInput === 'object' ? firstString(toolInput.command) : '',
+    80
+  )
+  const cause = firstString(p.error, p.errorType, p.error_type, p.reason)
+  const detail = firstString(
+    p['last-assistant-message'],
+    p.lastAssistantMessage,
+    p.last_assistant_message,
+    p.errorDetails,
+    p.error_details,
+    p.reasonDetails,
+    p.reason_details,
+    p.message
+  )
   const message = clip(
-    firstString(
-      p['last-assistant-message'],
-      p.lastAssistantMessage,
-      p.last_assistant_message,
-      p.responsePreview,
-      p.responseText,
-      p.message
-    ),
+    event === 'needs-input'
+      ? // permission/question payloads name the ask, not an answer — claude and
+        // grok put display text in `message`, devin/zcode put `tool_name`
+        firstString(p.message, p.title, toolCmd ? `${tool}: ${toolCmd}` : tool, p.reason)
+      : event === 'error'
+        ? // prefix the classified cause (rate_limit, max_turns, …) when the
+          // detail doesn't already lead with it
+          cause && detail && !detail.startsWith(cause)
+          ? `${cause}: ${detail}`
+          : detail || cause
+        : firstString(
+            p['last-assistant-message'],
+            p.lastAssistantMessage,
+            p.last_assistant_message,
+            p.responsePreview,
+            p.responseText,
+            p.message
+          ),
     300
   )
   return {

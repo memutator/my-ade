@@ -39,7 +39,7 @@ An agent→idle transition counts as a finished turn and fires an **in-app
 notification plus an OS notification**; clicking either jumps straight to the
 workspace/pane/tab that produced it. Per-provider toggles and the OS-
 notification switch live in **Settings → agents & notifications**, which also
-offers real per-harness hooks (turn-complete / needs-input) for supported
+offers real per-harness hooks (turn-complete / needs-input / error) for supported
 CLIs — process detection is the fallback.
 
 Sessions survive minimize, float, and detach — remounts reattach to the same

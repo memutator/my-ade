@@ -40,12 +40,20 @@ export function appendEvent(ev: AgentHookEvent, file: string = eventsFilePath())
   fs.appendFileSync(file, JSON.stringify({ v: 1, ...ev, ts: ev.ts ?? Date.now() }) + '\n')
 }
 
-const DEDUPE_MS = 45_000
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 
-// Tails an append-only NDJSON file. Dedupes `turn-complete` bursts caused by
-// compat-loaded hooks firing twice for one harness (grok/devin read
-// ~/.claude/settings.json too) and by grok's idle_prompt backstop ping.
+// Notifying events dedupe on provider+session+cwd+kind+message: compat-loaded
+// hooks (grok/devin also read ~/.claude/settings.json) re-emit the identical
+// payload ~0 ms apart, while genuinely distinct turns/prompts carry different
+// messages and must not collapse. turn-complete keeps a wide window — a turn
+// can never legitimately end twice in 45 s; needs-input/error stay short so a
+// re-asked permission or a retried failure still surfaces.
+const DEDUPE_MS: Record<string, number> = {
+  'turn-complete': 45_000,
+  'needs-input': 10_000,
+  error: 10_000
+}
+
 export class EventLogTailer {
   private offset = 0
   private pending = ''
@@ -142,18 +150,18 @@ export class EventLogTailer {
     }
     if (!ev || typeof ev.provider !== 'string' || typeof ev.event !== 'string') return
     // hooks are installed globally, so agents launched in other terminals (or
-    // another ade instance) also append here — don't drop them though: the
-    // renderer owns the projects list and applies the real policy (ours →
-    // always; foreign → only when the cwd sits inside a registered project)
+    // another ade instance) also append here — the renderer drops everything
+    // that isn't `ours` (foreign sessions never notify)
     ev.ours = !!process.env.ADE_SESSION && ev.adeSession === process.env.ADE_SESSION
     const ts = typeof ev.ts === 'number' ? ev.ts : Date.now()
-    if (ev.event === 'turn-complete') {
-      const key = `${ev.provider}|${ev.sessionId || ''}|${ev.cwd || ''}|${ev.event}`
+    const window = DEDUPE_MS[ev.event]
+    if (window) {
+      const key = `${ev.provider}|${ev.sessionId || ''}|${ev.cwd || ''}|${ev.event}|${ev.message || ''}`
       const last = this.recent.get(key)
-      if (last !== undefined && ts - last < DEDUPE_MS) return
+      if (last !== undefined && ts - last < window) return
       this.recent.set(key, ts)
       if (this.recent.size > 500) {
-        const cutoff = ts - DEDUPE_MS
+        const cutoff = ts - window
         for (const [k, t] of this.recent) if (t < cutoff) this.recent.delete(k)
       }
     }

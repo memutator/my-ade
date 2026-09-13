@@ -231,7 +231,8 @@ clicking either jumps to workspace/pane/tab):
 1. **Process detection** — pty-host `{t:'agent'}` events; an agent→idle
    transition fires `agentFinished` (the completion proxy).
 2. **Harness hooks** — installed per-provider hooks append NDJSON to
-   `userData/agent-events.log`; the main-process tailer stamps `ours`
+   `~/.config/ade/agent-events.log`; the main-process tailer stamps `ours`
    (`adeSession === ADE_SESSION`) and forwards `agent:event`. Renderer policy:
-   ours → always notify; foreign → notify only when the event's cwd sits
-   inside a registered project.
+   `turn-complete`/`needs-input`/`error` notify, and only for `ours` events —
+   foreign sessions (agents launched outside ade; hooks are global) are
+   dropped before they can notify.

@@ -1215,6 +1215,17 @@ export const useStore = create<AdeState>((set, get) => {
       }),
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+    setSidebarRoot: (projectId, path) =>
+      set((s) => ({
+        sidebarRoots: { ...s.sidebarRoots, [projectId]: path }
+      })),
+
+    // file-tree root MRU — every root picker feeds this so the dropdown can
+    // offer recently-opened dirs first (cap keeps it tidy)
+    pushTreeRoot: (path) =>
+      set((s) => ({ treeRoots: [path, ...s.treeRoots.filter((p) => p !== path)].slice(0, 10) })),
+
     setTreeOverlayOpen: (open) => set({ treeOverlayOpen: open }),
     setNotifOpen: (open) => set({ notifOpen: open }),
     setSettingsOpen: (open) => set({ settingsOpen: open }),
