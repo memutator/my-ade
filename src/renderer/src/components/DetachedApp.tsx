@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDownToLine, FolderTree, Minus, Pin, PinOff, Square, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { comboOf, effectiveBindings } from '../shortcuts'
 import type { PaneState } from '../types'
 import { PaneFor } from './SplitView'
 import Tooltip from './Tooltip'
@@ -86,17 +87,27 @@ export default function DetachedApp({
     return unsub
   }, [wsId, paneId])
 
-  // sidebar (Alt+X) + tree overlay (Alt+O) shortcuts, same keys as the main
-  // window — the store is per-window so toggles here stay local
+  // sidebar + tree overlay shortcuts — resolved through the shared binding
+  // table so user remaps apply here too (the store is per-window, so the
+  // toggles stay local)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'x') {
-        setSidebarOpen(!useStore.getState().sidebarOpen)
+      const st = useStore.getState()
+      const combo = comboOf({
+        key: e.key,
+        alt: e.altKey,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        meta: e.metaKey
+      })
+      const b = effectiveBindings(st.settings)
+      if (combo === b['sidebar.toggle']) {
+        setSidebarOpen(!st.sidebarOpen)
         e.preventDefault()
-      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'o') {
-        setTreeOverlay(!useStore.getState().treeOverlayOpen)
+      } else if (combo === b['tree.toggle']) {
+        setTreeOverlay(!st.treeOverlayOpen)
         e.preventDefault()
-      } else if (e.key === 'Escape' && useStore.getState().treeOverlayOpen) {
+      } else if (e.key === 'Escape' && st.treeOverlayOpen) {
         setTreeOverlay(false)
       }
     }

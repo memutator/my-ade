@@ -3,7 +3,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,9 +12,9 @@ import {
   type MouseEvent as ReactMouseEvent
 } from 'react'
 import { create } from 'zustand'
-import { createPortal } from 'react-dom'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import type { DirEntry } from '../types'
+import { Popup } from './Menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useFileIcon } from '../fileIcons'
@@ -150,65 +149,27 @@ function ContextMenu({
   items: CtxItem[]
   onClose: () => void
 }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ left: x, top: y })
-
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    setPos({
-      left: Math.min(x, window.innerWidth - r.width - 4),
-      top: Math.min(y, window.innerHeight - r.height - 4)
-    })
-  }, [x, y])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
-
-  return createPortal(
-    <>
-      {/* a focused <webview> swallows real clicks — the catcher is what closes
-          the menu there (same trick as the workspace dropdown) */}
-      <div
-        className="click-catcher"
-        style={{ zIndex: 91 }}
-        onMouseDown={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          onClose()
-        }}
-      />
-      <div ref={ref} className="ctxmenu" style={pos}>
-        {items.map((it, i) =>
-          it.sep ? (
-            <div key={i} className="ctx-sep" />
-          ) : (
-            <button
-              key={i}
-              className={`ctx-item${it.danger ? ' danger' : ''}`}
-              disabled={it.disabled}
-              onClick={() => {
-                onClose()
-                it.act?.()
-              }}
-            >
-              <span>{it.label}</span>
-              {it.hint && <kbd>{it.hint}</kbd>}
-            </button>
-          )
-        )}
-      </div>
-    </>,
-    document.body
+  return (
+    <Popup pos={{ left: x, top: y }} onClose={onClose} className="ctxmenu">
+      {items.map((it, i) =>
+        it.sep ? (
+          <div key={i} className="ctx-sep" />
+        ) : (
+          <button
+            key={i}
+            className={`ctx-item${it.danger ? ' danger' : ''}`}
+            disabled={it.disabled}
+            onClick={() => {
+              onClose()
+              it.act?.()
+            }}
+          >
+            <span>{it.label}</span>
+            {it.hint && <kbd>{it.hint}</kbd>}
+          </button>
+        )
+      )}
+    </Popup>
   )
 }
 

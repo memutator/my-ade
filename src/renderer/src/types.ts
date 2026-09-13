@@ -141,6 +141,9 @@ export interface Settings {
   termFont: string
   termFontSize: number
   editorFont: string
+  /** user keybinding overrides — action id → combo ('mod+mod+key', '' = unbound).
+      Action ids live in shortcuts.ts (DEFAULT_BINDINGS keys). */
+  bindings?: Record<string, string>
   language: Language
   homeUrl: string
   osNotifications: boolean

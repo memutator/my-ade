@@ -2633,6 +2633,8 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   bottom: 0;
   z-index: 60;
   display: flex;
+  /* nav + content center as one group instead of hugging the left edge */
+  justify-content: center;
   background: var(--tab-active);
 }
 
@@ -2708,10 +2710,17 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
 }
 
 .spage-body {
-  flex: 1;
+  flex: 0 1 720px;
   min-width: 0;
   overflow-y: auto;
   padding: 20px 26px 40px;
+}
+
+/* the content column inside the scroll area — centered within .spage-body */
+.spage-col {
+  width: 100%;
+  max-width: 580px;
+  margin: 0 auto;
 }
 
 .spage-h {

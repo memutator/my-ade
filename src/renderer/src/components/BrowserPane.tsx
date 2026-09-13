@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ChevronDown, Globe, Plus, RotateCw, Star, X } fr
 import type { Bookmark, BrowserPaneState, BrowserTab } from '../types'
 import { useStore } from '../store'
 import { useT, translate } from '../i18n'
-import { applyShortcut } from '../shortcuts'
+import { applyShortcut, effectiveBindings } from '../shortcuts'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 
@@ -101,6 +101,7 @@ function BrowserTabView({
   const retriesRef = useRef(0)
   const retryTimerRef = useRef<number | undefined>(undefined)
   const syncRef = useRef<() => void>(() => {})
+  const bindings = useStore((s) => s.settings.bindings)
   const [error, setError] = useState<string | null>(null)
   // src is frozen at mount — later navigations use loadURL only, so the
   // webview never double-loads when tab.url changes
@@ -256,7 +257,20 @@ function BrowserTabView({
     // dom-ready may already have fired (StrictMode remount) — probe now
     syncUrl()
     reportNav()
+
+    // push the effective keybinding list so the guest preload forwards custom
+    // (non-Alt) combos too — re-runs when the user edits bindings
+    const pushBindings = (): void => {
+      try {
+        wv.send('ade:bindings', Object.values(effectiveBindings(useStore.getState().settings)))
+      } catch {
+        /* not dom-ready yet — the listener below covers the initial attach */
+      }
+    }
+    wv.addEventListener('dom-ready', pushBindings)
+    pushBindings()
     return () => {
+      wv.removeEventListener('dom-ready', pushBindings)
       syncRef.current = () => {}
       if (retryTimerRef.current !== undefined) {
         clearTimeout(retryTimerRef.current)
@@ -273,7 +287,7 @@ function BrowserTabView({
       wv.removeEventListener('render-process-gone', onGone)
       wv.removeEventListener('new-window', onNewWindow as EventListener)
     }
-  }, [wsId, paneId, tab.id, desiredUrl, reportNav, wvEl])
+  }, [wsId, paneId, tab.id, desiredUrl, reportNav, wvEl, bindings])
 
   // desired url lives in the store — re-sync the webview when it changes
   useEffect(() => {

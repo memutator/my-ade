@@ -1,5 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useRef, type ReactNode } from 'react'
 import {
   Columns2,
   Minus,
@@ -17,6 +16,7 @@ import { startPaneDrag } from '../paneDnd'
 import { isDetachedWin } from '../detached'
 import { useFloatCtx } from './floatCtx'
 import Tooltip from './Tooltip'
+import { Dropdown } from './Menu'
 
 export default function PaneFrame({
   pane,
@@ -145,55 +145,25 @@ export default function PaneFrame({
   )
 }
 
-// One ⋯ trigger opens a fixed-position popover on hover — portal-mounted so a
-// short pane's overflow:hidden can't clip it. A close-delay bridges the gap
-// between the trigger and the floating card while the pointer crosses.
+// One ⋯ trigger opens a hover Dropdown — portal-mounted so a short pane's
+// overflow:hidden can't clip it; right-aligned to the trigger like before.
 function PactMenu({ label, children }: { label: string; children: ReactNode }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-  const anchorRef = useRef<HTMLDivElement>(null)
-  const closeT = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const openNow = (): void => {
-    if (closeT.current) clearTimeout(closeT.current)
-    closeT.current = null
-    if (anchorRef.current) {
-      const r = anchorRef.current.getBoundingClientRect()
-      setPos({
-        top: r.bottom + 5,
-        left: Math.max(4, Math.min(r.right - 176, window.innerWidth - 184))
-      })
-    }
-    setOpen(true)
-  }
-  const closeSoon = (): void => {
-    if (closeT.current) clearTimeout(closeT.current)
-    closeT.current = setTimeout(() => setOpen(false), 140)
-  }
-
   return (
-    <div className="pact" data-nodrag onMouseEnter={openNow} onMouseLeave={closeSoon}>
-      <div ref={anchorRef} className="pact-anchor">
-        <Tooltip label={label}>
-          <button className="pbtn">
-            <MoreVertical />
-          </button>
-        </Tooltip>
-      </div>
-      {open &&
-        pos &&
-        createPortal(
-          <div
-            className="pact-card"
-            style={{ top: pos.top, left: pos.left }}
-            onMouseEnter={openNow}
-            onMouseLeave={closeSoon}
-            onClick={() => setOpen(false)}
-          >
-            {children}
-          </div>,
-          document.body
-        )}
-    </div>
+    <span className="pact" data-nodrag>
+      <Dropdown
+        mode="hover"
+        align="end"
+        panelClassName="pact-card"
+        trigger={
+          <Tooltip label={label}>
+            <button className="pbtn">
+              <MoreVertical />
+            </button>
+          </Tooltip>
+        }
+      >
+        {children}
+      </Dropdown>
+    </span>
   )
 }

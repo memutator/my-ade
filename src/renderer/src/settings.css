@@ -14,8 +14,12 @@
   color: var(--text-faint);
 }
 
-/* dropdown matching .sinput */
-.sselect {
+/* custom Select (Menu.tsx) — trigger matches .sinput, panel is a portaled
+   Popup so it can float above the settings overlay */
+.sel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 26px;
   padding: 0 8px;
   border: 1px solid var(--border-strong);
@@ -27,8 +31,41 @@
   outline: none;
   cursor: pointer;
 }
-.sselect:focus {
-  border-color: var(--accent);
+.sel:hover {
+  border-color: var(--text-faint);
+}
+.sel svg {
+  width: 12px;
+  height: 12px;
+  color: var(--text-faint);
+}
+.sel-pop {
+  z-index: 200;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.sel-item {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sel-item:hover {
+  background: var(--hover);
+}
+.sel-item.on {
+  color: var(--accent);
 }
 
 /* label + small description stacked in a settings row */
@@ -47,9 +84,49 @@
   color: var(--text-faint);
 }
 
-/* shortcuts reference table */
+/* shortcuts table — editable rows use .sc-bind (button styled like .sc-keys),
+   fixed rows keep plain kbd */
+.sc-head {
+  max-width: 580px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
 .sc-row {
   justify-content: space-between;
+}
+.sc-bind {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sc-bind:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.sc-bind.rec {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: sc-pulse 1s ease-in-out infinite;
+}
+.sc-bind.unbound {
+  color: var(--text-faint);
+  border-style: dashed;
+}
+@keyframes sc-pulse {
+  50% {
+    opacity: 0.55;
+  }
 }
 .sc-keys {
   flex-shrink: 0;

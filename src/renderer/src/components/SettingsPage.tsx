@@ -1,18 +1,19 @@
 import { Fragment, useEffect, useState } from 'react'
-import {
-  ArrowLeft,
-  Bookmark as BookmarkIcon,
-  Bot,
-  Globe,
-  Keyboard,
-  Palette,
-  Trash2
-} from 'lucide-react'
+import { ArrowLeft, Bot, Globe, Keyboard, Palette, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import type { TKey } from '../i18n'
 import { loadAgentManifest } from '../agents'
 import AgentIcon from './AgentIcon'
+import { Select } from './Menu'
+import {
+  comboOf,
+  effectiveBindings,
+  formatCombo,
+  isKeyCapturing,
+  setKeyCapture,
+  type ShortcutAction
+} from '../shortcuts'
 import type { AgentHookStatus, AgentProviderInfo, Language, Theme } from '../types'
 import '../settings.css'
 
@@ -24,57 +25,131 @@ const LANG_LABELS: Record<Language, string> = {
   ko: '한국어'
 }
 
-type Section = 'appearance' | 'browser' | 'bookmarks' | 'agents' | 'shortcuts'
+type Section = 'appearance' | 'browser' | 'agents' | 'shortcuts'
 
-const SECTIONS: Section[] = ['appearance', 'browser', 'bookmarks', 'agents', 'shortcuts']
+const SECTIONS: Section[] = ['appearance', 'browser', 'agents', 'shortcuts']
 
 const SECTION_ICON: Record<Section, React.JSX.Element> = {
   appearance: <Palette />,
   browser: <Globe />,
-  bookmarks: <BookmarkIcon />,
   agents: <Bot />,
   shortcuts: <Keyboard />
 }
 
-// Read-only shortcut reference — keep in sync with shortcuts.ts (dispatch)
-// and FileView's Ctrl+S save.
-const SHORTCUT_GROUPS: { label: TKey; rows: { desc: TKey; keys: string }[] }[] = [
+// shortcut table — `action` rows are editable via KeyCapture, `fixed` rows are
+// hardcoded families/keys (Alt+1…9, Ctrl+Tab) or live outside the dispatcher
+// (Ctrl+S in FileView, Esc handled per-component)
+type ScRow = { desc: TKey; action: ShortcutAction } | { desc: TKey; fixed: string }
+const SHORTCUT_GROUPS: { label: TKey; rows: ScRow[] }[] = [
   {
     label: 'scPanes',
     rows: [
-      { desc: 'scNewPane', keys: 'Alt+T / Alt+B / Alt+E / Alt+L' },
-      { desc: 'scSplit', keys: 'Alt+D / Alt+S' },
-      { desc: 'scClosePane', keys: 'Alt+W' },
-      { desc: 'scMinimize', keys: 'Alt+H' },
-      { desc: 'scFloat', keys: 'Alt+F' },
-      { desc: 'scCycleFocus', keys: 'Alt+] / Alt+[' },
-      { desc: 'scDirFocus', keys: 'Alt+←/→/↑/↓' }
+      { desc: 'scNewTerminal', action: 'pane.newTerminal' },
+      { desc: 'scNewBrowser', action: 'pane.newBrowser' },
+      { desc: 'scNewEditor', action: 'pane.newEditor' },
+      { desc: 'scNewTodo', action: 'pane.newTodo' },
+      { desc: 'scSplitRight', action: 'pane.splitRight' },
+      { desc: 'scSplitDown', action: 'pane.splitDown' },
+      { desc: 'scClosePane', action: 'pane.close' },
+      { desc: 'scMinimize', action: 'pane.minimize' },
+      { desc: 'scFloat', action: 'pane.float' },
+      { desc: 'scFocusNext', action: 'focus.next' },
+      { desc: 'scFocusPrev', action: 'focus.prev' },
+      { desc: 'scFocusLeft', action: 'focus.left' },
+      { desc: 'scFocusRight', action: 'focus.right' },
+      { desc: 'scFocusUp', action: 'focus.up' },
+      { desc: 'scFocusDown', action: 'focus.down' }
     ]
   },
   {
     label: 'scTabs',
     rows: [
-      { desc: 'scNextWs', keys: 'Ctrl+Alt+← / Ctrl+Alt+→' },
-      { desc: 'scWsN', keys: 'Alt+1 … Alt+9' },
-      { desc: 'scPaneTab', keys: 'Ctrl+Tab / Ctrl+Shift+Tab' }
+      { desc: 'scWsNext', action: 'ws.next' },
+      { desc: 'scWsPrev', action: 'ws.prev' },
+      { desc: 'scWsN', fixed: 'Alt+1 … Alt+9' },
+      { desc: 'scPaneTab', fixed: 'Ctrl+Tab / Ctrl+Shift+Tab' }
     ]
   },
   {
     label: 'scWindow',
     rows: [
-      { desc: 'scSidebar', keys: 'Alt+X' },
-      { desc: 'scTreeOverlay', keys: 'Alt+O' }
+      { desc: 'scSidebar', action: 'sidebar.toggle' },
+      { desc: 'scTreeOverlay', action: 'tree.toggle' }
     ]
   },
   {
     label: 'scMisc',
     rows: [
-      { desc: 'scTheme', keys: 'Alt+M' },
-      { desc: 'scSave', keys: 'Ctrl+S' },
-      { desc: 'scEsc', keys: 'Esc' }
+      { desc: 'scTheme', action: 'theme.toggle' },
+      { desc: 'scSave', fixed: 'Ctrl+S' },
+      { desc: 'scEsc', fixed: 'Esc' }
     ]
   }
 ]
+
+// Click → capture mode: next modified key combo becomes the binding, Esc
+// cancels, Backspace/Delete unbinds. A combo is single-owner — recording one
+// steals it from whichever action had it.
+function KeyCapture({ action }: { action: ShortcutAction }): React.JSX.Element {
+  const settings = useStore((s) => s.settings)
+  const { updateSettings } = useStore()
+  const [rec, setRec] = useState(false)
+  const t = useT()
+  const combo = effectiveBindings(settings)[action]
+
+  useEffect(() => {
+    if (!rec) return
+    setKeyCapture(true)
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setRec(false)
+        return
+      }
+      if (e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' || e.key === 'Meta') return
+      if (!e.altKey && !e.ctrlKey && !e.metaKey) {
+        // bare Backspace/Delete unbinds; any other bare key isn't bindable
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          updateSettings({
+            bindings: { ...useStore.getState().settings.bindings, [action]: '' }
+          })
+          setRec(false)
+        }
+        return
+      }
+      const c = comboOf({
+        key: e.key,
+        alt: e.altKey,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        meta: e.metaKey
+      })
+      const next: Record<string, string> = { ...useStore.getState().settings.bindings }
+      const bound = effectiveBindings(useStore.getState().settings)
+      for (const a of Object.keys(bound) as ShortcutAction[]) {
+        if (bound[a] === c && a !== action) next[a] = ''
+      }
+      next[action] = c
+      updateSettings({ bindings: next })
+      setRec(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      setKeyCapture(false)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [rec, action, updateSettings])
+
+  return (
+    <button
+      className={`sc-bind${rec ? ' rec' : ''}${combo ? '' : ' unbound'}`}
+      onClick={() => setRec(true)}
+    >
+      {rec ? t('pressKeys') : formatCombo(combo)}
+    </button>
+  )
+}
 
 // Settings as a full page — slides over the workspace area (terminals stay
 // mounted underneath). Left nav switches sections; content is card-grouped.
@@ -92,7 +167,6 @@ export default function SettingsPage(): React.JSX.Element | null {
   const SECTION_LABEL: Record<Section, string> = {
     appearance: t('appearance'),
     browser: t('browser'),
-    bookmarks: t('bookmarks'),
     agents: t('agentsAndNotif'),
     shortcuts: t('shortcuts')
   }
@@ -106,7 +180,8 @@ export default function SettingsPage(): React.JSX.Element | null {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
+      // while a KeyCapture is recording, Esc cancels the capture — not the page
+      if (e.key === 'Escape' && !isKeyCapturing()) {
         e.stopPropagation()
         setSettingsOpen(false)
       }
@@ -162,235 +237,247 @@ export default function SettingsPage(): React.JSX.Element | null {
         ))}
       </nav>
       <div className="spage-body">
-        <h2 className="spage-h">{SECTION_LABEL[section]}</h2>
+        <div className="spage-col">
+          <h2 className="spage-h">{SECTION_LABEL[section]}</h2>
 
-        {section === 'appearance' && (
-          <div className="scard">
-            <div className="srow">
-              <label>{t('theme')}</label>
-              <div className="seg">
-                {(['dark', 'light', 'system'] as Theme[]).map((v) => (
-                  <button
-                    key={v}
-                    className={settings.theme === v ? 'on' : ''}
-                    onClick={() => updateSettings({ theme: v })}
-                  >
-                    {t(v)}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="srow">
-              <label>{t('language')}</label>
-              <select
-                className="sselect"
-                value={settings.language}
-                onChange={(e) => updateSettings({ language: e.target.value as Language })}
-              >
-                {(['system', 'en', 'ko'] as Language[]).map((v) => (
-                  <option key={v} value={v}>
-                    {v === 'system' ? t('system') : LANG_LABELS[v]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="srow">
-              <label>{t('accent')}</label>
-              <div className="swatches">
-                {ACCENTS.map((c) => (
-                  <button
-                    key={c}
-                    className={`swatch${settings.accent === c ? ' on' : ''}`}
-                    style={{ background: c }}
-                    onClick={() => updateSettings({ accent: c })}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="srow">
-              <label>{t('uiFont')}</label>
-              <input
-                className="sinput"
-                value={settings.uiFont}
-                onChange={(e) => updateSettings({ uiFont: e.target.value })}
-                spellCheck={false}
-              />
-            </div>
-            <div className="srow">
-              <label>{t('terminalFont')}</label>
-              <input
-                className="sinput"
-                value={settings.termFont}
-                onChange={(e) => updateSettings({ termFont: e.target.value })}
-                spellCheck={false}
-              />
-            </div>
-            <div className="srow">
-              <label>{t('terminalFontSize')}</label>
-              <input
-                className="sinput narrow"
-                type="number"
-                step={0.5}
-                min={8}
-                max={24}
-                value={settings.termFontSize}
-                onChange={(e) => updateSettings({ termFontSize: Number(e.target.value) || 12.5 })}
-              />
-            </div>
-            <div className="srow">
-              <label>{t('editorFont')}</label>
-              <input
-                className="sinput"
-                value={settings.editorFont}
-                placeholder={settings.termFont}
-                onChange={(e) => updateSettings({ editorFont: e.target.value })}
-                spellCheck={false}
-              />
-            </div>
-          </div>
-        )}
-
-        {section === 'browser' && (
-          <div className="scard">
-            <div className="srow">
-              <div className="srow-labelcol">
-                <label>{t('homeUrl')}</label>
-                <span className="srow-desc">{t('homeUrlDesc')}</span>
-              </div>
-              <input
-                className="sinput"
-                value={settings.homeUrl}
-                placeholder="https://"
-                onChange={(e) => updateSettings({ homeUrl: e.target.value })}
-                spellCheck={false}
-              />
-            </div>
-          </div>
-        )}
-
-        {section === 'bookmarks' && (
-          <>
-            {bmGroups.length === 0 && (
-              <div className="scard">
-                <div className="srow dim">{t('bmEmpty')}</div>
-              </div>
-            )}
-            {bmGroups.map((g) => (
-              <Fragment key={g.scope}>
-                <h3 className="ssub">{g.label}</h3>
-                <div className="scard">
-                  {g.items.map((b) => (
-                    <div className="srow bm-row" key={b.id}>
-                      <div className="bm-main">
-                        <span className="bm-title">{b.title || b.url}</span>
-                        <span className="bm-url">{b.url}</span>
-                      </div>
-                      <span className="bm-scope">{g.label}</span>
-                      <button
-                        className="pbtn bm-del"
-                        title={t('removeBookmark')}
-                        onClick={() => removeBookmark(b.id)}
-                      >
-                        <Trash2 />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </Fragment>
-            ))}
-          </>
-        )}
-
-        {section === 'agents' && (
-          <>
+          {section === 'appearance' && (
             <div className="scard">
               <div className="srow">
-                <label>{t('osNotifications')}</label>
-                <button
-                  className={`toggle${settings.osNotifications ? ' on' : ''}`}
-                  onClick={() => updateSettings({ osNotifications: !settings.osNotifications })}
-                >
-                  <span className="knob" />
-                </button>
+                <label>{t('theme')}</label>
+                <div className="seg">
+                  {(['dark', 'light', 'system'] as Theme[]).map((v) => (
+                    <button
+                      key={v}
+                      className={settings.theme === v ? 'on' : ''}
+                      onClick={() => updateSettings({ theme: v })}
+                    >
+                      {t(v)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="srow">
+                <label>{t('language')}</label>
+                <Select
+                  value={settings.language}
+                  options={(['system', 'en', 'ko'] as Language[]).map((v) => ({
+                    value: v,
+                    label: v === 'system' ? t('system') : LANG_LABELS[v]
+                  }))}
+                  onChange={(v) => updateSettings({ language: v as Language })}
+                />
+              </div>
+              <div className="srow">
+                <label>{t('accent')}</label>
+                <div className="swatches">
+                  {ACCENTS.map((c) => (
+                    <button
+                      key={c}
+                      className={`swatch${settings.accent === c ? ' on' : ''}`}
+                      style={{ background: c }}
+                      onClick={() => updateSettings({ accent: c })}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="srow">
+                <label>{t('uiFont')}</label>
+                <input
+                  className="sinput"
+                  value={settings.uiFont}
+                  onChange={(e) => updateSettings({ uiFont: e.target.value })}
+                  spellCheck={false}
+                />
+              </div>
+              <div className="srow">
+                <label>{t('terminalFont')}</label>
+                <input
+                  className="sinput"
+                  value={settings.termFont}
+                  onChange={(e) => updateSettings({ termFont: e.target.value })}
+                  spellCheck={false}
+                />
+              </div>
+              <div className="srow">
+                <label>{t('terminalFontSize')}</label>
+                <input
+                  className="sinput narrow"
+                  type="number"
+                  step={0.5}
+                  min={8}
+                  max={24}
+                  value={settings.termFontSize}
+                  onChange={(e) => updateSettings({ termFontSize: Number(e.target.value) || 12.5 })}
+                />
+              </div>
+              <div className="srow">
+                <label>{t('editorFont')}</label>
+                <input
+                  className="sinput"
+                  value={settings.editorFont}
+                  placeholder={settings.termFont}
+                  onChange={(e) => updateSettings({ editorFont: e.target.value })}
+                  spellCheck={false}
+                />
               </div>
             </div>
-            <h3 className="ssub">{t('agentProviders')}</h3>
-            <div className="scard">
-              {Object.keys(providers).length === 0 && (
-                <div className="srow dim">{t('noProviders')}</div>
+          )}
+
+          {section === 'browser' && (
+            <>
+              <div className="scard">
+                <div className="srow">
+                  <div className="srow-labelcol">
+                    <label>{t('homeUrl')}</label>
+                    <span className="srow-desc">{t('homeUrlDesc')}</span>
+                  </div>
+                  <input
+                    className="sinput"
+                    value={settings.homeUrl}
+                    placeholder="https://"
+                    onChange={(e) => updateSettings({ homeUrl: e.target.value })}
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+              <h3 className="ssub">{t('bookmarks')}</h3>
+              {bmGroups.length === 0 && (
+                <div className="scard">
+                  <div className="srow dim">{t('bmEmpty')}</div>
+                </div>
               )}
-              {Object.entries(providers).map(([id, info]) => (
-                <div className="srow" key={id}>
-                  <label className="srow-label">
-                    <AgentIcon id={id} size={13} />
-                    {info.label ?? id}
-                  </label>
+              {bmGroups.map((g) => (
+                <Fragment key={g.scope}>
+                  <div className="scard">
+                    {g.items.map((b) => (
+                      <div className="srow bm-row" key={b.id}>
+                        <div className="bm-main">
+                          <span className="bm-title">{b.title || b.url}</span>
+                          <span className="bm-url">{b.url}</span>
+                        </div>
+                        <span className="bm-scope">{g.label}</span>
+                        <button
+                          className="pbtn bm-del"
+                          title={t('removeBookmark')}
+                          onClick={() => removeBookmark(b.id)}
+                        >
+                          <Trash2 />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </Fragment>
+              ))}
+            </>
+          )}
+
+          {section === 'agents' && (
+            <>
+              <div className="scard">
+                <div className="srow">
+                  <label>{t('osNotifications')}</label>
                   <button
-                    className={`toggle${settings.providers[id] !== false ? ' on' : ''}`}
-                    onClick={() =>
-                      updateSettings({
-                        providers: { ...settings.providers, [id]: settings.providers[id] === false }
-                      })
-                    }
+                    className={`toggle${settings.osNotifications ? ' on' : ''}`}
+                    onClick={() => updateSettings({ osNotifications: !settings.osNotifications })}
                   >
                     <span className="knob" />
                   </button>
                 </div>
-              ))}
-            </div>
-            <h3 className="ssub">{t('agentHooks')}</h3>
-            <div className="scard">
-              {hooks.length === 0 && <div className="srow dim">{t('noHookableProviders')}</div>}
-              {hooks.map((h) => (
-                <div className="srow" key={h.id}>
-                  <label>{h.label}</label>
-                  <div className="hook-meta">
-                    <span className={`hook-state${h.installed ? ' ok' : ''}`}>
-                      {h.installed
-                        ? t('hookInstalled')
-                        : h.available
-                          ? t('hookNotInstalled')
-                          : t('hookCliNotFound')}
-                    </span>
-                    <span className="hook-mech">{h.mechanism}</span>
-                  </div>
-                  {!h.installed && h.available && (
+              </div>
+              <h3 className="ssub">{t('agentProviders')}</h3>
+              <div className="scard">
+                {Object.keys(providers).length === 0 && (
+                  <div className="srow dim">{t('noProviders')}</div>
+                )}
+                {Object.entries(providers).map(([id, info]) => (
+                  <div className="srow" key={id}>
+                    <label className="srow-label">
+                      <AgentIcon id={id} size={13} />
+                      {info.label ?? id}
+                    </label>
                     <button
-                      className="sbtn"
+                      className={`toggle${settings.providers[id] !== false ? ' on' : ''}`}
                       onClick={() =>
-                        window.ade.hooks
-                          .install(h.id)
-                          .then(() => window.ade.hooks.status().then(setHooks))
+                        updateSettings({
+                          providers: {
+                            ...settings.providers,
+                            [id]: settings.providers[id] === false
+                          }
+                        })
                       }
                     >
-                      {t('install')}
+                      <span className="knob" />
                     </button>
-                  )}
-                  {h.installed && (
-                    <button className="sbtn" onClick={() => window.ade.hooks.test(h.id)}>
-                      {t('test')}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {section === 'shortcuts' &&
-          SHORTCUT_GROUPS.map((g) => (
-            <Fragment key={g.label}>
-              <h3 className="ssub">{t(g.label)}</h3>
-              <div className="scard">
-                {g.rows.map((r) => (
-                  <div className="srow sc-row" key={r.desc}>
-                    <label>{t(r.desc)}</label>
-                    <kbd className="sc-keys">{r.keys}</kbd>
                   </div>
                 ))}
               </div>
-            </Fragment>
-          ))}
+              <h3 className="ssub">{t('agentHooks')}</h3>
+              <div className="scard">
+                {hooks.length === 0 && <div className="srow dim">{t('noHookableProviders')}</div>}
+                {hooks.map((h) => (
+                  <div className="srow" key={h.id}>
+                    <label>{h.label}</label>
+                    <div className="hook-meta">
+                      <span className={`hook-state${h.installed ? ' ok' : ''}`}>
+                        {h.installed
+                          ? t('hookInstalled')
+                          : h.available
+                            ? t('hookNotInstalled')
+                            : t('hookCliNotFound')}
+                      </span>
+                      <span className="hook-mech">{h.mechanism}</span>
+                    </div>
+                    {!h.installed && h.available && (
+                      <button
+                        className="sbtn"
+                        onClick={() =>
+                          window.ade.hooks
+                            .install(h.id)
+                            .then(() => window.ade.hooks.status().then(setHooks))
+                        }
+                      >
+                        {t('install')}
+                      </button>
+                    )}
+                    {h.installed && (
+                      <button className="sbtn" onClick={() => window.ade.hooks.test(h.id)}>
+                        {t('test')}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {section === 'shortcuts' && (
+            <>
+              <div className="sc-head">
+                <span className="srow-desc">{t('scClickToBind')}</span>
+                <button className="sbtn" onClick={() => updateSettings({ bindings: {} })}>
+                  {t('scReset')}
+                </button>
+              </div>
+              {SHORTCUT_GROUPS.map((g) => (
+                <Fragment key={g.label}>
+                  <h3 className="ssub">{t(g.label)}</h3>
+                  <div className="scard">
+                    {g.rows.map((r) => (
+                      <div className="srow sc-row" key={r.desc}>
+                        <label>{t(r.desc)}</label>
+                        {'action' in r ? (
+                          <KeyCapture action={r.action} />
+                        ) : (
+                          <kbd className="sc-keys">{r.fixed}</kbd>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </Fragment>
+              ))}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
