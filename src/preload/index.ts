@@ -11,7 +11,7 @@ export interface PtySpawnOpts {
 }
 
 export interface PtyEvent {
-  t: 'spawned' | 'data' | 'exit' | 'cwd' | 'agent' | 'error'
+  t: 'spawned' | 'attached' | 'attach-failed' | 'data' | 'exit' | 'cwd' | 'agent' | 'error'
   id: string
   d?: string // base64
   pid?: number
@@ -121,6 +121,11 @@ function toBase64(s: string): string {
 const ade = {
   pty: {
     spawn: (opts: PtySpawnOpts): Promise<void> => ipcRenderer.invoke('pty:spawn', opts),
+    // attach to an existing session (remount / detached window): host replies
+    // `attached` + replays its scrollback tail as `data` events. Resolves
+    // false when the session is gone — caller should spawn instead.
+    attach: (id: string, cols: number, rows: number): Promise<boolean> =>
+      ipcRenderer.invoke('pty:attach', { id, cols, rows }),
     write: (id: string, data: string): void =>
       ipcRenderer.send('pty:write', { id, d: toBase64(data) }),
     resize: (id: string, cols: number, rows: number): void =>
@@ -237,7 +242,46 @@ const ade = {
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     maximize: (): void => ipcRenderer.send('win:maximize'),
-    close: (): void => ipcRenderer.send('win:close')
+    close: (): void => ipcRenderer.send('win:close'),
+    // detached pane windows (main window: detach/focus/close; detached
+    // window: reattach = close itself, main gets `pane:reattach`)
+    detach: (wsId: string, paneId: string, pane?: unknown): void =>
+      ipcRenderer.send('win:detach', { wsId, paneId, pane }),
+    // booting detached window claims the fresh pane snapshot passed to detach
+    hello: (): Promise<{ wsId: string; paneId: string; pane: unknown } | null> =>
+      ipcRenderer.invoke('pane:hello'),
+    reattach: (): void => ipcRenderer.send('win:reattach'),
+    closeDetached: (wsId: string, paneId: string): void =>
+      ipcRenderer.send('win:closeDetached', { wsId, paneId }),
+    focusDetached: (wsId: string, paneId: string): void =>
+      ipcRenderer.send('win:focusDetached', { wsId, paneId }),
+    onPaneReattach: (cb: (m: { wsId: string; paneId: string }) => void): (() => void) => {
+      const handler = (_: unknown, m: { wsId: string; paneId: string }): void => cb(m)
+      ipcRenderer.on('pane:reattach', handler)
+      return () => ipcRenderer.removeListener('pane:reattach', handler)
+    },
+    // detached renderer → main window store command (e.g. closePane)
+    paneCmd: (m: { action: string; wsId: string; paneId: string }): void =>
+      ipcRenderer.send('pane:cmd', m),
+    onPaneCmd: (
+      cb: (m: { action: string; wsId: string; paneId: string }) => void
+    ): (() => void) => {
+      const handler = (_: unknown, m: { action: string; wsId: string; paneId: string }): void =>
+        cb(m)
+      ipcRenderer.on('pane:cmd', handler)
+      return () => ipcRenderer.removeListener('pane:cmd', handler)
+    },
+    // detached renderer pushes its pane object up to the main store
+    paneSyncUp: (m: { wsId: string; paneId: string; pane: unknown }): void =>
+      ipcRenderer.send('pane:syncUp', m),
+    onPaneSync: (
+      cb: (m: { wsId: string; paneId: string; pane: unknown }) => void
+    ): (() => void) => {
+      const handler = (_: unknown, m: { wsId: string; paneId: string; pane: unknown }): void =>
+        cb(m)
+      ipcRenderer.on('pane:applySync', handler)
+      return () => ipcRenderer.removeListener('pane:applySync', handler)
+    }
   },
   webview: {
     // file:// URL of resources/webview-preload.cjs — set as the webview

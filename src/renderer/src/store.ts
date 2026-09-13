@@ -144,14 +144,21 @@ export function leafPaneIds(node: LayoutNode | null): string[] {
   return [...leafPaneIds(node.a), ...leafPaneIds(node.b)]
 }
 
-// Leaf ids whose pane is not minimized — i.e. the actually visible layout.
-// Minimized panes keep their leaf (removing it would unmount the pane and kill
-// its pty/webview); SplitView hides fully-minimized subtrees with `hidden`.
+// Leaf ids whose pane is not minimized/detached — i.e. the actually visible
+// layout. Those panes keep their leaf (removing it would collapse the split
+// and lose their slot); SplitView hides fully-hidden subtrees with `hidden`.
 export function visibleLeafIds(
   node: LayoutNode | null,
   panes: Record<string, PaneState>
 ): string[] {
-  return leafPaneIds(node).filter((id) => !panes[id]?.minimized)
+  return leafPaneIds(node).filter((id) => !panes[id]?.minimized && !panes[id]?.detached)
+}
+
+// Highest z among a workspace's floating panes (new raises go above it).
+function maxFloatZ(w: Workspace): number {
+  let z = 0
+  for (const p of Object.values(w.panes)) if (p.floating) z = Math.max(z, p.floating.z)
+  return z
 }
 
 // The sibling subtree of paneId's leaf — its nearest neighbor in the layout.
@@ -163,13 +170,15 @@ function siblingOf(node: LayoutNode | null, paneId: string): LayoutNode | null {
 }
 
 // Clear a pane's minimized flag and focus it. Its leaf is still in the layout
-// so the pane pops back into its exact slot; defensively, a leaf missing from
-// root is re-inserted at the focused visible pane (or as the sole leaf).
+// so the pane pops back into its exact slot; floating panes aren't in the
+// tree at all — clearing the flag just brings the overlay back. Defensively,
+// a leaf missing from root is re-inserted at the focused visible pane (or as
+// the sole leaf).
 function restoreInWorkspace(w: Workspace, paneId: string): Workspace {
   const pane = w.panes[paneId]
   if (!pane?.minimized) return w
   const panes = { ...w.panes, [paneId]: { ...pane, minimized: undefined } as PaneState }
-  if (w.root && leafPaneIds(w.root).includes(paneId)) {
+  if (pane.floating || (w.root && leafPaneIds(w.root).includes(paneId))) {
     return { ...w, panes, focusedPaneId: paneId }
   }
   const vis = visibleLeafIds(w.root, panes)
@@ -221,11 +230,12 @@ function normalizeWorkspace(w: Workspace): Workspace {
     panes[id] = normalizePane(p)
     if (panes[id] !== p) changed = true
   }
-  // a persisted focus on a minimized pane would be invisible — snap it back to
-  // the first visible leaf
+  // a persisted focus on a minimized/detached pane would be invisible — snap
+  // it back to the first visible leaf (or a float)
   let focusedPaneId = w.focusedPaneId
-  if (focusedPaneId && panes[focusedPaneId]?.minimized) {
-    focusedPaneId = visibleLeafIds(w.root, panes)[0] ?? null
+  if (focusedPaneId && (panes[focusedPaneId]?.minimized || panes[focusedPaneId]?.detached)) {
+    focusedPaneId =
+      visibleLeafIds(w.root, panes)[0] ?? Object.values(panes).find((p) => p.floating)?.id ?? null
     changed = true
   }
   return changed ? { ...w, panes, focusedPaneId } : w
@@ -294,6 +304,20 @@ interface AdeState extends PersistedState {
   closePane: (paneId: string, wsId?: string) => void
   minimizePane: (paneId: string, wsId?: string) => void
   restorePane: (paneId: string, wsId?: string) => void
+  floatPane: (paneId: string, wsId?: string) => void
+  dockPane: (
+    paneId: string,
+    wsId?: string,
+    targetPaneId?: string | null,
+    edge?: DropEdge | null
+  ) => void
+  setFloatRect: (
+    paneId: string,
+    rect: { x: number; y: number; w: number; h: number },
+    wsId?: string
+  ) => void
+  detachPane: (paneId: string, wsId?: string) => void
+  attachPane: (paneId: string, wsId?: string) => void
   movePane: (
     paneId: string,
     fromWsId: string,
@@ -502,10 +526,20 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
-    closePane: (paneId, wsIdArg) =>
+    closePane: (paneId, wsIdArg) => {
+      const wsId0 = wid(wsIdArg)
+      if (!wsId0) return
+      const pane = get().workspaces.find((w) => w.id === wsId0)?.panes[paneId]
+      // a detached pane owns its window + pty sessions — the window's renderer
+      // is already gone by close time, so kill its live sessions here
+      if (pane?.detached) {
+        if (pane.type === 'terminal') {
+          for (const t of pane.tabs) if (t.pty) window.ade.pty.kill(t.pty)
+        }
+        window.ade.win.closeDetached?.(wsId0, paneId)
+      }
       set((s) => {
-        const wsId = wid(wsIdArg)
-        if (!wsId) return s
+        const wsId = wsId0
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             if (!w.panes[paneId]) return w
@@ -514,12 +548,15 @@ export const useStore = create<AdeState>((set, get) => {
             delete panes[paneId]
             const focusedPaneId =
               w.focusedPaneId === paneId
-                ? (visibleLeafIds(root, panes)[0] ?? null)
+                ? (visibleLeafIds(root, panes)[0] ??
+                  Object.values(panes).find((p) => p.floating && !p.minimized)?.id ??
+                  null)
                 : w.focusedPaneId
             return { ...w, root, panes, focusedPaneId }
           })
         }
-      }),
+      })
+    },
 
     // Dock the pane: flag it minimized (the leaf stays in the layout so the
     // mounted terminal/webview keeps running; SplitView hides the subtree)
@@ -531,7 +568,7 @@ export const useStore = create<AdeState>((set, get) => {
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const pane = w.panes[paneId]
-            if (!pane || pane.minimized) return w
+            if (!pane || pane.minimized || pane.detached) return w
             const panes = { ...w.panes, [paneId]: { ...pane, minimized: true } }
             const focusedPaneId = visibleLeafIds(w.root, panes).includes(w.focusedPaneId ?? '')
               ? w.focusedPaneId
@@ -552,6 +589,126 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
+    // Pull a docked pane out of the tree into a free-floating overlay. The
+    // leaf is removed (its space is reclaimed — that's the point of floats)
+    // while the pane record keeps living in `panes`.
+    floatPane: (paneId, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane || pane.floating || pane.detached) return w
+            const floating = {
+              x: 0.28,
+              y: 0.18,
+              w: 0.44,
+              h: 0.55,
+              z: maxFloatZ(w) + 1
+            }
+            const panes = {
+              ...w.panes,
+              [paneId]: { ...pane, minimized: undefined, floating } as PaneState
+            }
+            const root = w.root ? removeLeaf(w.root, paneId) : w.root
+            return { ...w, root, panes, focusedPaneId: paneId }
+          })
+        }
+      }),
+
+    // Put a floating pane back into the tree — at the target's edge when
+    // given (drag-dock), else split the focused visible leaf.
+    dockPane: (paneId, wsIdArg, targetPaneId, edge) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane?.floating) return w
+            const docked = { ...pane, floating: undefined, minimized: undefined } as PaneState
+            const panes = { ...w.panes, [paneId]: docked }
+            const vis = visibleLeafIds(w.root, w.panes)
+            const target =
+              targetPaneId && vis.includes(targetPaneId)
+                ? targetPaneId
+                : w.focusedPaneId && vis.includes(w.focusedPaneId)
+                  ? w.focusedPaneId
+                  : (vis.at(-1) ?? null)
+            return {
+              ...w,
+              panes,
+              root: insertAt(w.root, w.panes, paneId, target, edge ?? 'right'),
+              focusedPaneId: paneId
+            }
+          })
+        }
+      }),
+
+    setFloatRect: (paneId, rect, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane?.floating) return w
+            const w0 = Math.min(0.9, Math.max(0.12, rect.w))
+            const h0 = Math.min(0.9, Math.max(0.15, rect.h))
+            const floating = {
+              ...pane.floating,
+              x: Math.min(1 - w0, Math.max(0, rect.x)),
+              y: Math.min(1 - h0, Math.max(0, rect.y)),
+              w: w0,
+              h: h0
+            }
+            return {
+              ...w,
+              panes: { ...w.panes, [paneId]: { ...pane, floating } as PaneState }
+            }
+          })
+        }
+      }),
+
+    // Move the pane into its own OS window. The leaf stays in the tree
+    // (reattach lands on the same slot) but the content unmounts here — the
+    // detached window owns it; terminal sessions survive via pty `attach`.
+    detachPane: (paneId, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane || pane.detached) return w
+            const panes = { ...w.panes, [paneId]: { ...pane, detached: true } }
+            const focusedPaneId =
+              w.focusedPaneId === paneId
+                ? (visibleLeafIds(w.root, panes)[0] ?? null)
+                : w.focusedPaneId
+            return { ...w, panes, focusedPaneId }
+          })
+        }
+      }),
+
+    attachPane: (paneId, wsIdArg) =>
+      set((s) => {
+        const wsId = wid(wsIdArg)
+        if (!wsId) return s
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane?.detached) return w
+            return {
+              ...w,
+              panes: { ...w.panes, [paneId]: { ...pane, detached: undefined } as PaneState },
+              focusedPaneId: paneId
+            }
+          })
+        }
+      }),
+
     // Drag & drop move. targetPaneId == null → append to the end of the target
     // layout (root wrapped in a row split). targetPaneId + edge → split that
     // leaf and drop the pane into the new half. targetPaneId without edge →
@@ -561,10 +718,42 @@ export const useStore = create<AdeState>((set, get) => {
         const from = s.workspaces.find((w) => w.id === fromWsId)
         const to = s.workspaces.find((w) => w.id === toWsId)
         const pane = from?.panes[paneId]
-        if (!from || !to || !pane || !from.root) return s
+        if (!from || !to || !pane) return s
         if (paneId === targetPaneId) return s
         if (targetPaneId && !to.panes[targetPaneId]) return s
         const sameWs = fromWsId === toWsId
+
+        // Floating source: the pane lives outside the tree — strip just drops
+        // its record and the graft inserts it docked (flags cleared).
+        if (pane.floating) {
+          const docked = {
+            ...pane,
+            floating: undefined,
+            minimized: undefined,
+            detached: undefined
+          } as PaneState
+          const graft = (w: Workspace): Workspace => {
+            const panes = { ...w.panes, [paneId]: docked }
+            const root = insertAt(w.root, panes, paneId, targetPaneId ?? null, edge ?? 'right')
+            return { ...w, panes, root, focusedPaneId: paneId }
+          }
+          const strip = (w: Workspace): Workspace => {
+            const panes = { ...w.panes }
+            delete panes[paneId]
+            return { ...w, panes }
+          }
+          if (sameWs) {
+            return { workspaces: updWs(s.workspaces, toWsId, (w) => graft(strip(w))) }
+          }
+          return {
+            activeWorkspaceId: toWsId,
+            workspaces: s.workspaces.map((w) =>
+              w.id === fromWsId ? strip(w) : w.id === toWsId ? graft(w) : w
+            )
+          }
+        }
+
+        if (!from.root) return s
 
         if (targetPaneId && !edge) {
           const target = to.panes[targetPaneId]
@@ -668,11 +857,25 @@ export const useStore = create<AdeState>((set, get) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
         return {
-          workspaces: updWs(s.workspaces, wsId, (w) =>
-            w.panes[paneId]?.minimized
-              ? restoreInWorkspace(w, paneId)
-              : { ...w, focusedPaneId: paneId }
-          )
+          workspaces: updWs(s.workspaces, wsId, (w) => {
+            const pane = w.panes[paneId]
+            if (!pane) return w
+            if (pane.minimized) return restoreInWorkspace(w, paneId)
+            if (pane.detached) return w
+            // focusing a float raises it above the others
+            if (pane.floating) {
+              const z = maxFloatZ(w) + 1
+              return {
+                ...w,
+                panes: {
+                  ...w.panes,
+                  [paneId]: { ...pane, floating: { ...pane.floating, z } } as PaneState
+                },
+                focusedPaneId: paneId
+              }
+            }
+            return { ...w, focusedPaneId: paneId }
+          })
         }
       }),
 
@@ -682,10 +885,30 @@ export const useStore = create<AdeState>((set, get) => {
         if (!wsId) return s
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
-            const ids = visibleLeafIds(w.root, w.panes)
+            const ids = [
+              ...visibleLeafIds(w.root, w.panes),
+              ...Object.values(w.panes)
+                .filter((p) => p.floating && !p.minimized && !p.detached)
+                .map((p) => p.id)
+            ]
             if (ids.length === 0) return w
             const i = w.focusedPaneId ? ids.indexOf(w.focusedPaneId) : -1
-            return { ...w, focusedPaneId: ids[(i + dir + ids.length) % ids.length] }
+            const nextId = ids[(i + dir + ids.length) % ids.length]
+            const next = w.panes[nextId]
+            if (next?.floating) {
+              return {
+                ...w,
+                panes: {
+                  ...w.panes,
+                  [nextId]: {
+                    ...next,
+                    floating: { ...next.floating, z: maxFloatZ(w) + 1 }
+                  } as PaneState
+                },
+                focusedPaneId: nextId
+              }
+            }
+            return { ...w, focusedPaneId: nextId }
           })
         }
       }),
@@ -1043,7 +1266,13 @@ export const useStore = create<AdeState>((set, get) => {
         notifications: s.notifications.map((x) => (x.id === id ? { ...x, read: true } : x))
       })
       if (n.paneId) {
-        get().focusPane(n.paneId, n.workspaceId)
+        const target = get().workspaces.find((w) => w.id === n.workspaceId)?.panes[n.paneId]
+        // a detached pane lives in its own window — focus that, don't restore
+        if (target?.detached) {
+          window.ade.win.focusDetached(n.workspaceId, n.paneId)
+        } else {
+          get().focusPane(n.paneId, n.workspaceId)
+        }
         // land on the tab that emitted the event, not just the pane
         if (n.tabId) {
           const p = get().workspaces.find((w) => w.id === n.workspaceId)?.panes[n.paneId]

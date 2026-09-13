@@ -1,0 +1,105 @@
+import { useEffect } from 'react'
+import { ArrowDownToLine, Minus, Square, X } from 'lucide-react'
+import { useStore } from '../store'
+import { useT } from '../i18n'
+import type { PaneState } from '../types'
+import { PaneFor } from './SplitView'
+
+// A detached pane lives here: its own frameless OS window with a minimal bar
+// (drag anywhere, reattach, window controls). The pane keeps its wsId/paneId
+// identity in the main store — this window is just another view onto it.
+// Local edits (tab ops, renames) sync up via pane:syncUp; close goes through
+// pane:cmd so the main store stays the single source of truth.
+export default function DetachedApp({
+  wsId,
+  paneId
+}: {
+  wsId: string
+  paneId: string
+}): React.JSX.Element {
+  const pane = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.panes[paneId])
+  const settings = useStore((s) => s.settings)
+  const setResolvedTheme = useStore((s) => s.setResolvedTheme)
+  const t = useT()
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = (): void => {
+      const resolved =
+        settings.theme === 'system' ? (mq.matches ? 'dark' : 'light') : settings.theme
+      setResolvedTheme(resolved)
+      document.documentElement.dataset.theme = resolved
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [settings.theme, setResolvedTheme])
+
+  useEffect(() => {
+    const el = document.documentElement
+    el.style.setProperty('--accent', settings.accent)
+    el.style.setProperty('--font-ui', settings.uiFont)
+  }, [settings.accent, settings.uiFont])
+
+  // claim the fresh pane snapshot the main window captured at detach — it
+  // carries live pty session ids and newest tabs the disk-hydrated copy may
+  // lack. The local copy must also carry `detached` — terminal cleanup keys
+  // off it (keep the pty alive when this view unmounts) and sync-up echoes
+  // the whole pane object, which would otherwise clear the flag in main
+  useEffect(() => {
+    void window.ade?.win.hello().then((h) => {
+      if (h?.pane) {
+        useStore
+          .getState()
+          .updatePane(h.paneId, { ...(h.pane as PaneState), detached: true }, h.wsId)
+      } else {
+        useStore.getState().updatePane(paneId, { detached: true }, wsId)
+      }
+    })
+  }, [wsId, paneId])
+
+  // push local pane-state edits (tab renames, cwd/agent patches, closes) up
+  // to the main window's store — it's the single source of truth
+  useEffect(() => {
+    let last: unknown
+    const unsub = useStore.subscribe((s) => {
+      const p = s.workspaces.find((w) => w.id === wsId)?.panes[paneId]
+      if (p !== last) {
+        last = p
+        if (p) window.ade.win.paneSyncUp({ wsId, paneId, pane: p })
+      }
+    })
+    return unsub
+  }, [wsId, paneId])
+
+  return (
+    <div className="app detached">
+      <div className="detached-bar">
+        <span className="dt-title">{pane?.title ?? ''}</span>
+        <div className="dt-actions">
+          <button
+            className="pbtn"
+            title={t('reattachPane')}
+            onClick={() => window.ade.win.reattach()}
+          >
+            <ArrowDownToLine />
+          </button>
+          <button className="pbtn" onClick={() => window.ade.win.minimize()}>
+            <Minus />
+          </button>
+          <button className="pbtn" onClick={() => window.ade.win.maximize()}>
+            <Square />
+          </button>
+          <button
+            className="pbtn"
+            title={t('reattachPane')}
+            onClick={() => window.ade.win.reattach()}
+          >
+            <X />
+          </button>
+        </div>
+      </div>
+      <div className="detached-body">{pane ? <PaneFor paneId={paneId} wsId={wsId} /> : null}</div>
+    </div>
+  )
+}

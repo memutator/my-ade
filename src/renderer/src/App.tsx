@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
-import { leafPaneIds, useStore } from './store'
+import { useStore, visibleLeafIds } from './store'
 import { applyShortcut } from './shortcuts'
 import { useT, translate } from './i18n'
 import { agentProviders, agentLabel } from './agents'
@@ -9,6 +9,7 @@ import type { AgentHookEvent, TerminalTab, Workspace } from './types'
 
 import TopBar from './components/TopBar'
 import SplitView from './components/SplitView'
+import FloatLayer from './components/FloatLayer'
 import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
 import SettingsModal from './components/SettingsModal'
@@ -160,7 +161,13 @@ export default function App(): React.JSX.Element {
       if (m.workspaceId && st.workspaces.some((w) => w.id === m.workspaceId)) {
         st.activateWorkspace(m.workspaceId)
         if (m.paneId) {
-          st.focusPane(m.paneId, m.workspaceId)
+          const target = st.workspaces.find((w) => w.id === m.workspaceId)?.panes[m.paneId]
+          // detached panes live in their own OS window — bring it forward
+          if (target?.detached) {
+            window.ade.win.focusDetached(m.workspaceId, m.paneId)
+          } else {
+            st.focusPane(m.paneId, m.workspaceId)
+          }
           if (m.tabId) {
             const p = st.workspaces.find((w) => w.id === m.workspaceId)?.panes[m.paneId]
             if (p && 'tabs' in p && p.tabs.some((t) => t.id === m.tabId)) {
@@ -225,6 +232,50 @@ export default function App(): React.JSX.Element {
     })
   }, [])
 
+  // restore detached windows across restarts — the flag persists but the
+  // windows themselves are runtime-only
+  useEffect(() => {
+    const st = useStore.getState()
+    for (const w of st.workspaces) {
+      for (const p of Object.values(w.panes)) {
+        if (p.detached) window.ade.win.detach(w.id, p.id)
+      }
+    }
+  }, [])
+
+  // detached-pane window coordination
+  useEffect(() => {
+    const offReattach = window.ade.win.onPaneReattach?.((m) => {
+      useStore.getState().attachPane(m.paneId, m.wsId)
+    })
+    const offCmd = window.ade.win.onPaneCmd?.((m) => {
+      if (m.action === 'closePane') useStore.getState().closePane(m.paneId, m.wsId)
+    })
+    const offSync = window.ade.win.onPaneSync?.((m) => {
+      const st = useStore.getState()
+      const cur = st.workspaces.find((w) => w.id === m.wsId)?.panes[m.paneId]
+      if (!cur || !m.pane || typeof m.pane !== 'object') return
+      // content fields come from the detached window; presentation flags
+      // (detached/minimized/floating) stay owned by the main store
+      const synced = m.pane as Record<string, unknown>
+      st.updatePane(
+        m.paneId,
+        {
+          ...synced,
+          detached: cur.detached,
+          minimized: cur.minimized,
+          floating: cur.floating
+        } as never,
+        m.wsId
+      )
+    })
+    return () => {
+      offReattach?.()
+      offCmd?.()
+      offSync?.()
+    }
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (
@@ -252,10 +303,12 @@ export default function App(): React.JSX.Element {
         <div className="workspace-area">
           {workspaces.length === 0 && <EmptyState />}
           {workspaces.map((w) => {
-            // all leaves minimized → keep .layout mounted-but-hidden (terminals
-            // keep running) and show the empty state; the dock still offers
-            // the chips for restoring them
-            const hasVisible = leafPaneIds(w.root).some((id) => !w.panes[id]?.minimized)
+            // all leaves minimized/detached → keep .layout mounted-but-hidden
+            // (terminals keep running) and show the empty state; the dock
+            // still offers the chips for restoring them. Floating panes are
+            // an overlay on top — they don't count toward hasVisible (the
+            // tree may be empty behind them).
+            const hasVisible = visibleLeafIds(w.root, w.panes).length > 0
             return (
               <div key={w.id} className="ws-host" data-ws-id={w.id} hidden={w.id !== activeId}>
                 {w.root && (
@@ -264,6 +317,7 @@ export default function App(): React.JSX.Element {
                   </div>
                 )}
                 {!hasVisible && <WorkspaceEmpty wsId={w.id} />}
+                <FloatLayer wsId={w.id} />
               </div>
             )
           })}

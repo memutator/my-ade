@@ -97,7 +97,10 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
       target = { kind: 'ws', wsId: tab.dataset.tabId }
       tabEl = tab
     } else {
-      const paneEl = hit?.closest('.pane') ?? null
+      const hitPane = hit?.closest('.pane') ?? null
+      // a floating pane is not a drop target (it isn't in the layout tree) —
+      // the gesture falls through to the workspace behind it, which appends
+      const paneEl = hitPane?.closest('.float-pane') ? null : hitPane
       if (paneEl instanceof HTMLElement) {
         const pid = paneEl.dataset.paneId
         const wid = paneEl.dataset.wsId
@@ -172,6 +175,9 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
     armed = true
     document.body.classList.add('pane-dragging')
     info.paneEl?.classList.add('drag-src')
+    // a dragged float must also become hit-transparent (its overlay wrapper
+    // sits above the tree) so drops land on the panes behind it
+    info.paneEl?.closest('.float-pane')?.classList.add('drag-src')
 
     ghost = document.createElement('div')
     ghost.className = 'drag-ghost'
@@ -206,6 +212,7 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
     window.removeEventListener('blur', onCancel)
     document.body.classList.remove('pane-dragging')
     info.paneEl?.classList.remove('drag-src')
+    info.paneEl?.closest('.float-pane')?.classList.remove('drag-src')
     curTabEl?.classList.remove('drop-target')
     ghost?.remove()
     indicator?.remove()

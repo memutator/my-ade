@@ -89,6 +89,14 @@ export function applyShortcut(input: ShortcutInput): boolean {
     case 'h':
       if (ws?.focusedPaneId) st.minimizePane(ws.focusedPaneId)
       break
+    case 'f': {
+      // float/dock toggle on the focused pane
+      const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
+      if (!p) break
+      if (p.floating) st.dockPane(p.id)
+      else if (!p.detached) st.floatPane(p.id)
+      break
+    }
     case ']':
       st.cycleFocus(1)
       break

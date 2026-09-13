@@ -2452,3 +2452,138 @@ body.pane-dragging webview {
   width: 11px;
   height: 11px;
 }
+
+/* ── floating panes ─────────────────────────────────────────────── */
+
+/* ws-host is the positioning context for its floating overlays */
+.ws-host {
+  position: relative;
+}
+
+/* overlay above the layout; the layer itself is click-through — only the
+   float cards catch pointers */
+.float-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.float-pane {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.float-inner {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.float-inner > .pane {
+  flex: 1;
+  border-radius: 7px;
+  box-shadow:
+    0 10px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px var(--border-strong);
+}
+
+/* resize handles — edge strips + corner squares just outside the card */
+.fp-rz {
+  position: absolute;
+  z-index: 5;
+}
+.fp-rz.n { top: -4px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.fp-rz.s { bottom: -4px; left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.fp-rz.e { right: -4px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.fp-rz.w { left: -4px; top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.fp-rz.ne { top: -4px; right: -4px; width: 12px; height: 12px; cursor: nesw-resize; }
+.fp-rz.sw { bottom: -4px; left: -4px; width: 12px; height: 12px; cursor: nesw-resize; }
+.fp-rz.nw { top: -4px; left: -4px; width: 12px; height: 12px; cursor: nwse-resize; }
+.fp-rz.se { bottom: -4px; right: -4px; width: 12px; height: 12px; cursor: nwse-resize; }
+
+/* during a float move/resize a <webview> would swallow the pointer stream —
+   same trick as pane drag & drop */
+body.float-active webview {
+  pointer-events: none;
+}
+body.float-active,
+body.float-active * {
+  user-select: none !important;
+}
+body.float-active.float-moving,
+body.float-active.float-moving * {
+  cursor: grabbing !important;
+}
+body.float-active.rz-n, body.float-active.rz-n *,
+body.float-active.rz-s, body.float-active.rz-s * { cursor: ns-resize !important; }
+body.float-active.rz-e, body.float-active.rz-e *,
+body.float-active.rz-w, body.float-active.rz-w * { cursor: ew-resize !important; }
+body.float-active.rz-ne, body.float-active.rz-ne *,
+body.float-active.rz-sw, body.float-active.rz-sw * { cursor: nesw-resize !important; }
+body.float-active.rz-nw, body.float-active.rz-nw *,
+body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !important; }
+
+/* a dragged float must not block elementFromPoint — drops should land on
+   the tree panes behind it */
+.float-pane.drag-src {
+  pointer-events: none;
+}
+
+/* ── detached pane window ───────────────────────────────────────── */
+
+.app.detached {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.detached-bar {
+  -webkit-app-region: drag;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.dt-title {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.dt-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.detached-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--tab-active);
+}
+
+.detached-body > .pane {
+  flex: 1;
+}
+
+/* a detached pane's dock chip reads as "lives elsewhere" */
+.dock-chip.detached {
+  border-style: dashed;
+}

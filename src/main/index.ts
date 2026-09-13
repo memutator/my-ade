@@ -39,6 +39,71 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024
 
 let mainWindow: BrowserWindow | null = null
 
+// detached pane windows, keyed `${wsId}:${paneId}` — closing one reattaches
+// the pane in the main window (renderer listens for `pane:reattach`)
+const detachedWins = new Map<string, BrowserWindow>()
+
+// pane snapshots handed to detached windows at creation — the detached
+// renderer hydrates from the (possibly stale) state file, then `pane:hello`
+// claims this fresh copy (keeps live pty session ids, newest tabs, etc.)
+const pendingPanes = new Map<string, unknown>()
+const winKeyByWebContents = new Map<number, string>()
+
+function createDetachedWindow(key: string): void {
+  if (detachedWins.get(key)?.isDestroyed() === false) {
+    detachedWins.get(key)?.focus()
+    return
+  }
+  const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(920, wa.width)
+  const height = Math.min(640, wa.height)
+  const win = new BrowserWindow({
+    width,
+    height,
+    x: wa.x + Math.round((wa.width - width) / 2),
+    y: wa.y + Math.round((wa.height - height) / 2),
+    minWidth: 320,
+    minHeight: 200,
+    show: false,
+    frame: false,
+    backgroundColor: '#0b0d10',
+    autoHideMenuBar: true,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      webviewTag: true
+    }
+  })
+  detachedWins.set(key, win)
+  const wcId = win.webContents.id
+  winKeyByWebContents.set(wcId, key)
+
+  win.on('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    // webContents is already destroyed here — only use values captured above
+    const [wsId, paneId] = key.split(':')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pane:reattach', { wsId, paneId })
+    }
+    if (detachedWins.get(key) === win) detachedWins.delete(key)
+    pendingPanes.delete(key)
+    winKeyByWebContents.delete(wcId)
+  })
+  win.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?detached=${encodeURIComponent(key)}`)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { detached: key }
+    })
+  }
+}
+
 function createWindow(): void {
   // clamp to the display the window will live on — the fixed 1440×900 default
   // is wider than a portrait/secondary monitor's work area (e.g. 1080×1920),
@@ -156,12 +221,52 @@ function registerFileIpc(): void {
 }
 
 function registerWindowIpc(): void {
-  ipcMain.on('win:minimize', () => mainWindow?.minimize())
-  ipcMain.on('win:maximize', () => {
-    if (!mainWindow) return
-    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
+  // window controls target the sender's own window (main or a detached pane)
+  ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())
+  ipcMain.on('win:maximize', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return
+    win.isMaximized() ? win.unmaximize() : win.maximize()
   })
-  ipcMain.on('win:close', () => mainWindow?.close())
+  ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+
+  ipcMain.on('win:detach', (_e, m: { wsId: string; paneId: string; pane?: unknown }) => {
+    if (!m?.wsId || !m?.paneId) return
+    const key = `${m.wsId}:${m.paneId}`
+    if (m.pane) pendingPanes.set(key, m.pane)
+    createDetachedWindow(key)
+  })
+  // a booting detached renderer claims its fresh pane snapshot here
+  ipcMain.handle('pane:hello', (e) => {
+    const key = winKeyByWebContents.get(e.sender.id)
+    if (!key) return null
+    const [wsId, paneId] = key.split(':')
+    const pane = pendingPanes.get(key) ?? null
+    pendingPanes.delete(key)
+    return { wsId, paneId, pane }
+  })
+  // detached window asks to go home — closing it triggers the 'closed'
+  // handler above which notifies the main window to reattach the pane
+  ipcMain.on('win:reattach', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  ipcMain.on('win:closeDetached', (_e, m: { wsId: string; paneId: string }) => {
+    detachedWins.get(`${m?.wsId}:${m?.paneId}`)?.close()
+  })
+  ipcMain.on('win:focusDetached', (_e, m: { wsId: string; paneId: string }) => {
+    const win = detachedWins.get(`${m?.wsId}:${m?.paneId}`)
+    if (win && !win.isDestroyed()) {
+      win.show()
+      win.focus()
+    }
+  })
+  // detached renderer → main window store actions (close pane etc.)
+  ipcMain.on('pane:cmd', (_e, m) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pane:cmd', m)
+  })
+  // detached renderer pushes its local pane state up to the main store
+  ipcMain.on('pane:syncUp', (_e, m) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pane:applySync', m)
+  })
+
   ipcMain.on('shell:openExternal', (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url)
   })
@@ -210,7 +315,10 @@ function registerStateIpc(): void {
       return null
     }
   })
-  ipcMain.handle('state:save', async (_e, state: unknown) => {
+  ipcMain.handle('state:save', async (e, state: unknown) => {
+    // only the main window persists — a detached pane's renderer shares the
+    // same store API but must not clobber the canonical state file
+    if (e.sender !== mainWindow?.webContents) return
     try {
       await writeFile(STATE_FILE(), JSON.stringify(state), 'utf8')
     } catch (e) {
@@ -344,7 +452,7 @@ app.whenReady().then(() => {
   registerAgentIpc()
   registerHookIpc()
   createWindow()
-  startPtyHost(() => mainWindow)
+  startPtyHost()
   startEventIngest(() => mainWindow)
   pushAgentConfig()
 

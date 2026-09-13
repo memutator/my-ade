@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import DetachedApp from './components/DetachedApp'
+import { detachedKey, detachedWsId, detachedPaneId } from './detached'
 import { useStore } from './store'
 import { loadAgentManifest } from './agents'
 import './styles.css'
@@ -20,7 +22,7 @@ async function bootstrap(): Promise<void> {
   }
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <App />
+      {detachedKey ? <DetachedApp wsId={detachedWsId} paneId={detachedPaneId} /> : <App />}
     </React.StrictMode>
   )
 }

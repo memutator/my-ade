@@ -37,27 +37,33 @@ function termStatus(p: PaneState): { agent?: string; exited?: boolean } {
   return { agent: tab?.agent ?? undefined, exited: tab?.exited }
 }
 
-// Minimized-pane chips in the title bar (right side), scoped to the active
-// workspace. The panes themselves stay mounted (hidden) in the layout —
-// clicking a chip just clears the flag; the × actually closes the pane (kills
-// the pty etc.).
+// Minimized/detached pane chips in the title bar (right side), scoped to the
+// active workspace. Minimized panes stay mounted (hidden) — clicking a chip
+// clears the flag; detached panes live in their own OS window — clicking
+// brings that window forward. The × actually closes the pane (kills the pty
+// etc.).
 export default function PaneDock(): React.JSX.Element | null {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const restorePane = useStore((s) => s.restorePane)
   const closePane = useStore((s) => s.closePane)
   const t = useT()
 
-  const minimized = Object.values(ws?.panes ?? {}).filter((p) => p.minimized)
-  if (!ws || minimized.length === 0) return null
+  const chips = Object.values(ws?.panes ?? {}).filter((p) => p.minimized || p.detached)
+  if (!ws || chips.length === 0) return null
 
   return (
     <div className="pane-dock">
-      {minimized.map((p) => {
+      {chips.map((p) => {
         const Icon = ICONS[p.type]
         const status = termStatus(p)
         return (
-          <Tooltip key={p.id} label={t('restorePane')}>
-            <div className="dock-chip" onClick={() => restorePane(p.id, ws.id)}>
+          <Tooltip key={p.id} label={t(p.detached ? 'focusDetached' : 'restorePane')}>
+            <div
+              className={`dock-chip${p.detached ? ' detached' : ''}`}
+              onClick={() =>
+                p.detached ? window.ade.win.focusDetached(ws.id, p.id) : restorePane(p.id, ws.id)
+              }
+            >
               <Icon />
               {status.agent ? (
                 <AgentIcon id={status.agent} size={10} />

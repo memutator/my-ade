@@ -1,9 +1,10 @@
 // ade pty-host — runs under system Node (not Electron) so node-pty ABI always matches.
 // Protocol: newline-delimited JSON over stdio.
-//   in : {t:'spawn',id,cols,rows,cwd,command,args} | {t:'write',id,d(base64)} |
-//        {t:'resize',id,cols,rows} | {t:'kill',id} |
+//   in : {t:'spawn',id,cols,rows,cwd,command,args} | {t:'attach',id,cols,rows} |
+//        {t:'write',id,d(base64)} | {t:'resize',id,cols,rows} | {t:'kill',id} |
 //        {t:'config',agents:{id:[patterns]}}
-//   out: {t:'ready'} | {t:'spawned',id,pid} | {t:'data',id,d(base64)} |
+//   out: {t:'ready'} | {t:'spawned',id,pid} | {t:'attached',id,...} |
+//        {t:'attach-failed',id} | {t:'data',id,d(base64)} |
 //        {t:'exit',id,code} | {t:'cwd',id,cwd} | {t:'agent',id,agent} | {t:'error',id,msg}
 
 const readline = require('readline')
@@ -11,7 +12,8 @@ const fs = require('fs')
 const path = require('path')
 const pty = require('@homebridge/node-pty-prebuilt-multiarch')
 
-const procs = new Map() // id -> { pty, cwdTimer, lastCwd, lastAgent }
+const procs = new Map() // id -> { pty, timer, lastCwd, lastAgent, tail, shell }
+const TAIL_CAP = 512 * 1024 // bytes of scrollback kept for `attach` replay
 
 // fallback patterns; overridden by {t:'config'} from the app
 let AGENTS = {
@@ -121,10 +123,13 @@ function handleSpawn(m) {
     return
   }
 
-  const entry = { pty: proc, lastCwd: null, lastAgent: null, timer: null }
+  const entry = { pty: proc, lastCwd: null, lastAgent: null, timer: null, tail: '', shell: path.basename(command) }
   procs.set(m.id, entry)
 
   proc.onData((d) => {
+    // keep a rolling tail so a remounting/detached renderer can `attach` and
+    // replay recent output instead of starting blank
+    entry.tail = (entry.tail + d).slice(-TAIL_CAP)
     send({ t: 'data', id: m.id, d: Buffer.from(d, 'utf8').toString('base64') })
   })
   proc.onExit((e) => {
@@ -170,6 +175,30 @@ rl.on('line', (line) => {
     case 'spawn':
       handleSpawn(m)
       break
+    case 'attach': {
+      const entry = procs.get(m.id)
+      if (!entry) {
+        send({ t: 'attach-failed', id: m.id })
+        break
+      }
+      if (m.cols && m.rows) {
+        try {
+          entry.pty.resize(m.cols, m.rows)
+        } catch {
+          /* ignore */
+        }
+      }
+      send({
+        t: 'attached',
+        id: m.id,
+        pid: entry.pty.pid,
+        shell: entry.shell,
+        cwd: entry.lastCwd,
+        agent: entry.lastAgent
+      })
+      if (entry.tail) send({ t: 'data', id: m.id, d: Buffer.from(entry.tail, 'utf8').toString('base64') })
+      break
+    }
     case 'write': {
       const entry = procs.get(m.id)
       if (entry) entry.pty.write(Buffer.from(m.d, 'base64').toString('utf8'))

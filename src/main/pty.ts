@@ -29,7 +29,11 @@ function sendToHost(msg: object): void {
   }
 }
 
-export function startPtyHost(getWindow: () => BrowserWindow | null): void {
+// pending attach requests: session id -> resolve(ok). The host replies with
+// `attached`/`attach-failed`; whichever arrives first resolves the invoke.
+const pendingAttach = new Map<string, (ok: boolean) => void>()
+
+export function startPtyHost(): void {
   const script = hostScriptPath()
   if (!existsSync(script)) {
     console.error('[pty-host] script not found:', script)
@@ -42,7 +46,7 @@ export function startPtyHost(getWindow: () => BrowserWindow | null): void {
 
   const rl = createInterface({ input: host.stdout!, terminal: false })
   rl.on('line', (line) => {
-    let m: { t?: string }
+    let m: { t?: string; id?: string }
     try {
       m = JSON.parse(line)
     } catch {
@@ -53,8 +57,18 @@ export function startPtyHost(getWindow: () => BrowserWindow | null): void {
       while (queue.length) host!.stdin!.write(queue.shift()!)
       return
     }
-    const win = getWindow()
-    if (win && !win.isDestroyed()) win.webContents.send('pty:event', m)
+    if ((m.t === 'attached' || m.t === 'attach-failed') && m.id) {
+      const res = pendingAttach.get(m.id)
+      if (res) {
+        pendingAttach.delete(m.id)
+        res(m.t === 'attached')
+      }
+    }
+    // broadcast to every window — detached panes live in separate renderers
+    // that need their session's live data too
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('pty:event', m)
+    }
   })
 
   host.on('exit', (code) => {
@@ -66,6 +80,19 @@ export function startPtyHost(getWindow: () => BrowserWindow | null): void {
 
 export function registerPtyIpc(): void {
   ipcMain.handle('pty:spawn', (_e, m) => sendToHost({ t: 'spawn', ...m }))
+  ipcMain.handle(
+    'pty:attach',
+    (_e, m: { id: string; cols?: number; rows?: number }) =>
+      new Promise<boolean>((resolve) => {
+        pendingAttach.set(m.id, resolve)
+        sendToHost({ t: 'attach', ...m })
+        // host should reply instantly; bound the wait so a wedged host
+        // doesn't hang the caller forever
+        setTimeout(() => {
+          if (pendingAttach.delete(m.id)) resolve(false)
+        }, 3000)
+      })
+  )
   ipcMain.on('pty:write', (_e, m) => sendToHost({ t: 'write', ...m }))
   ipcMain.on('pty:resize', (_e, m) => sendToHost({ t: 'resize', ...m }))
   ipcMain.on('pty:kill', (_e, m) => sendToHost({ t: 'kill', ...m }))

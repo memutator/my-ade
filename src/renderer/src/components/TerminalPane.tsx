@@ -269,11 +269,11 @@ function TerminalTabView({
     termRef.current = term
     fitRef.current = fit
 
-    // Unique session per mount: events from a previous (killed) pty must not
-    // leak into this mount (StrictMode remount / HMR). The tabId segment keeps
-    // sibling tabs' sessions in the same pane distinct too.
-    const id = `${paneId}:${tabId}:${crypto.randomUUID()}`
-    window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+    // Session identity lives on the tab: remounts (float/detach transitions,
+    // StrictMode, HMR) re-attach to the same pty-host session — scrollback
+    // replays via the host's tail buffer. A fresh tab gets a fresh id.
+    const existingPty = terminalPane(wsId, paneId)?.tabs.find((x) => x.id === tabId)?.pty
+    const id = existingPty ?? `${paneId}:${tabId}:${crypto.randomUUID()}`
 
     const refit = (): void => {
       try {
@@ -298,7 +298,21 @@ function TerminalTabView({
       if (e.t === 'data' && e.d) term.write(decode(e.d))
       else if (e.t === 'spawned' && e.shell)
         // fresh shell: clear exited and any stale agent label from the old session
-        patchTerminalTab(wsId, paneId, tabId, { shell: e.shell, exited: false, agent: null })
+        patchTerminalTab(wsId, paneId, tabId, {
+          shell: e.shell,
+          exited: false,
+          agent: null,
+          pty: id
+        })
+      else if (e.t === 'attached')
+        // reattached to a live session — adopt its recorded state
+        patchTerminalTab(wsId, paneId, tabId, {
+          shell: e.shell,
+          cwd: e.cwd ?? undefined,
+          agent: e.agent ?? null,
+          exited: false,
+          pty: id
+        })
       else if (e.t === 'cwd' && e.cwd) patchTerminalTab(wsId, paneId, tabId, { cwd: e.cwd })
       else if (e.t === 'exit') patchTerminalTab(wsId, paneId, tabId, { exited: true, agent: null })
       else if (e.t === 'error')
@@ -342,6 +356,21 @@ function TerminalTabView({
     })
     ro.observe(host)
 
+    // attach → reuse the live session (host replays its scrollback tail);
+    // fall back to a fresh spawn under the same id when it's gone
+    if (existingPty) {
+      window.ade.pty
+        .attach(id, term.cols, term.rows)
+        .then((ok) => {
+          if (!ok && !disposed) {
+            window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+          }
+        })
+        .catch(() => {})
+    } else {
+      window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+    }
+
     return () => {
       disposed = true
       cancelAnimationFrame(raf)
@@ -349,7 +378,11 @@ function TerminalTabView({
       offEvent()
       offData.dispose()
       term.dispose()
-      window.ade.pty.kill(id)
+      // keep the session alive when the pane is detached (the detached
+      // window owns it) — remounts attach back to it; everything else
+      // (tab close, pane close) kills it as before
+      const pane = useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
+      if (!pane?.detached) window.ade.pty.kill(id)
       termRef.current = null
       fitRef.current = null
     }
@@ -411,8 +444,12 @@ export default function TerminalPane({
   const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
   const activeTabId = activeTab?.id ?? null
 
-  const restartTab = (tabId: string): void =>
+  // clearing the session id first makes the remount spawn a fresh shell —
+  // otherwise it would attach right back to the session being "restarted"
+  const restartTab = (tabId: string): void => {
+    patchTerminalTab(wsId, pane.id, tabId, { pty: undefined })
     setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
+  }
 
   // a new tab spawns a fresh shell in the workspace project dir — same cwd a
   // brand-new terminal pane would get

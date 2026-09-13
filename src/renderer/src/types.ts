@@ -3,6 +3,15 @@ export type PaneType = 'terminal' | 'browser' | 'editor' | 'todo'
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
 
+/** floating overlay geometry — fractions of the workspace area (0..1) */
+export interface FloatRect {
+  x: number
+  y: number
+  w: number
+  h: number
+  z: number
+}
+
 export interface PaneBase {
   id: string
   type: PaneType
@@ -13,6 +22,19 @@ export interface PaneBase {
    * pane dock restores them to their exact slot.
    */
   minimized?: boolean
+  /**
+   * Floating panes are removed from the layout tree (space is reclaimed) and
+   * render as an absolutely-positioned overlay on the workspace instead —
+   * free size/position, draggable, resizable; dock puts them back.
+   */
+  floating?: FloatRect
+  /**
+   * Detached panes live in their own OS window. The leaf stays in the tree
+   * (reattach returns to the same slot) but the content unmounts in the main
+   * window — the detached window owns it. Terminal sessions survive via
+   * pty `attach` on the stored session id.
+   */
+  detached?: boolean
 }
 
 export interface TerminalTab {
@@ -23,6 +45,9 @@ export interface TerminalTab {
   shell?: string
   exited?: boolean
   agent?: string | null
+  /** live pty-host session id — lets remounts/detached windows `attach`
+   *  (with scrollback replay) instead of spawning a new shell */
+  pty?: string
 }
 
 export interface TerminalPaneState extends PaneBase {

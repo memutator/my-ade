@@ -6,7 +6,13 @@ import BrowserPane from './BrowserPane'
 import EditorPane from './EditorPane'
 import TodoPane from './TodoPane'
 
-function PaneFor({ paneId, wsId }: { paneId: string; wsId: string }): React.JSX.Element | null {
+export function PaneFor({
+  paneId,
+  wsId
+}: {
+  paneId: string
+  wsId: string
+}): React.JSX.Element | null {
   const pane = useStore((s) => {
     const w = s.workspaces.find((x) => x.id === wsId)
     return w?.panes[paneId]
@@ -95,10 +101,14 @@ export default function SplitView({
   // (display:none, still MOUNTED, so terminals/webviews keep running) and the
   // visible sibling's flex share fills the freed space. Restore = clearing the
   // flag, which pops the pane back into its exact slot.
+  // Detached panes also keep the leaf (reattach lands on the same slot) but
+  // their content UNMOUNTS here — the detached window owns it, and its
+  // terminal session survives via pty `attach` on the tab's session id.
   if (node.kind === 'leaf') {
+    const p = panes?.[node.paneId]
     return (
-      <div className="node leaf" ref={ref} hidden={!!panes?.[node.paneId]?.minimized}>
-        <PaneFor paneId={node.paneId} wsId={wsId} />
+      <div className="node leaf" ref={ref} hidden={!!p?.minimized || !!p?.detached}>
+        {!p?.detached && <PaneFor paneId={node.paneId} wsId={wsId} />}
       </div>
     )
   }

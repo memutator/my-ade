@@ -37,6 +37,11 @@ const en = {
   restorePane: 'Restore pane',
   closePane: 'Close (Alt+W)',
   dragToMove: 'Drag to move pane',
+  floatPane: 'Float pane (Alt+F)',
+  dockPane: 'Dock pane (Alt+F)',
+  detachPane: 'Detach to window',
+  reattachPane: 'Back to workspace',
+  focusDetached: 'Focus detached window',
 
   // terminal pane
   restartShell: 'Restart shell',
@@ -189,6 +194,11 @@ const ko: Record<TKey, string> = {
   restorePane: '패널 복원',
   closePane: '닫기 (Alt+W)',
   dragToMove: '드래그하여 패널 이동',
+  floatPane: '플로팅 (Alt+F)',
+  dockPane: '도킹 (Alt+F)',
+  detachPane: '별도 창으로 분리',
+  reattachPane: '워크스페이스로 복귀',
+  focusDetached: '분리된 창 포커스',
 
   restartShell: '셸 다시 시작',
   processExited: '프로세스가 종료됨 — 클릭하여 다시 시작',
