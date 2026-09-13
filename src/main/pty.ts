@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
 import { createInterface } from 'readline'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync } from 'fs'
+import { homedir } from 'os'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
@@ -14,10 +15,57 @@ function hostScriptPath(): string {
   return join(process.resourcesPath, 'pty-host.cjs')
 }
 
+// Desktop-entry/launcher starts don't inherit interactive-shell PATH, so
+// version-manager installs (nvm/volta/fnm/mise/…) disappear. Probe PATH first,
+// then scan well-known install locations.
 function nodeBinary(): string {
   if (process.env.ADE_NODE) return process.env.ADE_NODE
-  // Prefer the node on PATH (nvm etc.); fall back to common locations.
-  return process.env.NODE_BINARY || 'node'
+  if (process.env.NODE_BINARY) return process.env.NODE_BINARY
+  if (!spawnSync('node', ['--version'], { stdio: 'ignore' }).error) return 'node'
+  const home = homedir()
+  for (const p of [
+    '/usr/bin/node',
+    '/usr/local/bin/node',
+    '/snap/bin/node',
+    '/home/linuxbrew/.linuxbrew/bin/node',
+    join(home, '.volta/bin/node'),
+    join(home, '.local/bin/node'),
+    join(home, '.asdf/shims/node')
+  ]) {
+    if (existsSync(p)) return p
+  }
+  for (const base of [
+    join(home, '.nvm/versions/node'),
+    join(home, '.local/share/mise/installs/node'),
+    join(home, '.local/share/fnm/node-versions'),
+    join(home, '.asdf/installs/nodejs')
+  ]) {
+    const found = newestNodeUnder(base)
+    if (found) return found
+  }
+  return 'node'
+}
+
+function newestNodeUnder(base: string): string | null {
+  try {
+    const dirs = readdirSync(base)
+      .map((v) => ({ v, m: v.match(/^v?(\d+)\.(\d+)\.(\d+)/) }))
+      .filter((x): x is { v: string; m: RegExpMatchArray } => !!x.m)
+      .sort((a, b) =>
+        [1, 2, 3].reduce((d, i) => d || Number(b.m[i]) - Number(a.m[i]), 0)
+      )
+    for (const { v } of dirs) {
+      for (const c of [
+        join(base, v, 'bin', 'node'),
+        join(base, v, 'installation', 'bin', 'node')
+      ]) {
+        if (existsSync(c)) return c
+      }
+    }
+  } catch {
+    /* dir absent */
+  }
+  return null
 }
 
 function sendToHost(msg: object): void {
@@ -39,9 +87,16 @@ export function startPtyHost(): void {
     console.error('[pty-host] script not found:', script)
     return
   }
-  host = spawn(nodeBinary(), [script], {
+  const bin = nodeBinary()
+  host = spawn(bin, [script], {
     stdio: ['pipe', 'pipe', 'inherit'],
     env: { ...process.env, ADE_PTY_HOST: '1' }
+  })
+  host.on('error', (err) => {
+    // e.g. node not found anywhere — keep the app alive, terminals just stay dead
+    console.error('[pty-host] spawn failed:', bin, err.message)
+    host = null
+    hostReady = false
   })
 
   const rl = createInterface({ input: host.stdout!, terminal: false })
