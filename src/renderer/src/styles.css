@@ -51,7 +51,12 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  overflow: hidden;
+  /* clip, not hidden — `hidden` still creates a scroll container, so any
+     overflow (a float-pane resize handle dipping below the fold, a tight
+     pane's min-content) gives the root a scroll range and the next
+     scrollIntoView slides the whole page up, pushing the topbar offscreen.
+     `clip` makes the root un-scrollable — scrollIntoView can't move it */
+  overflow: clip;
 }
 
 body {
@@ -67,6 +72,12 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* pinned to the viewport — the root scroller CAN still be scrolled
+     programmatically (scrollIntoView scrolls the document even with
+     overflow:hidden/clip), which used to slide the whole app up and push
+     the topbar offscreen. fixed+inset makes the shell immune */
+  position: fixed;
+  inset: 0;
 }
 
 .app-main {

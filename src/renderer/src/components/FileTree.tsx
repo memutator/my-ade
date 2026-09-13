@@ -427,7 +427,14 @@ export default function FileTree({
   const focusedEntry = flat.find((f) => f.entry.path === focused)?.entry ?? null
 
   useEffect(() => {
-    if (focused) rowEls.get(focused)?.scrollIntoView({ block: 'nearest' })
+    // container:'nearest' — unscoped scrollIntoView walks every scrollable
+    // ancestor and can drag the root scroller (overflow:hidden doesn't stop
+    // it), sliding the whole app up and pushing the topbar offscreen
+    if (focused)
+      rowEls.get(focused)?.scrollIntoView({
+        block: 'nearest',
+        container: 'nearest'
+      } as ScrollIntoViewOptions)
   }, [focused, rowEls])
 
   /* path remap — a renamed/moved dir keeps its expansion + selection */

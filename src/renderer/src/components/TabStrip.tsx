@@ -43,10 +43,15 @@ export default function TabStrip({
   useEffect(() => {
     if (!activeId) return
     const el = stripRef.current
+    // `container:'nearest'` keeps the scroll inside the strip — without it a
+    // scrollIntoView also walks every scrollable ancestor, and when the page
+    // has even 1px of overflow the whole document scrolls, pushing the topbar
+    // offscreen (root scroller ignores overflow:hidden)
     el?.querySelector(`[data-tab-id="${CSS.escape(activeId)}"]`)?.scrollIntoView({
       block: 'nearest',
-      inline: 'nearest'
-    })
+      inline: 'nearest',
+      container: 'nearest'
+    } as ScrollIntoViewOptions)
     // scrollIntoView's block:nearest may nudge the vertical axis ~1px — the
     // strip must never scroll vertically
     if (el) el.scrollTop = 0
