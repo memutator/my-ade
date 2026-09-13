@@ -13,6 +13,7 @@ import { registerFileWatchIpc } from './filewatch'
 import { registerFsOpsIpc } from './fsops'
 import { registerDirWatchIpc } from './dirwatch'
 import { registerWorktreeIpc } from './worktree'
+import { windowStateFor, trackWindowState } from './windowState'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
@@ -55,13 +56,14 @@ function createDetachedWindow(key: string): void {
     return
   }
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
-  const width = Math.min(920, wa.width)
-  const height = Math.min(640, wa.height)
+  const st = windowStateFor('detached', wa)
+  const width = st.width ?? Math.min(920, wa.width)
+  const height = st.height ?? Math.min(640, wa.height)
   const win = new BrowserWindow({
     width,
     height,
-    x: wa.x + Math.round((wa.width - width) / 2),
-    y: wa.y + Math.round((wa.height - height) / 2),
+    x: st.x ?? wa.x + Math.round((wa.width - width) / 2),
+    y: st.y ?? wa.y + Math.round((wa.height - height) / 2),
     minWidth: 320,
     minHeight: 200,
     show: false,
@@ -78,8 +80,12 @@ function createDetachedWindow(key: string): void {
   detachedWins.set(key, win)
   const wcId = win.webContents.id
   winKeyByWebContents.set(wcId, key)
+  trackWindowState('detached', win)
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    if (st.maximized) win.maximize()
+    win.show()
+  })
   win.on('closed', () => {
     // webContents is already destroyed here — only use values captured above
     const [wsId, paneId] = key.split(':')
@@ -111,13 +117,14 @@ function createWindow(): void {
   // out at a stale size until the first resize (titlebar content drifting to
   // the middle, clipped tabs). x/y are honored on X11 and ignored on Wayland.
   const wa = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
-  const width = Math.min(1440, wa.width)
-  const height = Math.min(900, wa.height)
+  const st = windowStateFor('main', wa)
+  const width = st.width ?? Math.min(1440, wa.width)
+  const height = st.height ?? Math.min(900, wa.height)
   mainWindow = new BrowserWindow({
     width,
     height,
-    x: wa.x + Math.round((wa.width - width) / 2),
-    y: wa.y + Math.round((wa.height - height) / 2),
+    x: st.x ?? wa.x + Math.round((wa.width - width) / 2),
+    y: st.y ?? wa.y + Math.round((wa.height - height) / 2),
     minWidth: 480,
     minHeight: 320,
     show: false,
@@ -131,8 +138,12 @@ function createWindow(): void {
       webviewTag: true
     }
   })
+  trackWindowState('main', mainWindow)
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    if (st.maximized) mainWindow?.maximize()
+    mainWindow?.show()
+  })
   mainWindow.on('closed', () => (mainWindow = null))
 
   mainWindow.webContents.setWindowOpenHandler((details) => {

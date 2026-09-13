@@ -27,8 +27,10 @@ log out and back in.
 
 **Factory reset.** Everything persisted lives in
 `~/.config/ade/ade-state.json` (`$XDG_CONFIG_HOME/ade/` when set) — projects,
-workspaces, layouts, settings, bookmarks, todos. Quit and delete the file to
-start clean. Agent event log and icons sit alongside it
+workspaces, layouts, settings, bookmarks, todos. Window geometry lives in the
+sibling `window-state.json` (size + maximized; x/y honored on X11 only —
+Wayland compositors ignore client position requests). Quit and delete the
+files to start clean. Agent event log and icons sit alongside them
 (`agent-events.log`, `agent-icons/`, `ade-hook.cjs`, `notify-forward.json`).
 
 ## Display

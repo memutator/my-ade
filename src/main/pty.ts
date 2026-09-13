@@ -51,9 +51,7 @@ function newestNodeUnder(base: string): string | null {
     const dirs = readdirSync(base)
       .map((v) => ({ v, m: v.match(/^v?(\d+)\.(\d+)\.(\d+)/) }))
       .filter((x): x is { v: string; m: RegExpMatchArray } => !!x.m)
-      .sort((a, b) =>
-        [1, 2, 3].reduce((d, i) => d || Number(b.m[i]) - Number(a.m[i]), 0)
-      )
+      .sort((a, b) => [1, 2, 3].reduce((d, i) => d || Number(b.m[i]) - Number(a.m[i]), 0))
     for (const { v } of dirs) {
       for (const c of [
         join(base, v, 'bin', 'node'),
