@@ -7,6 +7,7 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import MarkdownEditor from './MarkdownEditor'
+import '../editor.css'
 
 function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64)
@@ -43,6 +44,10 @@ const MIME: Record<string, string> = {
 
 const MD_EXTS = new Set(['.md', '.markdown'])
 
+// used when settings.editorFont is blank — the CSS var() fallback can't rescue
+// an explicitly-empty custom property (that resolves to "unset", not the fallback)
+const EDITOR_FONT_FALLBACK = "'JetBrains Mono', 'Fira Code', ui-monospace, monospace"
+
 // Unsaved editor buffers, keyed by absolute path. Pane drags remount FileView
 // and would silently drop dirty edits; keeping the draft session-scoped also
 // restores it if the tab is closed and reopened (hot-exit style).
@@ -67,6 +72,7 @@ export default function FileView({
   onSaveError?: (msg: string) => void
 }): React.JSX.Element {
   const resolvedTheme = useStore((s) => s.resolvedTheme ?? 'dark')
+  const editorFont = useStore((s) => s.settings.editorFont)
   const t = useT()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -77,6 +83,9 @@ export default function FileView({
   const [saveConfirm, setSaveConfirm] = useState<'overwrite' | 'recreate' | null>(null)
   const [reloadKey, setReloadKey] = useState(0) // bumps to remount the editor on reload
   const [reloadedFlash, setReloadedFlash] = useState(false)
+  const [raw, setRaw] = useState(false) // markdown view: false = Milkdown, true = raw CodeMirror
+  // buffer snapshot captured at toggle time — refs can't be read during render
+  const [mdSeed, setMdSeed] = useState<string | null>(null)
   const imgUrlRef = useRef<string | null>(null)
   const savedRef = useRef('') // content as of last load/save
   const contentRef = useRef('') // current editor content
@@ -191,6 +200,7 @@ export default function FileView({
       applyRead(r, false)
       setDiskConflict(null)
       setSaveConfirm(null)
+      setMdSeed(null) // fresh disk text becomes the seed again
       setReloadKey((k) => k + 1)
       if (flash) {
         setReloadedFlash(true)
@@ -246,11 +256,12 @@ export default function FileView({
     }
   }, [path, isLoaded, reloadFromDisk])
 
-  // async-resolve a CM language for the file name (plaintext fallback)
+  // async-resolve a CM language for the file name (plaintext fallback).
+  // md files skip this while rendered (Milkdown doesn't need it); raw view does.
   const isText = loaded?.kind === 'text' && loaded.text !== undefined
   const isMd = loaded?.md === true
   useEffect(() => {
-    if (!isText || isMd) return
+    if (!isText || (isMd && !raw)) return
     let cancelled = false
     const name = path.split('/').pop() ?? path
     const desc = LanguageDescription.matchFilename(languages, name)
@@ -264,7 +275,7 @@ export default function FileView({
     return () => {
       cancelled = true
     }
-  }, [path, isText, isMd])
+  }, [path, isText, isMd, raw])
 
   useEffect(
     () => () => {
@@ -284,7 +295,15 @@ export default function FileView({
   }
 
   return (
-    <div className="file-body" onKeyDownCapture={onKeyDownCapture}>
+    <div
+      className="file-body"
+      onKeyDownCapture={onKeyDownCapture}
+      style={
+        {
+          '--editor-font': editorFont.trim() ? editorFont : EDITOR_FONT_FALLBACK
+        } as React.CSSProperties
+      }
+    >
       {saveConfirm ? (
         <div className="file-banner">
           <span>{t(saveConfirm === 'recreate' ? 'fileDeletedConfirm' : 'fileChangedConfirm')}</span>
@@ -325,7 +344,27 @@ export default function FileView({
       ) : loaded.kind === 'pdf' ? (
         <embed className="file-pdf" src={loaded.mediaUrl} type="application/pdf" />
       ) : isMd ? (
-        <MarkdownEditor key={reloadKey} initialValue={loaded.text!} onChange={handleChange} />
+        // both surfaces seed from the live buffer snapshot (every edit goes
+        // through handleChange → contentRef → mdSeed at toggle time) and
+        // remount on view switch, so unsaved edits carry across raw↔rendered
+        raw ? (
+          <div className="cm-wrap">
+            <CodeMirror
+              key={`${reloadKey}-raw`}
+              value={mdSeed ?? loaded.text!}
+              height="100%"
+              theme={resolvedTheme === 'dark' ? oneDark : 'light'}
+              extensions={extensions}
+              onChange={handleChange}
+            />
+          </div>
+        ) : (
+          <MarkdownEditor
+            key={`${reloadKey}-md`}
+            initialValue={mdSeed ?? loaded.text!}
+            onChange={handleChange}
+          />
+        )
       ) : (
         <div className="cm-wrap">
           <CodeMirror
@@ -336,6 +375,30 @@ export default function FileView({
             extensions={extensions}
             onChange={handleChange}
           />
+        </div>
+      )}
+      {isMd && (
+        <div className="md-view-toggle">
+          <button
+            type="button"
+            className={raw ? '' : 'active'}
+            onClick={() => {
+              setMdSeed(contentRef.current)
+              setRaw(false)
+            }}
+          >
+            {t('renderedView')}
+          </button>
+          <button
+            type="button"
+            className={raw ? 'active' : ''}
+            onClick={() => {
+              setMdSeed(contentRef.current)
+              setRaw(true)
+            }}
+          >
+            {t('rawView')}
+          </button>
         </div>
       )}
       {loaded?.meta && !loaded.error && (

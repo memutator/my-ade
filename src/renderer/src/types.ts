@@ -140,6 +140,7 @@ export interface Settings {
   uiFont: string
   termFont: string
   termFontSize: number
+  editorFont: string
   language: Language
   homeUrl: string
   osNotifications: boolean

@@ -1,16 +1,5 @@
 import { useEffect, useRef } from 'react'
-import {
-  TerminalSquare,
-  Globe,
-  Code2,
-  ListTodo,
-  Sun,
-  Moon,
-  Minus,
-  Square,
-  X,
-  Settings
-} from 'lucide-react'
+import { TerminalSquare, Globe, Code2, ListTodo, Minus, Square, X, Settings } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
@@ -21,14 +10,12 @@ import FileTree from './FileTree'
 import AdeLogo from './AdeLogo'
 
 export default function TopBar(): React.JSX.Element {
-  const settings = useStore((s) => s.settings)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
-  const { newPane, updateSettings, setSidebarOpen, setSettingsOpen } = useStore()
+  const { newPane, setSidebarOpen, setSettingsOpen } = useStore()
   const activeWs = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const activeProject = useStore((s) => s.projects.find((p) => p.id === activeWs?.projectId))
   const t = useT()
 
-  const resolvedTheme = useStore((s) => s.resolvedTheme)
   const treeOverlay = useStore((s) => s.treeOverlayOpen)
   const setTreeOverlay = useStore((s) => s.setTreeOverlayOpen)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -56,17 +43,16 @@ export default function TopBar(): React.JSX.Element {
   return (
     <div className="topbar">
       <div className="app-icon" onMouseEnter={onIconEnter} onMouseLeave={onIconLeave}>
-        <Tooltip label={t('filesPeek')}>
-          <button
-            className="tbtn icon-btn"
-            onClick={() => {
-              setTreeOverlay(false)
-              setSidebarOpen(!sidebarOpen)
-            }}
-          >
-            <AdeLogo />
-          </button>
-        </Tooltip>
+        {/* no tooltip — hovering already pops the file-tree overlay */}
+        <button
+          className="tbtn icon-btn"
+          onClick={() => {
+            setTreeOverlay(false)
+            setSidebarOpen(!sidebarOpen)
+          }}
+        >
+          <AdeLogo />
+        </button>
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>
             <div className="tree-overlay-head">{activeProject.name}</div>
@@ -106,18 +92,7 @@ export default function TopBar(): React.JSX.Element {
           <Settings />
         </button>
       </Tooltip>
-      <Tooltip label={t('toggleTheme')}>
-        <button
-          className="tbtn"
-          onClick={() =>
-            updateSettings({
-              theme: settings.theme === 'dark' ? 'light' : 'dark'
-            })
-          }
-        >
-          {resolvedTheme === 'dark' ? <Sun /> : <Moon />}
-        </button>
-      </Tooltip>
+      {/* theme toggle lives in the settings page (Alt+M shortcut still works) */}
       <div className="win-controls">
         <Tooltip label={t('minimize')}>
           <button className="tbtn" onClick={() => window.ade.win.minimize()}>

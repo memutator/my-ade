@@ -20,7 +20,8 @@ export default function TabStrip({
   onClose,
   onRename,
   onReorder,
-  addControl
+  addControl,
+  tooltips = true
 }: {
   tabs: TabItem[]
   activeId?: string | null
@@ -29,6 +30,10 @@ export default function TabStrip({
   onRename?: (id: string, name: string) => void
   onReorder?: (from: number, to: number) => void
   addControl?: ReactNode
+  /** hover tooltip per tab ('label — sub'). WorkspaceStrip turns it off — for
+     workspace tabs the card only repeats the tab's own text. The dirty-dot
+     tooltip is unaffected. */
+  tooltips?: boolean
 }): React.JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -148,9 +153,10 @@ export default function TabStrip({
           if ((e.target as HTMLElement).closest('.ctab, button, input')) e.stopPropagation()
         }}
       >
-        {tabs.map((tab, i) => (
-          <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
+        {tabs.map((tab, i) => {
+          const el = (
             <div
+              key={tab.id}
               className={`ctab${tab.id === activeId ? ' active' : ''}${tab.sub ? ' has-sub' : ''}`}
               data-tab-id={tab.id}
               draggable={!!onReorder && editingId !== tab.id}
@@ -203,8 +209,15 @@ export default function TabStrip({
                 </button>
               )}
             </div>
-          </Tooltip>
-        ))}
+          )
+          return tooltips ? (
+            <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
+              {el}
+            </Tooltip>
+          ) : (
+            el
+          )
+        })}
         {addControl}
       </div>
       <div

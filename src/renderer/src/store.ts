@@ -263,6 +263,7 @@ const DEFAULT_SETTINGS: Settings = {
   uiFont: "'Inter', system-ui, sans-serif",
   termFont: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
   termFontSize: 12.5,
+  editorFont: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
   language: 'system',
   osNotifications: true,
   providers: {}

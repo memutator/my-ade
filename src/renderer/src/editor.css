@@ -1,0 +1,60 @@
+/* editor-surface extras — imported by FileView.tsx.
+   --editor-font is set inline on .file-body from settings.editorFont, so it
+   applies live to both the CodeMirror and Milkdown surfaces. The .file-body
+   prefix keeps these rules more specific than the hardcoded font-family in
+   styles.css regardless of stylesheet order. */
+
+.file-body .cm-wrap .cm-scroller,
+.file-body .cm-wrap .cm-content,
+.file-body .cm-wrap .cm-line {
+  font-family: var(--editor-font, 'JetBrains Mono', 'Fira Code', ui-monospace, monospace);
+}
+
+.file-body .md-editor,
+.file-body .md-editor .ProseMirror,
+.file-body .md-editor .ProseMirror code {
+  font-family: var(--editor-font, 'JetBrains Mono', 'Fira Code', ui-monospace, monospace);
+}
+
+/* floating raw/rendered switch for markdown files */
+.md-view-toggle {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 30;
+  display: flex;
+  align-items: stretch;
+  height: 20px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 10.5px;
+  user-select: none;
+}
+
+.md-view-toggle button {
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.md-view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.md-view-toggle button:hover {
+  color: var(--text);
+}
+
+.md-view-toggle button.active {
+  background: var(--hover);
+  color: var(--text);
+}

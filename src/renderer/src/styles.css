@@ -1495,6 +1495,17 @@ webview.browser-view {
   background: radial-gradient(circle at 100% -1px, transparent 10px, var(--tab-fill) 10.5px);
 }
 
+/* light theme only: the white active tab is invisible against the light-gray
+   chrome without an edge. drop-shadow traces the painted alpha silhouette, so
+   the outline follows the curved wing pseudo-elements where a border can't —
+   and no bottom shadow keeps the tab/content merge open */
+html[data-theme='light'] .ctab.active {
+  filter:
+    drop-shadow(0 -1px 0 var(--border-strong))
+    drop-shadow(1px 0 0 var(--border-strong))
+    drop-shadow(-1px 0 0 var(--border-strong));
+}
+
 /* short hairline between two inactive neighbours */
 .ctab:not(.active):not(:hover) + .ctab:not(.active):not(:hover) {
   background-image: linear-gradient(var(--border), var(--border));
@@ -1586,10 +1597,11 @@ webview.browser-view {
   border-radius: 50%;
 }
 
+/* portaled to <body> — .tstrip's overflow-y:clip would hide an in-place
+   absolute dropdown, so the menu is position:fixed with top/left set inline
+   from the '+' button's rect */
 .ws-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   min-width: 210px;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
