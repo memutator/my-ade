@@ -378,11 +378,22 @@ function TerminalTabView({
       offEvent()
       offData.dispose()
       term.dispose()
-      // keep the session alive when the pane is detached (the detached
-      // window owns it) — remounts attach back to it; everything else
-      // (tab close, pane close) kills it as before
-      const pane = useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
-      if (!pane?.detached) window.ade.pty.kill(id)
+      // The pty session belongs to the tab record, not this view. Unmounts
+      // from layout churn (splits, moves, dock/float), detach handoff and
+      // StrictMode remounts all re-attach to the live session — kill only
+      // when the tab no longer owns THIS session: tab/pane/workspace closed,
+      // the id was cleared (restart kills it explicitly first), or a newer
+      // mount already superseded it.
+      const st = useStore.getState()
+      let ownsSession = false
+      for (const w of st.workspaces) {
+        const p = w.panes[paneId]
+        if (p?.type === 'terminal') {
+          ownsSession = p.tabs.some((t) => t.id === tabId && t.pty === id)
+          break
+        }
+      }
+      if (!ownsSession) window.ade.pty.kill(id)
       termRef.current = null
       fitRef.current = null
     }
@@ -444,9 +455,12 @@ export default function TerminalPane({
   const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
   const activeTabId = activeTab?.id ?? null
 
-  // clearing the session id first makes the remount spawn a fresh shell —
-  // otherwise it would attach right back to the session being "restarted"
+  // kill the old session AND clear the session id — the remount must spawn a
+  // fresh shell, not attach back to the session being "restarted" (unmount
+  // cleanup won't kill it: the tab record still exists)
   const restartTab = (tabId: string): void => {
+    const old = tabs.find((x) => x.id === tabId)?.pty
+    if (old) window.ade.pty.kill(old)
     patchTerminalTab(wsId, pane.id, tabId, { pty: undefined })
     setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
   }

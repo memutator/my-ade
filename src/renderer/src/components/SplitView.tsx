@@ -1,6 +1,9 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { LayoutNode } from '../types'
 import { useStore, visibleLeafIds } from '../store'
+import { registerPaneSlot, usePaneSlot } from '../paneSlots'
+import { FloatCtx } from './floatCtx'
 import TerminalPane from './TerminalPane'
 import BrowserPane from './BrowserPane'
 import EditorPane from './EditorPane'
@@ -87,6 +90,59 @@ function Divider({
   )
 }
 
+// Every pane record gets exactly one mounted PaneFor per workspace. The pane
+// renders into a mount node it owns forever — the portal container never
+// changes (a changed container would remount the whole subtree), the NODE is
+// moved between layout slots (split leaf / float overlay) with appendChild
+// instead. Result: splitting, closing, swapping, floating or docking panes
+// reparents live DOM without unmounting — xterm, webview and editor state
+// all survive. A pane with no slot (e.g. a minimized float) sits in a hidden
+// stash div and keeps running.
+export function PanePortals({ wsId }: { wsId: string }): React.JSX.Element {
+  const panes = useStore((s) => s.workspaces.find((x) => x.id === wsId)?.panes)
+  return (
+    <>
+      {Object.values(panes ?? {})
+        .filter((p) => !p.detached)
+        .map((p) => (
+          <PanePortal key={p.id} wsId={wsId} paneId={p.id} />
+        ))}
+    </>
+  )
+}
+
+function PanePortal({ wsId, paneId }: { wsId: string; paneId: string }): React.JSX.Element {
+  const slot = usePaneSlot(paneId)
+  const [stash, setStash] = useState<HTMLDivElement | null>(null)
+  const [mount] = useState(() => {
+    const el = document.createElement('div')
+    el.className = 'pane-mount'
+    return el
+  })
+
+  const parent = slot?.el ?? stash
+  useLayoutEffect(() => {
+    if (!parent) return
+    parent.appendChild(mount)
+    return () => {
+      if (mount.parentNode === parent) parent.removeChild(mount)
+    }
+  }, [parent, mount])
+
+  return (
+    <>
+      <div ref={setStash} className="pane-stash" hidden />
+      {createPortal(
+        <FloatCtx.Provider value={slot?.floatCtx ?? null}>
+          <PaneFor paneId={paneId} wsId={wsId} />
+        </FloatCtx.Provider>,
+        mount,
+        paneId
+      )}
+    </>
+  )
+}
+
 export default function SplitView({
   node,
   wsId
@@ -97,20 +153,34 @@ export default function SplitView({
   const ref = useRef<HTMLDivElement>(null)
   const panes = useStore((s) => s.workspaces.find((x) => x.id === wsId)?.panes)
 
+  // A leaf is just a slot: PanePortals owns the actual pane content and
+  // portals it in. Registering the div (with an identity-guarded cleanup) is
+  // what lets a pane survive splits/collapses — the slot moves, the mounted
+  // component doesn't.
+  const leafPaneId = node.kind === 'leaf' ? node.paneId : null
+  const setLeafRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      ref.current = el
+      if (!el || !leafPaneId) return
+      const unregister = registerPaneSlot(leafPaneId, el)
+      return () => {
+        ref.current = null
+        unregister()
+      }
+    },
+    [leafPaneId]
+  )
+
   // Minimized panes keep their leaf in the tree — the subtree renders hidden
   // (display:none, still MOUNTED, so terminals/webviews keep running) and the
   // visible sibling's flex share fills the freed space. Restore = clearing the
   // flag, which pops the pane back into its exact slot.
   // Detached panes also keep the leaf (reattach lands on the same slot) but
-  // their content UNMOUNTS here — the detached window owns it, and its
-  // terminal session survives via pty `attach` on the tab's session id.
+  // stay empty — the detached window owns the content; its terminal session
+  // survives via pty `attach` on the tab's session id.
   if (node.kind === 'leaf') {
     const p = panes?.[node.paneId]
-    return (
-      <div className="node leaf" ref={ref} hidden={!!p?.minimized || !!p?.detached}>
-        {!p?.detached && <PaneFor paneId={node.paneId} wsId={wsId} />}
-      </div>
-    )
+    return <div className="node leaf" ref={setLeafRef} hidden={!!p?.minimized || !!p?.detached} />
   }
 
   const aMin = !panes || visibleLeafIds(node.a, panes).length === 0

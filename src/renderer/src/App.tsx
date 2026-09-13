@@ -8,7 +8,7 @@ import { shortPath } from './utils'
 import type { AgentHookEvent, TerminalTab, Workspace } from './types'
 
 import TopBar from './components/TopBar'
-import SplitView from './components/SplitView'
+import SplitView, { PanePortals } from './components/SplitView'
 import FloatLayer from './components/FloatLayer'
 import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
@@ -318,6 +318,7 @@ export default function App(): React.JSX.Element {
                 )}
                 {!hasVisible && <WorkspaceEmpty wsId={w.id} />}
                 <FloatLayer wsId={w.id} />
+                <PanePortals wsId={w.id} />
               </div>
             )
           })}

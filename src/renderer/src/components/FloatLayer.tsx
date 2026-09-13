@@ -1,8 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { PaneState } from '../types'
 import { useStore } from '../store'
-import { PaneFor } from './SplitView'
-import { FloatCtx } from './floatCtx'
+import { registerPaneSlot } from '../paneSlots'
 
 // Floating panes render as an overlay inside .ws-host (positioned in
 // fractions of the workspace area). Move by dragging the pane titlebar's
@@ -80,6 +79,18 @@ function FloatPane({ pane, wsId }: { pane: PaneState; wsId: string }): React.JSX
     [begin]
   )
 
+  // The float card is just another slot: the pane's mounted content portals
+  // in here (docking moves it back to a leaf without remounting). The slot
+  // carries the titlebar-drag ctx that PaneFrame picks up via FloatCtx.
+  const floatCtx = useMemo(() => ({ onTitlebarPointerDown }), [onTitlebarPointerDown])
+  const setSlotRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) return
+      return registerPaneSlot(pane.id, el, floatCtx)
+    },
+    [pane.id, floatCtx]
+  )
+
   return (
     <div
       className="float-pane"
@@ -93,31 +104,11 @@ function FloatPane({ pane, wsId }: { pane: PaneState; wsId: string }): React.JSX
       }}
       onPointerDownCapture={() => focusPane(pane.id, wsId)}
     >
-      <div className="float-inner">
-        <FloatBody paneId={pane.id} wsId={wsId} onTitlebarPointerDown={onTitlebarPointerDown} />
-      </div>
+      <div className="float-inner" ref={setSlotRef} />
       {RESIZE_DIRS.map((dir) => (
         <div key={dir} className={`fp-rz ${dir}`} onPointerDown={startResize(dir)} />
       ))}
     </div>
-  )
-}
-
-// PaneFor needs the titlebar-drag handler threaded into PaneFrame — kept as
-// a thin context wrapper so FloatPane stays readable.
-function FloatBody({
-  paneId,
-  wsId,
-  onTitlebarPointerDown
-}: {
-  paneId: string
-  wsId: string
-  onTitlebarPointerDown: (e: React.PointerEvent) => void
-}): React.JSX.Element | null {
-  return (
-    <FloatCtx.Provider value={{ onTitlebarPointerDown }}>
-      <PaneFor paneId={paneId} wsId={wsId} />
-    </FloatCtx.Provider>
   )
 }
 

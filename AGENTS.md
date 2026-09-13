@@ -14,6 +14,20 @@ splittable pane layout scoped to a project directory.
 - **terminal pane** owns an internal `TabStrip` of shell tabs (`tabs[]` +
   `activeTabId`); every tab keeps a mounted xterm + live pty in the background,
   and closing the last tab closes the pane. New tabs spawn in `project.path`.
+- **pane content never remounts on layout changes.** `PanePortals`
+  (SplitView.tsx) renders each non-detached pane's `PaneFor` exactly once into
+  a per-pane `.pane-mount` div it owns; that node is `appendChild`-ed into
+  whichever registered slot hosts it (leaf `.node.leaf` in `SplitView` /
+  `.float-inner` in `FloatLayer`, or a hidden `.pane-stash` when slotless).
+  Changing a `createPortal` container remounts the subtree — so the portal
+  target is the stable mount node, never the slot. Slots register via
+  `registerPaneSlot` (`paneSlots.ts`) with identity-guarded cleanups.
+- **pty lifetime = tab record lifetime**, not view lifetime. Unmount cleanup
+  kills a session iff no workspace still holds a tab owning that exact
+  session id — layout churn, detach handoff, cross-workspace moves and
+  StrictMode remounts all re-`attach` to the live session instead. Closing a
+  tab/pane/workspace removes the record → cleanup kills; `restartTab` kills
+  its session explicitly before clearing `pty`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
   Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
   WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted.

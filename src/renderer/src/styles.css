@@ -210,6 +210,22 @@ body {
   display: flex;
 }
 
+/* per-pane mount node — pane content is portaled into it once and the node
+   itself is moved between layout slots (leaf / float / hidden stash) without
+   remounting; fills its slot and lets the .pane inside fill it in turn */
+.pane-mount {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+/* stash for panes whose layout slot is gone (e.g. minimized float) —
+   keeps them mounted and running, just invisible */
+.pane-stash {
+  display: none;
+}
+
 .divider {
   flex-shrink: 0;
   position: relative;
@@ -2519,7 +2535,7 @@ body.pane-dragging webview {
   display: flex;
 }
 
-.float-inner > .pane {
+.float-inner .pane {
   flex: 1;
   border-radius: 7px;
   box-shadow:
