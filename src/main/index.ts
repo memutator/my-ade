@@ -138,6 +138,10 @@ function createWindow(): void {
   const st = windowStateFor('main', wa)
   const width = st.width ?? Math.min(1440, wa.width)
   const height = st.height ?? Math.min(900, wa.height)
+  // ADE_TEST runs the full app headlessly — window never maps, can't steal
+  // focus (focusable:false), and doesn't blink in the taskbar. Used by
+  // tools/e2e.mjs; combine with ADE_FAKE_FOCUS to pin the win:state verdict.
+  const testMode = !!process.env.ADE_TEST
   mainWindow = new BrowserWindow({
     width,
     height,
@@ -147,6 +151,8 @@ function createWindow(): void {
     minHeight: 320,
     show: false,
     frame: false,
+    focusable: !testMode,
+    skipTaskbar: testMode,
     backgroundColor: '#0b0d10',
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -159,6 +165,7 @@ function createWindow(): void {
   trackWindowState('main', mainWindow)
 
   mainWindow.on('ready-to-show', () => {
+    if (testMode) return
     if (st.maximized) mainWindow?.maximize()
     mainWindow?.show()
   })
@@ -296,6 +303,10 @@ function registerWindowIpc(): void {
   // their own window) — the renderer's notify policy keys off this:
   // 'focused' can be attended/ambient, anything else is 'away'
   ipcMain.handle('win:state', (_e, m: { wsId?: string; paneId?: string; detached?: boolean }) => {
+    // test seam: ADE_FAKE_FOCUS pins the verdict so e2e can exercise every
+    // attention level deterministically — a hidden window can never hold
+    // real OS focus (Wayland won't let an app self-focus anyway)
+    if (process.env.ADE_FAKE_FOCUS && !m?.detached) return process.env.ADE_FAKE_FOCUS
     const win = m?.detached ? detachedWins.get(`${m.wsId}:${m.paneId}`) : mainWindow
     if (!win || win.isDestroyed()) return 'hidden'
     if (win.isMinimized()) return 'minimized'

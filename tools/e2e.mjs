@@ -75,7 +75,7 @@ async function cdpTarget(port, deadline) {
   throw new Error(`no CDP page target on :${port}`)
 }
 
-async function boot(tag) {
+async function boot(tag, opts = {}) {
   const cfg = join(BASE, tag)
   const port = 9300 + Math.floor(Math.random() * 400)
   const child = spawn(electron, ['.', `--remote-debugging-port=${port}`], {
@@ -84,7 +84,11 @@ async function boot(tag) {
       ...process.env,
       XDG_CONFIG_HOME: cfg,
       ELECTRON_DISABLE_SANDBOX: '1',
-      ADE_HOOK_DEBUG: '1'
+      ADE_HOOK_DEBUG: '1',
+      // headless: window never maps, can't steal focus; ADE_FAKE_FOCUS pins
+      // the win:state verdict ('focused' | 'visible' | 'minimized')
+      ADE_TEST: '1',
+      ...(opts.focus ? { ADE_FAKE_FOCUS: opts.focus } : {})
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -110,10 +114,7 @@ async function boot(tag) {
       pending.set(id, (r) => (r.error ? rej(new Error(r.error.message)) : res(r.result)))
       ws.send(JSON.stringify({ id, method, params }))
     })
-  // the test window must actually hold OS focus for attended/ambient paths —
-  // on a real desktop it can open unfocused, so pull it to front
-  await send('Page.enable').catch(() => {})
-  const focus = () => send('Page.bringToFront').catch(() => {})
+
   const ev = async (expression) => {
     const r = await send('Runtime.evaluate', {
       expression,
@@ -137,6 +138,9 @@ async function boot(tag) {
     await sleep(300)
   }
   await sleep(800) // manifest load + initial settle
+  // keep verdicts quiet — 'away' verdicts must not pop a real OS banner on
+  // the developer's desktop
+  await ev(`window.__ade.getState().updateSettings({ osNotifications: false })`).catch(() => {})
 
   const waitFor = async (expr, label, timeout = 12000) => {
     const dl = Date.now() + timeout
@@ -181,7 +185,31 @@ async function boot(tag) {
       'a terminal tab with a live pty'
     )
   const type = (pty, s) => ev(`window.ade.pty.write(${JSON.stringify(pty)}, ${JSON.stringify(s)})`)
-  return { cfg, child, ev, waitFor, quit, term, type, dump, focusState, focus }
+  const decisions = () => {
+    const f = join(cfg, 'ade', 'notify-decisions.log')
+    if (!existsSync(f)) return []
+    return readFileSync(f, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l)
+        } catch {
+          return null
+        }
+      })
+      .filter(Boolean)
+  }
+  const decisionFor = async (sessionId, event) => {
+    const dl = Date.now() + 8000
+    for (;;) {
+      const d = decisions().find((x) => x.ev?.sessionId === sessionId && x.ev?.event === event)
+      if (d) return d
+      if (Date.now() > dl) return null
+      await sleep(250)
+    }
+  }
+  return { cfg, child, ev, waitFor, quit, term, type, dump, focusState, decisions, decisionFor }
 }
 
 // ---------- helpers shared by scenarios ----------
@@ -291,11 +319,13 @@ async function scResume() {
 }
 
 async function scAttention() {
-  console.log('\n■ attention — ambient toasts + read-on-view')
-  const h = await boot('attention')
+  console.log('\n■ attention — attended/ambient/away levels + read-on-view')
+  // focused boot: the emitting tab is on screen → attended; another
+  // workspace's tab is off-screen → ambient
+  const h = await boot('attention', { focus: 'focused' })
   const { wsId: ws1 } = await mkws(h)
   const t1 = await h.term()
-  // second workspace (inactive) with its own terminal
+  await h.type(t1.pty, `${FAKE} --session-id s-att\n`)
   const ws2 = await h.ev(`(() => {
     let s = window.__ade.getState()
     s.createWorkspace(s.projects[0].id)
@@ -305,7 +335,6 @@ async function scAttention() {
     s.activateWorkspace(${JSON.stringify(ws1)})
     return w.id
   })()`)
-  await sleep(400)
   const t2 = await h.waitFor(
     `(() => {
       const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
@@ -315,71 +344,54 @@ async function scAttention() {
     })()`,
     'ws2 terminal'
   )
-  // fake in ws2's tab; 'n' keypress emits needs-input through the real path
   await h.type(t2.pty, `${FAKE} --session-id s-amb\n`)
   await sleep(1200)
-  await h.focus()
-  await sleep(300)
-  await h.type(t2.pty, 'n')
-  // the attention level depends on real OS focus (Wayland won't let a window
-  // self-focus) — so assert the verdict in notify-decisions.log is coherent
-  // with its level: ambient must toast, away must go to the OS path
-  let decision = null
-  {
-    const dl = Date.now() + 8000
-    while (Date.now() < dl) {
-      const f = join(h.cfg, 'ade', 'notify-decisions.log')
-      if (existsSync(f)) {
-        const d = readFileSync(f, 'utf8')
-          .split('\n')
-          .filter(Boolean)
-          .map((l) => {
-            try {
-              return JSON.parse(l)
-            } catch {
-              return null
-            }
-          })
-          .filter(Boolean)
-          .find((x) => x.ev?.event === 'needs-input' && x.ev?.sessionId === 's-amb')
-        if (d) {
-          decision = d
-          break
-        }
-      }
-      await sleep(250)
-    }
-  }
-  ok(!!decision, 'needs-input produced a policy decision')
-  if (decision) {
-    const level = String(decision.reason ?? '')
-    if (level.startsWith('ambient')) {
-      const toasted = await h
-        .waitFor(`window.__ade.getState().toasts.length > 0`, 'ambient toast', 8000)
-        .then(() => true)
-        .catch(() => false)
-      ok(toasted, 'ambient verdict produced an in-app toast')
-    } else {
-      ok(
-        decision.action === 'os',
-        `unfocused-window verdict used OS notification (level=${level}, action=${decision.action})`
-      )
-    }
-  }
-  const unread = await h.ev(
-    `window.__ade.getState().notifications.filter((n) => !n.read).length`
-  )
-  ok(unread > 0, 'notification is unread')
 
-  // read-on-view: activate ws2 → the pending ping settles to read
+  // attended: 'c' in the on-screen tab → silent pre-read record
+  await h.type(t1.pty, 'c')
+  const dAtt = await h.decisionFor('s-att', 'turn-complete')
+  ok(dAtt?.reason?.startsWith('attended'), `on-screen turn-complete judged attended (${dAtt?.reason})`)
+  const attNotif = await h.ev(
+    `window.__ade.getState().notifications.find((n) => n.sessionId === 's-att')`
+  )
+  ok(attNotif?.read === true, 'attended event recorded pre-read')
+
+  // ambient: 'n' in the off-screen workspace's tab → unread + in-app toast
+  await h.type(t2.pty, 'n')
+  const dAmb = await h.decisionFor('s-amb', 'needs-input')
+  ok(dAmb?.reason?.startsWith('ambient'), `off-screen needs-input judged ambient (${dAmb?.reason})`)
+  const toasted = await h
+    .waitFor(`window.__ade.getState().toasts.length > 0`, 'ambient toast', 8000)
+    .then(() => true)
+    .catch(() => false)
+  ok(toasted, 'ambient needs-input produced an in-app toast')
+  const unread = await h.ev(
+    `window.__ade.getState().notifications.filter((n) => !n.read && n.sessionId === 's-amb').length`
+  )
+  ok(unread > 0, 'ambient notification is unread')
+
+  // read-on-view: hidden window never holds DOM focus — stub it so the sweep
+  // runs, then activate ws2 → the pending ping settles to read
+  await h.ev(`document.hasFocus = () => true`)
   await h.ev(`window.__ade.getState().activateWorkspace(${JSON.stringify(ws2)})`)
-  await h.focus()
   await sleep(600)
   const stillUnread = await h.ev(
     `window.__ade.getState().notifications.filter((n) => !n.read && n.tabId === ${JSON.stringify(t2.tabId)}).length`
   )
   ok(stillUnread === 0, 'viewing the tab clears its unread ping')
   await h.quit()
+
+  // away boot: 'visible' (unfocused) → verdict takes the OS path; the banner
+  // itself is suppressed via osNotifications=false
+  const h2 = await boot('attention-away', { focus: 'visible' })
+  await mkws(h2)
+  const ta = await h2.term()
+  await h2.type(ta.pty, `${FAKE} --session-id s-away\n`)
+  await sleep(1200)
+  await h2.type(ta.pty, 'n')
+  const dAway = await h2.decisionFor('s-away', 'needs-input')
+  ok(dAway?.action === 'os', `unfocused-window verdict used OS notification (${dAway?.reason})`)
+  await h2.quit()
 }
 
 async function scAdopt() {

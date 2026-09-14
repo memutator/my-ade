@@ -208,13 +208,17 @@ Two tools live under `tools/` (both plain Node, lint-ignored):
 - **`e2e.mjs`** — a CDP driver that boots the built app (`npm run build` →
   `electron .`, not electron-vite dev) under a fresh `XDG_CONFIG_HOME` and
   drives it via `window.__ade` (the store handle `main.tsx` exposes) +
-  `Runtime.evaluate`. Scenarios (`node tools/e2e.mjs [name…]`): `orphans`
-  (quit kills agent processes), `resume` (two sessions, one pane, distinct tabs
-  → reboot → both offered and re-injected into their own tabs), `attention`
-  (ambient toast + read-on-view). Harness diversity is covered by replaying
-  captured `hook-raw.log` payloads rather than simulating CLIs — the
-  normalizer accepts canonical event names idempotently so tools can emit
-  `needs-input`/`turn-complete` directly.
+  `Runtime.evaluate`. Runs **headless**: `ADE_TEST=1` creates the window with
+  `show:false`/`focusable:false` (never maps, never steals focus), and
+  `ADE_FAKE_FOCUS=focused|visible|…` pins the `win:state` verdict so all three
+  attention levels are deterministic. Scenarios (`node tools/e2e.mjs
+  [name…]`): `orphans` (quit kills agent processes), `resume` (two sessions,
+  one pane, distinct tabs → reboot → both offered and re-injected into their
+  own tabs), `attention` (attended/ambient/away verdicts, ambient toast,
+  read-on-view), `adopt` (previous-run orphan events re-register). Harness
+  diversity is covered by replaying captured `hook-raw.log` payloads rather
+  than simulating CLIs — the normalizer accepts canonical event names
+  idempotently so tools can emit `needs-input`/`turn-complete` directly.
 
 ## Caveats
 
