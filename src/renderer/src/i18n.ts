@@ -113,7 +113,7 @@ const en = {
 
   // session resume
   resumeTitle: 'Resume agent sessions',
-  resumeHint: '{name} had {n} agent session(s) running when ade closed. Reopen them in their tabs?',
+  resumeHint: '{name} had {n} agent session(s) running when ADE closed. Reopen them in their tabs?',
   resumeAll: 'Resume all ({n})',
   resumeLater: 'Later',
 
@@ -324,7 +324,7 @@ const ko: Record<TKey, string> = {
 
   resumeTitle: '에이전트 세션 복구',
   resumeHint:
-    '{name} — ade 종료 시 실행 중이던 에이전트 세션 {n}개가 있습니다. 해당 탭에서 이어서 복구할까요?',
+    '{name} — ADE 종료 시 실행 중이던 에이전트 세션 {n}개가 있습니다. 해당 탭에서 이어서 복구할까요?',
   resumeAll: '모두 복구 ({n})',
   resumeLater: '나중에',
 

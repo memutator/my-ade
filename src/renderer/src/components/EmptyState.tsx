@@ -14,7 +14,7 @@ export default function EmptyState(): React.JSX.Element {
 
   return (
     <div className="empty-state">
-      <div className="logo">ade</div>
+      <div className="logo">ADE</div>
       <div className="empty-actions">
         {projects.map((p) => (
           <button key={p.id} onClick={() => createWorkspace(p.id, t('workspace'))}>

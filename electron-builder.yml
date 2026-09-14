@@ -1,5 +1,5 @@
 appId: com.ade.app
-productName: ade
+productName: ADE
 directories:
   buildResources: build
 files:

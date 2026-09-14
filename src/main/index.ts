@@ -28,6 +28,10 @@ import { windowStateFor, trackWindowState } from './windowState'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
+// productName is the display name (ADE); userData stays on the legacy
+// lowercase dir so existing state/icon caches don't orphan on the rename
+app.setPath('userData', join(app.getPath('appData'), 'ade'))
+
 // Per-run session tag: pty-host inherits it, every spawned shell and agent
 // CLI carries it, and hook scripts stamp it onto each event. The tailer drops
 // events from foreign sessions (agents running outside ade, or another ade
