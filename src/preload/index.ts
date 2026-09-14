@@ -196,7 +196,9 @@ const ade = {
   },
   state: {
     load: (): Promise<unknown> => ipcRenderer.invoke('state:load'),
-    save: (state: unknown): Promise<void> => ipcRenderer.invoke('state:save', state)
+    save: (state: unknown): Promise<void> => ipcRenderer.invoke('state:save', state),
+    // sendSync — used from beforeunload where a promise would never resolve
+    saveNow: (state: unknown): boolean => ipcRenderer.sendSync('state:saveSync', state)
   },
   clipboard: {
     write: (t: string): Promise<void> => ipcRenderer.invoke('clipboard:write', t),

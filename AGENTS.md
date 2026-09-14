@@ -72,6 +72,9 @@ splittable pane layout scoped to a project directory.
   (node-gyp rebuild needs make, which isn't installed) — deps still install fine;
   ignore it or use `--ignore-scripts`.
 - `npm run typecheck` / `npm run lint` / `npm run build`
+- `node tools/e2e.mjs [scenario]` — CDP-driven e2e against `out/` (needs
+  `npm run build` first); `tools/ade-fake.mjs` is the fake harness it drives.
+  See `docs/agents.md` → Testing.
 - `npm run build:linux` — package via electron-builder
 
 ## Releases

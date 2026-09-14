@@ -88,29 +88,38 @@ export default function App(): React.JSX.Element {
     if (Object.keys(patterns).length) window.ade.agents.configure?.(patterns)
   }, [settings.providers])
 
-  // persist state (debounced)
+  // persist state (debounced) + a synchronous flush on unload — the pending
+  // debounce dies with the window, so without it the final snapshot (last
+  // session events, resume records) silently never reaches disk
   useEffect(() => {
+    const snapshot = (s: ReturnType<typeof useStore.getState>): Record<string, unknown> => ({
+      stateVersion: 2,
+      projects: s.projects,
+      workspaces: s.workspaces,
+      activeWorkspaceId: s.activeWorkspaceId,
+      settings: s.settings,
+      sidebarOpen: s.sidebarOpen,
+      bookmarks: s.bookmarks,
+      todos: s.todos,
+      agentSessions: s.agentSessions,
+      resumeSessions: s.resumeSessions,
+      treeRoots: s.treeRoots,
+      sidebarRoots: s.sidebarRoots
+    })
+    const flush = (): void => {
+      window.ade.state.saveNow?.(snapshot(useStore.getState()))
+    }
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsub = useStore.subscribe((s) => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        window.ade.state.save({
-          projects: s.projects,
-          workspaces: s.workspaces,
-          activeWorkspaceId: s.activeWorkspaceId,
-          settings: s.settings,
-          sidebarOpen: s.sidebarOpen,
-          bookmarks: s.bookmarks,
-          todos: s.todos,
-          agentSessions: s.agentSessions,
-          resumeSessions: s.resumeSessions,
-          treeRoots: s.treeRoots,
-          sidebarRoots: s.sidebarRoots
-        })
+        void window.ade.state.save(snapshot(s))
       }, 400)
     })
+    window.addEventListener('beforeunload', flush)
     return () => {
       unsub()
+      window.removeEventListener('beforeunload', flush)
       if (timer) clearTimeout(timer)
     }
   }, [])

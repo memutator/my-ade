@@ -308,6 +308,9 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 export interface PersistedState {
+  /** bump when persisted semantics change — v2 = resume records carry
+   *  env-stamped exact pane/tab attribution */
+  stateVersion?: number
   projects: Project[]
   workspaces: Workspace[]
   activeWorkspaceId: string | null
@@ -484,13 +487,23 @@ export const useStore = create<AdeState>((set, get) => {
     hydrate: (s) => {
       const workspaces = (s.workspaces ?? []).map(normalizeWorkspace)
       // resume records survive restarts, but only while their pane+tab do —
-      // anything that died structurally since the last save is unrecoverable
-      const resumeSessions = Object.fromEntries(
-        Object.entries(s.resumeSessions ?? {}).filter(([, r]) => {
+      // anything that died structurally since the last save is unrecoverable.
+      // v<2 records predate env-stamped attribution — they were resolved by
+      // cwd guessing and evict each other when several share a directory, so
+      // the whole set is discarded rather than offering wrong-tab resumes.
+      const versioned = (s.stateVersion ?? 1) >= 2
+      const byTab = new Map<string, [string, ResumeSession]>()
+      if (versioned) {
+        for (const e of Object.entries(s.resumeSessions ?? {})) {
+          const r = e[1]
           const pane = workspaces.find((w) => w.id === r.wsId)?.panes[r.paneId]
-          return pane?.type === 'terminal' && pane.tabs.some((t) => t.id === r.tabId)
-        })
-      )
+          if (pane?.type !== 'terminal' || !pane.tabs.some((t) => t.id === r.tabId)) continue
+          const key = `${r.paneId}:${r.tabId}`
+          const prev = byTab.get(key)
+          if (!prev || r.ts > prev[1].ts) byTab.set(key, e)
+        }
+      }
+      const resumeSessions = Object.fromEntries(byTab.values())
       set({
         projects: s.projects ?? [],
         workspaces,

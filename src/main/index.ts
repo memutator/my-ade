@@ -377,6 +377,22 @@ function registerStateIpc(): void {
       console.error('state save failed', e)
     }
   })
+  // the debounced save can't be trusted on shutdown — the renderer's pending
+  // timer dies with the window. beforeunload calls this sendSync variant so
+  // the last snapshot (resume records, last-second session-ends) lands on
+  // disk before the process exits.
+  ipcMain.on('state:saveSync', (e, state: unknown) => {
+    if (e.sender !== mainWindow?.webContents) {
+      e.returnValue = false
+      return
+    }
+    try {
+      writeFileSync(STATE_FILE(), JSON.stringify(state), 'utf8')
+      e.returnValue = true
+    } catch {
+      e.returnValue = false
+    }
+  })
 }
 
 function registerNotifyIpc(): void {

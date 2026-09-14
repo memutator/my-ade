@@ -186,6 +186,31 @@ renderer is gone — the tailer starts at EOF next launch, so the records
 survive and stay resumable. A `beforeunload` guard keeps dying sessions'
 `exit` events from stripping the set mid-persist.
 
+## Testing
+
+Two tools live under `tools/` (both plain Node, lint-ignored):
+
+- **`ade-fake.mjs`** — a fake harness that runs inside an ade terminal tab like
+  a real agent CLI: it inherits `ADE_SESSION`/`ADE_PANE`/`ADE_TAB` from the
+  shell env, emits lifecycle events through the installed `ade-hook.cjs`, and
+  stays alive until `x`/Ctrl-C/a signal. Interactive keys emit events
+  (`n` needs-input, `c` turn-complete, `e` error, `i` idle, `u` turn-start,
+  `r` session-rename, `x` end+exit); `--session-id` pins the id, `--resume`
+  re-attaches one, `--emit <ev>` fires once and exits, `--quiet` skips the
+  start/end pair. The `fake` manifest entry gives it process detection (cmdline
+  `ade-fake`) and a resume spec (`node tools/ade-fake.mjs --resume '<sid>'` —
+  cwd must be the repo root).
+- **`e2e.mjs`** — a CDP driver that boots the built app (`npm run build` →
+  `electron .`, not electron-vite dev) under a fresh `XDG_CONFIG_HOME` and
+  drives it via `window.__ade` (the store handle `main.tsx` exposes) +
+  `Runtime.evaluate`. Scenarios (`node tools/e2e.mjs [name…]`): `orphans`
+  (quit kills agent processes), `resume` (two sessions, one pane, distinct tabs
+  → reboot → both offered and re-injected into their own tabs), `attention`
+  (ambient toast + read-on-view). Harness diversity is covered by replaying
+  captured `hook-raw.log` payloads rather than simulating CLIs — the
+  normalizer accepts canonical event names idempotently so tools can emit
+  `needs-input`/`turn-complete` directly.
+
 ## Caveats
 
 - Process detection is an exit/idle proxy: an interactive agent that _stays

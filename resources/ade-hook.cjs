@@ -135,6 +135,22 @@ function normalizeEvent(raw, fallback, payload) {
       return 'session-end'
     case 'userpromptsubmit':
       return 'turn-start'
+    // already-canonical names pass through — tools, tests, and any harness
+    // speaking ade's taxonomy directly stay idempotent
+    case 'needsinput':
+      return 'needs-input'
+    case 'turncomplete':
+      return 'turn-complete'
+    case 'turnstart':
+      return 'turn-start'
+    case 'turncancelled':
+      return 'turn-cancelled'
+    case 'sessionrename':
+      return 'session-rename'
+    case 'idle':
+    case 'error':
+    case 'other':
+      return name
     default:
       return name ? 'other' : 'turn-complete'
   }

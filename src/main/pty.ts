@@ -135,7 +135,13 @@ export function startPtyHost(): void {
 // poll timers keep the event loop alive even after stdin EOF) — and the
 // orphaned shells keep their agents running as zombies, so a restart would
 // offer to "resume" sessions that are still alive somewhere invisible.
+// The host kills its pty sessions on SIGTERM, so plain kill() is safe.
 export function stopPtyHost(): void {
+  try {
+    sendToHost({ t: 'quit' })
+  } catch {
+    /* stdin already gone — fall through to the signal */
+  }
   try {
     host?.kill()
   } catch {

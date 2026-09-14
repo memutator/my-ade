@@ -2,7 +2,7 @@
 // Protocol: newline-delimited JSON over stdio.
 //   in : {t:'spawn',id,cols,rows,cwd,command,args} | {t:'attach',id,cols,rows} |
 //        {t:'write',id,d(base64)} | {t:'resize',id,cols,rows} | {t:'kill',id} |
-//        {t:'config',agents:{id:[patterns]}}
+//        {t:'quit'} | {t:'config',agents:{id:[patterns]}}
 //   out: {t:'ready'} | {t:'spawned',id,pid} | {t:'attached',id,...} |
 //        {t:'attach-failed',id} | {t:'data',id,d(base64)} |
 //        {t:'exit',id,code} | {t:'cwd',id,cwd} | {t:'agent',id,agent} | {t:'error',id,msg}
@@ -235,13 +235,19 @@ rl.on('line', (line) => {
       }
       break
     }
+    case 'quit':
+      shutdown()
+      break
     case 'config':
       if (m.agents && typeof m.agents === 'object') AGENTS = m.agents
       break
   }
 })
 
-rl.on('close', () => {
+// Kill every owned pty before dying — without this a bare signal (the app's
+// stopPtyHost sends SIGTERM, or a crash) leaves the shells and their agent
+// children running as orphans while their records claim the sessions ended.
+function shutdown() {
   for (const { pty: p } of procs.values()) {
     try {
       p.kill()
@@ -250,6 +256,11 @@ rl.on('close', () => {
     }
   }
   process.exit(0)
-})
+}
+
+rl.on('close', shutdown)
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
+process.on('SIGHUP', shutdown)
 
 send({ t: 'ready' })
