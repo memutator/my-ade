@@ -160,9 +160,10 @@ function createWindow(): void {
 }
 
 function registerFileIpc(): void {
-  ipcMain.handle('file:openDialog', async () => {
-    if (!mainWindow) return null
-    const r = await dialog.showOpenDialog(mainWindow, {
+  ipcMain.handle('file:openDialog', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow
+    if (!win) return null
+    const r = await dialog.showOpenDialog(win, {
       properties: ['openFile']
     })
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
@@ -321,9 +322,10 @@ function registerFsIpc(): void {
     return isAbsolute(p) ? resolve(p) : resolve(cwd || homedir(), p)
   })
 
-  ipcMain.handle('dialog:pickDirectory', async () => {
-    if (!mainWindow) return null
-    const r = await dialog.showOpenDialog(mainWindow, {
+  ipcMain.handle('dialog:pickDirectory', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow
+    if (!win) return null
+    const r = await dialog.showOpenDialog(win, {
       properties: ['openDirectory']
     })
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]

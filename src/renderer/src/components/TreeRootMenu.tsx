@@ -3,6 +3,7 @@ import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { Dropdown } from './Menu'
+import { withNativeDialog } from '../nativeDialog'
 
 // Shared "change tree root" dropdown for every FileTree host (sidebar, peek
 // overlay, editor-pane tree, detached window). Items: recently-picked roots
@@ -32,7 +33,7 @@ export default function TreeRootMenu({
     if (p !== root) onPick(p)
   }
   const browse = async (): Promise<void> => {
-    const p = await window.ade.fs.pickDirectory()
+    const p = await withNativeDialog(window.ade.fs.pickDirectory())
     if (p) pick(p)
   }
 

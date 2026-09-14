@@ -1,6 +1,26 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject
+} from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
+import { nativeDialogOpen } from '../nativeDialog'
+
+/* Popups nested inside another Popup must portal into the parent's DOM
+   node, not document.body: outside-close and hover-leave are decided by DOM
+   containment, so a body-portaled child reads as 'outside' — the parent
+   card unmounts mid-click and the child's onClick never runs (every item in
+   the tree-root dropdown died this way inside the editor grip-peek). The
+   context hands the enclosing popup's element down as the portal target;
+   popup cards are position:fixed with no transform, so the geometry stays
+   viewport-relative. */
+const PopupHost = createContext<RefObject<HTMLElement | null> | null>(null)
 
 /* Shared floating-popup primitives.
 
@@ -44,7 +64,8 @@ export function Popup({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDivElement | null>(null)
+  const host = useContext(PopupHost)
   // null until the first layout measurement clamps pos into the viewport —
   // the card stays invisible rather than flashing at the unclamped spot
   const [clamped, setClamped] = useState<{ left: number; top: number } | null>(null)
@@ -73,6 +94,7 @@ export function Popup({
     }
     // a focused <webview> never produces focusin — capture the focus theft
     const onFocus = (e: FocusEvent): void => {
+      if (nativeDialogOpen()) return
       if (!inside(e.target)) onCloseRef.current()
     }
     // a fixed card can't follow an anchor that scrolled away
@@ -100,22 +122,24 @@ export function Popup({
   }, [insideRef])
 
   return createPortal(
-    <div
-      ref={ref}
-      className={className}
-      style={{
-        position: 'fixed',
-        left: clamped?.left ?? pos.left,
-        top: clamped?.top ?? pos.top,
-        visibility: clamped ? 'visible' : 'hidden'
-      }}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onClick={closeOnClick ? () => onCloseRef.current() : undefined}
-    >
-      {children}
-    </div>,
-    document.body
+    <PopupHost.Provider value={ref}>
+      <div
+        ref={ref}
+        className={className}
+        style={{
+          position: 'fixed',
+          left: clamped?.left ?? pos.left,
+          top: clamped?.top ?? pos.top,
+          visibility: clamped ? 'visible' : 'hidden'
+        }}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onClick={closeOnClick ? () => onCloseRef.current() : undefined}
+      >
+        {children}
+      </div>
+    </PopupHost.Provider>,
+    host?.current ?? document.body
   )
 }
 
