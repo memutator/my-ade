@@ -16,6 +16,7 @@ import { isDetachedWin } from '../detached'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
 import TabStrip, { type TabItem } from './TabStrip'
+import { Popup } from './Menu'
 
 const TERM_THEME = {
   dark: {
@@ -243,6 +244,15 @@ function TerminalTabView({
     return (p?.type === 'terminal' && (p.tabs ?? []).find((x) => x.id === tabId)?.exited) ?? false
   })
   const t = useT()
+  const [ctx, setCtx] = useState<{ x: number; y: number; sel: boolean } | null>(null)
+
+  const copySelection = (): void => {
+    const term = termRef.current
+    if (term?.hasSelection()) void window.ade.clipboard.write(term.getSelection())
+  }
+  const pasteClipboard = (): void => {
+    void window.ade.clipboard.read().then((s) => s && termRef.current?.paste(s))
+  }
 
   useEffect(() => {
     const host = hostRef.current
@@ -262,6 +272,26 @@ function TerminalTabView({
     // editor pane (resolved against the tab's live cwd at click time)
     term.loadAddon(new WebLinksAddon((_e, uri) => useStore.getState().openUrlInBrowser(uri, wsId)))
     term.registerLinkProvider(makePathLinkProvider(term, wsId, paneId, tabId))
+    // clipboard chords — xterm forwards every key to the pty, so copy/paste
+    // is intercepted before it sees them. Any copy chord (Ctrl+Shift+C,
+    // Cmd+C, or plain Ctrl+C) copies the selection; plain Ctrl+C with no
+    // selection stays SIGINT and falls through to the pty.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      const k = e.key.toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'c') {
+        if (term.hasSelection()) {
+          void window.ade.clipboard.write(term.getSelection())
+          return false
+        }
+        return e.ctrlKey && !e.shiftKey && !e.metaKey
+      }
+      if (!e.altKey && k === 'v' && ((e.ctrlKey && e.shiftKey) || e.metaKey)) {
+        void window.ade.clipboard.read().then((s) => s && term.paste(s))
+        return false
+      }
+      return true
+    })
     term.open(host)
     try {
       fit.fit()
@@ -411,11 +441,74 @@ function TerminalTabView({
 
   return (
     <>
-      <div className="term-host" ref={hostRef} onClick={() => termRef.current?.focus()} />
+      <div
+        className="term-host"
+        ref={hostRef}
+        onClick={() => termRef.current?.focus()}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setCtx({ x: e.clientX, y: e.clientY, sel: termRef.current?.hasSelection() ?? false })
+        }}
+        onAuxClick={(e) => {
+          // X11-style middle-click paste
+          if (e.button === 1) {
+            e.preventDefault()
+            pasteClipboard()
+          }
+        }}
+      />
       {exited && (
         <div className="term-exited" onClick={onRestart}>
           {t('processExited')}
         </div>
+      )}
+      {ctx && (
+        <Popup
+          pos={{ left: ctx.x, top: ctx.y }}
+          onClose={() => setCtx(null)}
+          className="ctxmenu"
+        >
+          <button
+            className="ctx-item"
+            disabled={!ctx.sel}
+            onClick={() => {
+              setCtx(null)
+              copySelection()
+            }}
+          >
+            <span>{t('copy')}</span>
+            <kbd>Ctrl+Shift+C</kbd>
+          </button>
+          <button
+            className="ctx-item"
+            onClick={() => {
+              setCtx(null)
+              pasteClipboard()
+            }}
+          >
+            <span>{t('paste')}</span>
+            <kbd>Ctrl+Shift+V</kbd>
+          </button>
+          <div className="ctx-sep" />
+          <button
+            className="ctx-item"
+            onClick={() => {
+              setCtx(null)
+              termRef.current?.selectAll()
+            }}
+          >
+            <span>{t('selectAll')}</span>
+          </button>
+          <button
+            className="ctx-item"
+            onClick={() => {
+              setCtx(null)
+              termRef.current?.clear()
+            }}
+          >
+            <span>{t('clear')}</span>
+          </button>
+        </Popup>
       )}
     </>
   )

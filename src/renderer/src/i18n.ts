@@ -54,6 +54,8 @@ const en = {
   newTerminalTab: 'New terminal tab',
   agentFinished: '{agent} finished',
   ptyError: 'pty error',
+  selectAll: 'Select all',
+  clear: 'Clear',
 
   // editor pane
   openFileTooltip: 'Open file…',
@@ -255,6 +257,8 @@ const ko: Record<TKey, string> = {
   newTerminalTab: '새 터미널 탭',
   agentFinished: '{agent} 완료',
   ptyError: 'pty 오류',
+  selectAll: '전체 선택',
+  clear: '지우기',
 
   openFileTooltip: '파일 열기…',
   noFileOpen: '열린 파일 없음',

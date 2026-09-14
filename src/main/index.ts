@@ -1,4 +1,14 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Notification, net, screen } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  clipboard,
+  Notification,
+  net,
+  screen
+} from 'electron'
 import { join, basename, extname, isAbsolute, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { homedir } from 'os'
@@ -330,6 +340,13 @@ function registerFsIpc(): void {
     })
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
+
+  // terminal copy/paste — the renderer can't rely on navigator.clipboard on
+  // file:// (non-secure context), so it goes through the main process
+  ipcMain.handle('clipboard:write', (_e, t: string) => {
+    if (typeof t === 'string') clipboard.writeText(t)
+  })
+  ipcMain.handle('clipboard:read', () => clipboard.readText())
 }
 
 const STATE_FILE = (): string => join(app.getPath('userData'), 'ade-state.json')

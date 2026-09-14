@@ -198,6 +198,10 @@ const ade = {
     load: (): Promise<unknown> => ipcRenderer.invoke('state:load'),
     save: (state: unknown): Promise<void> => ipcRenderer.invoke('state:save', state)
   },
+  clipboard: {
+    write: (t: string): Promise<void> => ipcRenderer.invoke('clipboard:write', t),
+    read: (): Promise<string> => ipcRenderer.invoke('clipboard:read')
+  },
   notify: {
     show: (
       title: string,
