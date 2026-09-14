@@ -9,6 +9,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
+import { appendCapped, decisionsFilePath } from './eventsFile'
 import { registerFileWatchIpc } from './filewatch'
 import { registerFsOpsIpc } from './fsops'
 import { registerDirWatchIpc } from './dirwatch'
@@ -272,6 +273,16 @@ function registerWindowIpc(): void {
       win.focus()
     }
   })
+  // attention state of the window HOSTING a pane (detached panes live in
+  // their own window) — the renderer's notify policy keys off this:
+  // 'focused' can be attended/ambient, anything else is 'away'
+  ipcMain.handle('win:state', (_e, m: { wsId?: string; paneId?: string; detached?: boolean }) => {
+    const win = m?.detached ? detachedWins.get(`${m.wsId}:${m.paneId}`) : mainWindow
+    if (!win || win.isDestroyed()) return 'hidden'
+    if (win.isMinimized()) return 'minimized'
+    if (win.isFocused()) return 'focused'
+    return 'visible'
+  })
   // detached renderer → main window store actions (close pane etc.)
   ipcMain.on('pane:cmd', (_e, m) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pane:cmd', m)
@@ -351,6 +362,10 @@ function registerNotifyIpc(): void {
       mainWindow?.webContents.send('notify:clicked', m)
     })
     n.show()
+  })
+  // renderer notification-policy verdicts — see docs/notifications.md
+  ipcMain.on('notify:decision', (_e, rec: unknown) => {
+    appendCapped(decisionsFilePath(), rec)
   })
 }
 

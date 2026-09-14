@@ -9,6 +9,7 @@ import type { TerminalPaneState, TerminalTab } from '../types'
 import { useStore } from '../store'
 import { agentLabel } from '../agents'
 import { shortPath } from '../utils'
+import { reportProcessIdle } from '../attention'
 import AgentIcon from './AgentIcon'
 import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
@@ -324,25 +325,12 @@ function TerminalTabView({
         const prev = lastAgentRef.current
         lastAgentRef.current = e.agent ?? null
         patchTerminalTab(wsId, paneId, tabId, { agent: e.agent ?? null })
-        // agent → idle transition = completion
+        // agent → idle transition = completion fallback. In a detached window
+        // the notification list lives in the main renderer — relay there.
         if (prev && !e.agent) {
-          const st = useStore.getState()
-          if (st.settings.providers[prev] === false) return
-          const ws = st.workspaces.find((w) => w.id === wsId)
-          const lp = ws?.panes[paneId]
-          const thisTab = lp?.type === 'terminal' ? lp.tabs.find((t) => t.id === tabId) : undefined
-          const title = translate(st.settings.language, 'agentFinished', {
-            agent: agentLabel(prev)
-          })
-          const session = thisTab?.title ?? (thisTab?.cwd ? shortPath(thisTab.cwd) : undefined)
-          st.notify({ workspaceId: wsId, paneId, tabId, title, session, agent: prev })
-          if (st.settings.osNotifications) {
-            window.ade.notify.show(title, session ?? '', {
-              workspaceId: wsId,
-              paneId,
-              tabId
-            })
-          }
+          if (isDetachedWin)
+            window.ade.win.paneCmd({ action: 'agentIdle', wsId, paneId, tabId, provider: prev })
+          else reportProcessIdle(prev, wsId, paneId, tabId)
         }
       }
     })

@@ -49,7 +49,8 @@ export function registerHookIpc(): void {
         cwd: process.cwd(),
         sessionId: `ade-test-${Date.now()}`,
         adeSession: process.env.ADE_SESSION,
-        message: 'test notification from ade'
+        message: 'test notification from ade',
+        force: true
       })
       return { ok: true }
     } catch (e) {

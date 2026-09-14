@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import type { TKey } from '../i18n'
 import { loadAgentManifest } from '../agents'
+import { refreshHookInstalled } from '../attention'
 import AgentIcon from './AgentIcon'
 import { Select } from './Menu'
 import {
@@ -434,6 +435,9 @@ export default function SettingsPage(): React.JSX.Element | null {
                           window.ade.hooks
                             .install(h.id)
                             .then(() => window.ade.hooks.status().then(setHooks))
+                            // the attention policy keys off which providers own
+                            // a real hook — process-idle goes silent for them
+                            .then(() => refreshHookInstalled())
                         }
                       >
                         {t('install')}

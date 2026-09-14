@@ -21,10 +21,36 @@ const { spawn } = require('child_process')
 
 const CONFIG_DIR = process.env.ADE_CONFIG_DIR || path.join(configHome(), 'ade')
 const EVENTS_FILE = process.env.ADE_EVENTS_FILE || path.join(CONFIG_DIR, 'agent-events.log')
+const RAW_FILE = path.join(CONFIG_DIR, 'hook-raw.log')
 const FORWARD_FILE = path.join(CONFIG_DIR, 'notify-forward.json')
+const RAW_CAP = 1024 * 1024 // tail-kept — oldest lines dropped past this
 
 function configHome() {
   return process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
+}
+
+// Every hook invocation lands here, always on: the raw payload is the
+// evidence base for the per-harness event table in docs/notifications.md.
+// Tail-kept — when the file exceeds RAW_CAP the newest half survives.
+function logRaw(entry) {
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true })
+    try {
+      const size = fs.statSync(RAW_FILE).size
+      if (size > RAW_CAP) {
+        const keep = Buffer.alloc(RAW_CAP >> 1)
+        const fd = fs.openSync(RAW_FILE, 'r')
+        const n = fs.readSync(fd, keep, 0, keep.length, size - keep.length)
+        fs.closeSync(fd)
+        fs.writeFileSync(RAW_FILE, keep.subarray(0, n))
+      }
+    } catch {
+      /* fresh file */
+    }
+    fs.appendFileSync(RAW_FILE, JSON.stringify(entry) + '\n')
+  } catch {
+    /* logging must never disturb the agent */
+  }
 }
 
 function debug(msg) {
@@ -89,8 +115,10 @@ function normalizeEvent(raw, fallback, payload) {
       if (ntype === 'idleprompt') return 'idle'
       if (ntype === 'taskcomplete') return 'turn-complete'
       if (ntype) return 'needs-input' // permission_prompt + any new attention type
-      const msg = String(firstString(p.message, p.title))
-      return /waiting for your input|idle/i.test(msg) ? 'idle' : 'needs-input'
+      // no notificationType → claude-style message payloads. claude only
+      // fires Notification for permission prompts and the ≥60s "waiting for
+      // your input" idle — both mean the user must respond.
+      return 'needs-input'
     }
     case 'permissionrequest':
     case 'permissionprompt':
@@ -240,7 +268,35 @@ function isJsonArg(s) {
 }
 
 function finish(provider, argEvent, payload, rawArg) {
-  emit(buildEvent(provider, argEvent, payload))
+  const ev = buildEvent(provider, argEvent, payload)
+  emit(ev)
+  // raw capture: which env tagged this run (provider relabeling + ours
+  // stamping), what the harness sent, and what ade normalized it to
+  let raw
+  try {
+    const s = JSON.stringify(payload ?? rawArg ?? null)
+    raw = s && s.length > 4000 ? s.slice(0, 4000) + '…' : (payload ?? rawArg ?? null)
+  } catch {
+    raw = rawArg ?? null
+  }
+  logRaw({
+    v: 1,
+    ts: Date.now(),
+    provider,
+    via: rawArg != null ? 'argv' : 'stdin',
+    arg: argEvent || undefined,
+    env: {
+      ade: !!process.env.ADE_SESSION,
+      grok: !!process.env.GROK_SESSION_ID || !!process.env.GROK_HOOK_EVENT,
+      devin: !!process.env.DEVIN_PROJECT_DIR || !!process.env.DEVIN_SESSION_ID,
+      claude: !!process.env.CLAUDE_PROJECT_DIR,
+      codex: !!process.env.CODEX_WORKSPACE_ROOT
+    },
+    event: ev.event,
+    sessionId: ev.sessionId,
+    cwd: ev.cwd,
+    payload: raw
+  })
   if (provider === 'codex' && rawArg) forwardCodex(rawArg)
   process.exit(0)
 }

@@ -92,6 +92,8 @@ export interface AgentHookEvent {
   /** session-rename payload: the new session name */
   name?: string
   message?: string
+  /** hooks:test synthetic events bypass attention gating */
+  force?: boolean
   ts?: number
 }
 
@@ -202,6 +204,8 @@ const ade = {
       body?: string,
       meta?: { workspaceId?: string; paneId?: string; tabId?: string }
     ): void => ipcRenderer.send('notify:show', { title, body, ...meta }),
+    // notification-policy verdict trail → ~/.config/ade/notify-decisions.log
+    decision: (rec: unknown): void => ipcRenderer.send('notify:decision', rec),
     onClicked: (
       cb: (m: {
         title: string
@@ -261,14 +265,32 @@ const ade = {
       ipcRenderer.on('pane:reattach', handler)
       return () => ipcRenderer.removeListener('pane:reattach', handler)
     },
-    // detached renderer → main window store command (e.g. closePane)
-    paneCmd: (m: { action: string; wsId: string; paneId: string }): void =>
-      ipcRenderer.send('pane:cmd', m),
+    // OS focus state of the window hosting a pane — 'focused' | 'visible' |
+    // 'minimized' | 'hidden'. Drives the notification attention level.
+    state: (m: { wsId?: string; paneId?: string; detached?: boolean }): Promise<string> =>
+      ipcRenderer.invoke('win:state', m),
+    // detached renderer → main window store command (closePane, agentIdle —
+    // extra fields like tabId/provider ride along for agentIdle)
+    paneCmd: (m: {
+      action: string
+      wsId: string
+      paneId: string
+      tabId?: string
+      provider?: string
+    }): void => ipcRenderer.send('pane:cmd', m),
     onPaneCmd: (
-      cb: (m: { action: string; wsId: string; paneId: string }) => void
+      cb: (m: {
+        action: string
+        wsId: string
+        paneId: string
+        tabId?: string
+        provider?: string
+      }) => void
     ): (() => void) => {
-      const handler = (_: unknown, m: { action: string; wsId: string; paneId: string }): void =>
-        cb(m)
+      const handler = (
+        _: unknown,
+        m: { action: string; wsId: string; paneId: string; tabId?: string; provider?: string }
+      ): void => cb(m)
       ipcRenderer.on('pane:cmd', handler)
       return () => ipcRenderer.removeListener('pane:cmd', handler)
     },

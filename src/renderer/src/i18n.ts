@@ -102,6 +102,7 @@ const en = {
   noNotifications: 'no notifications',
   agentNeedsInput: '{agent} needs input',
   agentError: '{agent} error',
+  wsUnread: 'unread notifications',
 
   // settings modal
   settings: 'settings',
@@ -298,6 +299,7 @@ const ko: Record<TKey, string> = {
   noNotifications: '알림 없음',
   agentNeedsInput: '{agent} 입력 필요',
   agentError: '{agent} 오류',
+  wsUnread: '읽지 않은 알림',
 
   settings: '설정',
   appearance: '모양',

@@ -82,10 +82,10 @@ The shared taxonomy — three kinds notify, the rest are tracking-only:
 | ade event        | meaning                                        | sources |
 | ---------------- | ---------------------------------------------- | ------- |
 | `turn-complete`  | turn finished normally                         | `Stop`, `agent-turn-complete` (codex notify), `session.idle`, grok `task_complete` |
-| `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (claude message; grok `permission_prompt` etc.), opencode `permission.asked`/`updated`, `question.asked` |
+| `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (all claude messages — permission prompts and the ≥60 s "waiting for your input"; grok `permission_prompt` etc.), opencode `permission.asked`/`updated`, `question.asked` |
 | `error`          | turn failed or the runtime aborted it          | `StopFailure`, `StopCancelled` with `cancelledBy: runtime`/`unknown` (`max_turns`, `no_progress`), `session.error` |
-| `turn-cancelled` | the user stopped the turn                      | `StopCancelled` with `cancelledBy: user` / `user_interrupt`/`permission_*` reasons |
-| `idle`           | post-settle backstop ping, redundant with the turn-end report | grok `idle_prompt`, claude "waiting for your input" |
+| `turn-cancelled` | the user stopped the turn                      | `StopCancelled` with `cancelledBy: user` / `user_interrupt`/`permission_*` reasons, opencode `session.error` `Aborted` |
+| `idle`           | post-settle backstop ping, redundant with the turn-end report | grok `idle_prompt` |
 | `turn-start` / `session-start` / `session-end` / `other` | lifecycle tracking | `UserPromptSubmit`, `SessionStart`, `SessionEnd`, a grok teardown `Stop` (`reason: channel_closed`/`shutdown`) |
 
 The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
@@ -106,23 +106,23 @@ ade tells its own sessions apart.
 
 ### Renderer policy
 
-On `agent:event` the renderer resolves a target from the event's `cwd`: the
-workspace whose project path is the longest prefix, then the terminal tab whose
-`cwd` matches exactly (background tabs count; fall back to the workspace's
-focused pane). Then:
+The full behavior spec lives in [notifications.md](notifications.md) — event
+taxonomy, attention levels, coalescing. Short version:
 
-- `session-rename` events update the session registry and the mapped tab's
-  title — no notification.
-- Only `turn-complete` / `needs-input` / `error` notify.
-- A disabled provider toggle drops the event.
-- Only `ours` events act — foreign events (agents launched outside ade; the
-  hooks are global so every run on the machine appends to the file) are
-  dropped before they can notify or register a session.
-- The notification title is "{agent} finished" / "{agent} needs input" /
-  "{agent} error"; the session label prefers a renamed session, then the tab
-  title, then the shortened cwd. Duplicate signals (same title + workspace
-  within 15 s — a hook event and the process-detection idle can both fire)
-  collapse into one.
+Every agent signal (hook events, pty process-detection idle, detached-window
+relays) flows through `src/renderer/src/attention.ts`, which resolves a
+workspace/pane/tab target — session registry first, then longest-prefix `cwd`
+matching — and applies the attention level:
+
+- **attended** (you're looking at the emitting tab): records pre-read, no
+  banner — except `needs-input`, which always badges (it's pending work).
+- **ambient** (app focused, target off-screen): unread badge + a dot on the
+  workspace tab, no OS banner.
+- **away** (hosting window unfocused): unread badge + OS notification.
+
+Process-detection idle is suppressed for providers with an installed hook —
+the hook owns completion there. A pending `needs-input` settles to read on the
+next event for its session or tab.
 
 Clicking the in-app notification or the OS notification jumps to the
 workspace, focuses the pane (or raises the detached window it lives in), and
@@ -138,9 +138,12 @@ status and mechanism.
   running_ between turns produces no `agent → idle` transition and no
   notification. Install the harness hook for a real turn-complete signal.
 - `agent:event` is forwarded to the main window only; pty events (`agent`,
-  `cwd`, `data`, …) are broadcast to every window, so detached pane windows
-  still get process-detection completion.
+  `cwd`, `data`, …) are broadcast to every window. Detached pane windows relay
+  their process-idle to the main renderer via `pane:cmd` `agentIdle` so the
+  notification list has a single owner.
 - Environment overrides: `ADE_CONFIG_DIR`, `ADE_EVENTS_FILE` relocate the event
-  channel; `ADE_HOOK_DEBUG=1` makes the hook script log to
-  `~/.config/ade/hook-debug.log`; `ADE_NODE`/`NODE_BINARY` pick the Node
-  binary for pty-host (see [troubleshooting](troubleshooting.md)).
+  channel; `ADE_NOTIFY_LOG` relocates the decision log; `ADE_HOOK_DEBUG=1`
+  adds script-internal failure detail to `~/.config/ade/hook-debug.log`.
+  Raw payload capture is always on in `~/.config/ade/hook-raw.log`;
+  `ADE_NODE`/`NODE_BINARY` pick the Node binary for pty-host (see
+  [troubleshooting](troubleshooting.md)).

@@ -131,8 +131,10 @@ export interface AppNotification {
   /** agent provider id — renders the vendor icon in the notification list */
   agent?: string
   /** 'needs-input' pings auto-resolve when the same tab's turn resumes
-   *  (a later non-needs-input notification marks them read) */
+   *  (a later event for the same session/tab marks them read) */
   kind?: 'needs-input'
+  /** harness session that emitted the event — precise settling + dedupe */
+  sessionId?: string
   ts: number
   read: boolean
 }
@@ -176,6 +178,8 @@ export interface AgentHookEvent {
   /** session-rename payload: the new session name */
   name?: string
   message?: string
+  /** test events bypass attention gating (hooks:test proves the pipeline) */
+  force?: boolean
   ts?: number
 }
 

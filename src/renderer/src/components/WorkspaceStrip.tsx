@@ -157,15 +157,23 @@ export default function WorkspaceStrip(): React.JSX.Element {
   const workspaces = useStore((s) => s.workspaces)
   const projects = useStore((s) => s.projects)
   const activeId = useStore((s) => s.activeWorkspaceId)
+  const notifications = useStore((s) => s.notifications)
   const { activateWorkspace, closeWorkspace, renameWorkspace, moveWorkspace } = useStore()
   const [wtProject, setWtProject] = useState<Project | null>(null)
+  const t = useT()
 
   const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? '?'
+
+  // unread notifications badge the workspace tab — the ambient-level
+  // discovery path while the app is focused (no OS banner needed then)
+  const unreadWs = new Set(notifications.filter((n) => !n.read).map((n) => n.workspaceId))
 
   const tabs: TabItem[] = workspaces.map((w) => ({
     id: w.id,
     label: w.name,
-    sub: projectName(w.projectId)
+    sub: projectName(w.projectId),
+    dirty: unreadWs.has(w.id),
+    dotTip: t('wsUnread')
   }))
 
   return (

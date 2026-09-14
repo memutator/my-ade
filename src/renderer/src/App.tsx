@@ -2,10 +2,9 @@ import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
 import { useStore, visibleLeafIds } from './store'
 import { applyShortcut } from './shortcuts'
-import { useT, translate } from './i18n'
-import { agentProviders, agentLabel } from './agents'
-import { shortPath } from './utils'
-import type { AgentHookEvent, TerminalTab, Workspace } from './types'
+import { useT } from './i18n'
+import { agentProviders } from './agents'
+import { handleHookEvent, reportProcessIdle, refreshHookInstalled } from './attention'
 
 import TopBar from './components/TopBar'
 import SplitView, { PanePortals } from './components/SplitView'
@@ -43,58 +42,6 @@ function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
       </div>
     </div>
   )
-}
-
-// hook events that surface a notification — the rest are tracking-only
-const NOTIFY_EVENTS = new Set(['turn-complete', 'needs-input', 'error'])
-
-// cwd → workspace/pane/tab resolution for harness hook events. Longest project
-// path prefix wins; pane+tab hint only when a terminal tab's cwd matches
-// exactly (background tabs count — the shell that emitted the event may not be
-// the visible one).
-function resolveHookTarget(
-  st: ReturnType<typeof useStore.getState>,
-  cwd: string | undefined
-): {
-  ws: Workspace | undefined
-  paneId: string | undefined
-  tabId: string | undefined
-  tab: TerminalTab | undefined
-} {
-  const dir = (cwd ?? '').replace(/\/+$/, '')
-  let ws: Workspace | undefined
-  let best = -1
-  if (dir) {
-    for (const w of st.workspaces) {
-      const proj = st.projects.find((p) => p.id === w.projectId)
-      const pp = proj?.path.replace(/\/+$/, '') ?? ''
-      if (pp && (dir === pp || dir.startsWith(pp + '/')) && pp.length > best) {
-        ws = w
-        best = pp.length
-      }
-    }
-  }
-  let paneId: string | undefined
-  let tabId: string | undefined
-  let tab: TerminalTab | undefined
-  if (ws) {
-    if (dir) {
-      for (const p of Object.values(ws.panes)) {
-        if (p.type !== 'terminal') continue
-        const hit = (p.tabs ?? []).find((t) => (t.cwd ?? '').replace(/\/+$/, '') === dir)
-        if (hit) {
-          paneId = p.id
-          tabId = hit.id
-          tab = hit
-          break
-        }
-      }
-    }
-    // cwd didn't match a live terminal — still land on something sensible so
-    // clicking the notification focuses the workspace's active pane
-    paneId ??= ws.focusedPaneId ?? Object.keys(ws.panes)[0]
-  }
-  return { ws, paneId, tabId, tab }
 }
 
 export default function App(): React.JSX.Element {
@@ -184,70 +131,12 @@ export default function App(): React.JSX.Element {
     })
   }, [])
 
-  // harness hook events (real turn-complete signals, not process-exit proxy)
+  // harness hook events (real turn-complete signals, not process-exit proxy).
+  // Policy lives in attention.ts — one choke point for every agent signal.
   useEffect(() => {
+    void refreshHookInstalled()
     if (!window.ade.hooks?.onEvent) return
-    return window.ade.hooks.onEvent((ev: AgentHookEvent) => {
-      const st = useStore.getState()
-      // session-rename: a tab rename propagated through the real channel —
-      // updates the session registry (and the mapped tab's title), no notify
-      if (ev.event === 'session-rename') {
-        if (ev.sessionId) st.renameAgentSession(ev.sessionId, ev.name ?? '')
-        return
-      }
-      // hooks are installed globally, so agents launched in terminals outside
-      // ade (no ADE_SESSION in their env) append here too — never notify for
-      // those, not even when their cwd happens to sit inside a project
-      if (!ev.ours) return
-      const { ws, paneId, tabId, tab } = resolveHookTarget(st, ev.cwd)
-      // track the session ↔ tab association so renames and notification
-      // labels can resolve this sessionId later
-      if (ev.sessionId) {
-        st.upsertAgentSession(ev.sessionId, {
-          provider: ev.provider,
-          cwd: ev.cwd,
-          wsId: ws?.id,
-          paneId,
-          tabId
-        })
-      }
-      if (!NOTIFY_EVENTS.has(ev.event)) return
-      if (st.settings.providers[ev.provider] === false) return
-      const wsId = ws?.id ?? st.activeWorkspaceId
-      const label = agentLabel(ev.provider)
-      const title = translate(
-        st.settings.language,
-        ev.event === 'needs-input'
-          ? 'agentNeedsInput'
-          : ev.event === 'error'
-            ? 'agentError'
-            : 'agentFinished',
-        { agent: label }
-      )
-      const session =
-        (ev.sessionId ? st.agentSessions[ev.sessionId]?.name : undefined) ??
-        tab?.title ??
-        (ev.cwd ? shortPath(ev.cwd) : undefined)
-      const body = ev.message || ''
-      if (wsId)
-        st.notify({
-          workspaceId: wsId,
-          paneId,
-          tabId,
-          title,
-          body,
-          session,
-          agent: ev.provider,
-          kind: ev.event === 'needs-input' ? 'needs-input' : undefined
-        })
-      if (st.settings.osNotifications) {
-        window.ade.notify.show(title, [session, body].filter(Boolean).join(' — '), {
-          workspaceId: wsId ?? undefined,
-          paneId,
-          tabId
-        })
-      }
-    })
+    return window.ade.hooks.onEvent((ev) => void handleHookEvent(ev))
   }, [])
 
   // restore detached windows across restarts — the flag persists but the
@@ -268,6 +157,11 @@ export default function App(): React.JSX.Element {
     })
     const offCmd = window.ade.win.onPaneCmd?.((m) => {
       if (m.action === 'closePane') useStore.getState().closePane(m.paneId, m.wsId)
+      // a detached terminal saw its agent process leave — relay into the main
+      // store's attention policy (the detached store's notifications are
+      // invisible; only this renderer owns the bell)
+      if (m.action === 'agentIdle' && m.provider && m.tabId)
+        reportProcessIdle(m.provider, m.wsId, m.paneId, m.tabId)
     })
     const offSync = window.ade.win.onPaneSync?.((m) => {
       const st = useStore.getState()

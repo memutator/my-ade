@@ -23,6 +23,9 @@ export interface AgentHookEvent {
   ours?: boolean
   /** session-rename payload: the new session name */
   name?: string
+  /** bypass attention gating — hooks:test synthetic events always deliver at
+   *  full level (the point of the test is seeing the banner) */
+  force?: boolean
   ts?: number
 }
 
@@ -38,6 +41,36 @@ export function eventsFilePath(home?: string): string {
 export function appendEvent(ev: AgentHookEvent, file: string = eventsFilePath()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.appendFileSync(file, JSON.stringify({ v: 1, ...ev, ts: ev.ts ?? Date.now() }) + '\n')
+}
+
+// Renderer-side verdicts land here — third leg of the observability story
+// (hook-raw.log → agent-events.log → notify-decisions.log), so "why did/didn't
+// this ping" is answerable without reproducing.
+export function decisionsFilePath(home?: string): string {
+  return process.env.ADE_NOTIFY_LOG || path.join(adeConfigDir(home), 'notify-decisions.log')
+}
+
+// Append one JSON line, keeping the file under `cap` bytes by rewriting the
+// newest half when it overflows. Logging must never throw into a caller.
+export function appendCapped(file: string, rec: unknown, cap = 512 * 1024): void {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    try {
+      const size = fs.statSync(file).size
+      if (size > cap) {
+        const keep = Buffer.alloc(cap >> 1)
+        const fd = fs.openSync(file, 'r')
+        const n = fs.readSync(fd, keep, 0, keep.length, size - keep.length)
+        fs.closeSync(fd)
+        fs.writeFileSync(file, keep.subarray(0, n))
+      }
+    } catch {
+      /* fresh file */
+    }
+    fs.appendFileSync(file, JSON.stringify(rec) + '\n')
+  } catch {
+    /* never break notifications on logging */
+  }
 }
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024

@@ -51,11 +51,12 @@ function isOnScreen(b: Rectangle): boolean {
   })
 }
 
-/** Restore geometry for `key`, clamped to `wa` (the display under the cursor). */
+/** Restore geometry for `key`, clamped to `wa` (the display under the cursor).
+ *  No saved state → `{}` — callers fall back to their defaults. */
 export function windowStateFor(
   key: string,
   wa: Rectangle
-): { width: number; height: number; x?: number; y?: number; maximized?: boolean } {
+): { width?: number; height?: number; x?: number; y?: number; maximized?: boolean } {
   const st = readAll()[key]
   if (!st || !(st.width > 0) || !(st.height > 0)) return {}
   const width = Math.min(Math.round(st.width), wa.width)

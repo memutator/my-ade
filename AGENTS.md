@@ -91,21 +91,36 @@ splittable pane layout scoped to a project directory.
   a tailer forwards them to the renderer as `agent:event`. `ade-hook.cjs`
   normalizes every harness into one taxonomy — `turn-complete` / `needs-input`
   / `error` notify, `idle` / `turn-cancelled` / `turn-start` /
-  `session-start` / `session-end` are tracking-only. Installers: codex
+  `session-start` / `session-end` are tracking-only — and logs every raw
+  invocation to `hook-raw.log` (always on, tail-kept). Installers: codex
   (`~/.codex/config.toml` notify), grok (`~/.grok/hooks/ade.json` — Stop,
   StopCancelled→error-or-silent, StopFailure→error, Notification classified by
   `notificationType`: `permission_prompt`→needs-input, `idle_prompt`→idle),
-  claude (`~/.claude/settings.json` Stop+Notification), devin/zcode
-  (Stop+PermissionRequest), opencode (plugin: session.idle/error,
+  claude (`~/.claude/settings.json` Stop+Notification — every Notification is
+  needs-input, incl. the ≥60s "waiting for your input"), devin/zcode
+  (Stop+PermissionRequest), opencode (plugin: session.idle/error — Esc-abort
+  classifies as turn-cancelled, sub-session idles demote to `other` —
   permission/question.asked). `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
-  per provider. Process-detection idle is the fallback. Events carry
-  `adeSession` (`process.env.ADE_SESSION`, a per-run UUID set in main): the env
-  chain is pty-host → spawned shell → agent → hook. The tailer stamps `ours`
-  (`adeSession === ours`); the renderer drops every event that isn't ours —
-  hooks are global so agents in foreign terminals never notify. Ade-owned hook
-  artifacts (script copy, grok's hook file, opencode plugin) refresh to the
-  shipped version on app start; user-owned configs need a re-Install click.
+  per provider. Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run
+  UUID set in main): the env chain is pty-host → spawned shell → agent → hook.
+  The tailer stamps `ours` (`adeSession === ours`); the renderer drops every
+  event that isn't ours — hooks are global so agents in foreign terminals
+  never notify. Ade-owned hook artifacts (script copy, grok's hook file,
+  opencode plugin) refresh to the shipped version on app start; user-owned
+  configs need a re-Install click.
+- **attention policy** (`src/renderer/src/attention.ts`, spec:
+  `docs/notifications.md`): every agent signal (hook events, pty agent→idle
+  fallback, detached-window `agentIdle` relays) funnels through one policy —
+  resolve target (session registry first, then cwd prefix), then attention
+  level: **attended** (emitting tab on screen in the focused window → pre-read
+  record, `needs-input` still badges), **ambient** (app focused but target
+  off-screen → unread + workspace-tab dot, no OS), **away** (hosting window
+  unfocused → unread + OS banner). Target-keyed dedupe collapses
+  hook/pty-idle double-fires; 3s burst coalescing collapses subagent fan-out.
+  Process-idle never notifies for providers with an installed hook. Pending
+  `needs-input` settles to read on the next event for the same session/tab.
+  Verdicts append to `~/.config/ade/notify-decisions.log` via `notify:decision`.
 - **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
@@ -119,10 +134,11 @@ splittable pane layout scoped to a project directory.
   stale `exit` events from a killed session (StrictMode remount, HMR, tab
   restart) can't corrupt a new one. Each session's events write back to its own
   tab (`patchTerminalTab`), including background tabs.
-- Agent "completion" = detected agent → idle transition → in-app notification +
-  OS notification; clicking either jumps to the workspace/pane. (Process-exit proxy —
-  interactive agents ending their turn may not be captured. Real per-harness hooks
-  are in progress on `feat/harness-hooks`.)
+- Agent "completion" = harness hook events when installed, else the detected
+  agent → idle transition (suppressed for hooked providers) → the attention
+  policy above; clicking the in-app or OS notification jumps to the
+  workspace/pane/tab. (Process-exit proxy — interactive agents ending their
+  turn may not be captured without hooks.)
 
 ## Visual system
 

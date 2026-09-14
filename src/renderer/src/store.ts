@@ -410,7 +410,10 @@ interface AdeState extends PersistedState {
   addBookmark: (b: { title: string; url: string; scope: string }) => void
   removeBookmark: (id: string) => void
 
-  notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'>) => void
+  notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'> & { read?: boolean }) => void
+  /** settle pending needs-input pings for a session or tab (turn resumed /
+   *  ended / cancelled — the prompt is stale either way) */
+  settleInput: (k: { wsId?: string; paneId?: string; tabId?: string; sessionId?: string }) => void
   markRead: (id: string) => void
   markAllRead: () => void
   clearNotifications: () => void
@@ -1302,32 +1305,36 @@ export const useStore = create<AdeState>((set, get) => {
     notify: (n) =>
       set((s) => {
         const now = Date.now()
-        // collapse duplicate signals for the same completion — a codex hook
-        // event and the pty agent→idle transition can resolve to different
-        // panes (cwd mismatch → focused-pane fallback), so key on the
-        // workspace, not the pane
-        const dupe = s.notifications.some(
-          (x) => x.title === n.title && x.workspaceId === n.workspaceId && now - x.ts < 15000
-        )
-        if (dupe) return s
-        // a resuming/finishing turn settles pending "needs input" pings on
-        // the same tab — mark them read so the list doesn't go stale
-        const notifications =
-          n.kind === 'needs-input'
-            ? s.notifications
-            : s.notifications.map((x) =>
-                x.kind === 'needs-input' &&
-                !x.read &&
-                x.workspaceId === n.workspaceId &&
-                x.paneId === n.paneId &&
-                x.tabId === n.tabId
-                  ? { ...x, read: true }
-                  : x
-              )
+        // a same-title unread ping for the workspace already badges — keep the
+        // trail but don't re-demand attention
+        const dupe =
+          !n.read &&
+          s.notifications.some(
+            (x) =>
+              !x.read &&
+              x.title === n.title &&
+              x.workspaceId === n.workspaceId &&
+              now - x.ts < 15000
+          )
         return {
-          notifications: [{ ...n, id: uid(), ts: now, read: false }, ...notifications].slice(0, 100)
+          notifications: [
+            { ...n, id: uid(), ts: now, read: n.read || dupe },
+            ...s.notifications
+          ].slice(0, 100)
         }
       }),
+
+    settleInput: (k) =>
+      set((s) => ({
+        notifications: s.notifications.map((x) =>
+          x.kind === 'needs-input' &&
+          !x.read &&
+          ((k.sessionId && x.sessionId === k.sessionId) ||
+            (x.workspaceId === k.wsId && x.paneId === k.paneId && x.tabId === k.tabId))
+            ? { ...x, read: true }
+            : x
+        )
+      })),
 
     markRead: (id) =>
       set((s) => ({
