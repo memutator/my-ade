@@ -1199,11 +1199,14 @@ webview.browser-view {
   font-weight: 600;
 }
 .sidebar-path {
-  font-size: 10.5px;
-  color: var(--text-faint);
+  font-size: 11px;
+  color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sidebar-path .rootpick svg {
+  color: var(--text-dim);
 }
 
 /* ── file tree ───────────────────────────── */
