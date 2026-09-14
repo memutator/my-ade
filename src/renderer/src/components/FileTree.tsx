@@ -14,7 +14,7 @@ import {
 import { create } from 'zustand'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import type { DirEntry } from '../types'
-import { Popup } from './Menu'
+import { CtxMenu, type CtxItem } from './Menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useFileIcon } from '../fileIcons'
@@ -45,17 +45,6 @@ interface MenuState {
   /** null = right-click on the tree background (root-level ops) */
   entry: DirEntry | null
 }
-
-type CtxItem =
-  | { sep: true }
-  | {
-      sep?: false
-      label: string
-      hint?: string
-      danger?: boolean
-      disabled?: boolean
-      act?: () => void
-    }
 
 interface TreeCtx {
   rootPath: string
@@ -133,43 +122,6 @@ function NameInput({
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     />
-  )
-}
-
-/* ── right-click menu (portaled — never clipped by the scroll area) ── */
-
-function ContextMenu({
-  x,
-  y,
-  items,
-  onClose
-}: {
-  x: number
-  y: number
-  items: CtxItem[]
-  onClose: () => void
-}): React.JSX.Element {
-  return (
-    <Popup pos={{ left: x, top: y }} onClose={onClose} className="ctxmenu">
-      {items.map((it, i) =>
-        it.sep ? (
-          <div key={i} className="ctx-sep" />
-        ) : (
-          <button
-            key={i}
-            className={`ctx-item${it.danger ? ' danger' : ''}`}
-            disabled={it.disabled}
-            onClick={() => {
-              onClose()
-              it.act?.()
-            }}
-          >
-            <span>{it.label}</span>
-            {it.hint && <kbd>{it.hint}</kbd>}
-          </button>
-        )
-      )}
-    </Popup>
   )
 }
 
@@ -988,9 +940,7 @@ export default function FileTree({
           </>
         )}
         {status && <div className="tree-status error">{status}</div>}
-        {menu && (
-          <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
-        )}
+        {menu && <CtxMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       </div>
     </Ctx.Provider>
   )

@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Code2, FolderOpen } from 'lucide-react'
-import type { EditorPaneState } from '../types'
+import type { EditorPaneState, EditorTab } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { isDetachedWin } from '../detached'
@@ -9,6 +10,7 @@ import TabStrip, { type TabItem } from './TabStrip'
 import FileView from './FileView'
 import FileTree from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
+import { CtxMenu, type CtxItem } from './Menu'
 
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1) || p
 
@@ -29,6 +31,7 @@ export default function EditorPane({
   )
   const treeRoot = pane.treeRoot ?? projectPath ?? '/'
   const t = useT()
+  const [ctx, setCtx] = useState<{ x: number; y: number; tabId: string } | null>(null)
 
   // files always open into THIS pane — the store default would hunt for the
   // focused/first editor, which in a detached window is the wrong store
@@ -59,16 +62,44 @@ export default function EditorPane({
   // dead weight. In a detached window the pane record lives in the main
   // store, so the close goes through pane:cmd (which also tears the window
   // down via closeDetached)
-  const closeTab = (tabId: string): void => {
-    const tabs = pane.tabs.filter((t) => t.id !== tabId)
-    if (tabs.length === 0) {
+  const applyTabs = (next: EditorTab[], keepId?: string): void => {
+    if (next.length === 0) {
       if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
       else closePane(pane.id, wsId)
       return
     }
-    const activeTabId =
-      pane.activeTabId === tabId ? (tabs.at(-1)?.id ?? undefined) : pane.activeTabId
-    updatePane(pane.id, { tabs, activeTabId }, wsId)
+    const want = keepId ?? pane.activeTabId
+    const activeTabId = next.some((x) => x.id === want) ? want : next.at(-1)?.id
+    updatePane(pane.id, { tabs: next, activeTabId }, wsId)
+  }
+  const closeTab = (tabId: string): void => applyTabs(pane.tabs.filter((t) => t.id !== tabId))
+
+  const ctxItems = (): CtxItem[] => {
+    const i = pane.tabs.findIndex((x) => x.id === ctx?.tabId)
+    const tab = pane.tabs[i]
+    if (!tab) return []
+    const rel =
+      projectPath && tab.path.startsWith(projectPath + '/')
+        ? tab.path.slice(projectPath.length + 1)
+        : tab.path
+    return [
+      { label: t('close'), act: () => applyTabs(pane.tabs.filter((x) => x.id !== tab.id)) },
+      {
+        label: t('closeOthers'),
+        disabled: pane.tabs.length < 2,
+        act: () => applyTabs([tab], tab.id)
+      },
+      {
+        label: t('closeToRight'),
+        disabled: i >= pane.tabs.length - 1,
+        act: () => applyTabs(pane.tabs.slice(0, i + 1))
+      },
+      { label: t('closeAll'), act: () => applyTabs([]) },
+      { sep: true },
+      { label: t('copyPath'), act: () => void window.ade.clipboard.write(tab.path) },
+      { label: t('copyRelPath'), act: () => void window.ade.clipboard.write(rel) },
+      { label: t('reveal'), act: () => window.ade.fs.reveal(tab.path) }
+    ]
   }
 
   const markDirty = (tabId: string, dirty: boolean): void => {
@@ -109,41 +140,45 @@ export default function EditorPane({
   )
 
   return (
-    <PaneFrame
-      pane={pane}
-      wsId={wsId}
-      icon={<Code2 className="picon" />}
-      gripPeek={
-        <>
-          <div className="tree-overlay-head">
-            <TreeRootMenu
-              root={treeRoot}
-              onPick={(p) => updatePane(pane.id, { treeRoot: p }, wsId)}
-              label={basename(treeRoot)}
+    <>
+      <PaneFrame
+        pane={pane}
+        wsId={wsId}
+        icon={<Code2 className="picon" />}
+        gripPeek={
+          <>
+            <div className="tree-overlay-head">
+              <TreeRootMenu
+                root={treeRoot}
+                onPick={(p) => updatePane(pane.id, { treeRoot: p }, wsId)}
+                label={basename(treeRoot)}
+              />
+            </div>
+            <FileTree key={treeRoot} rootPath={treeRoot} onOpenFile={openHere} />
+          </>
+        }
+        title={
+          <div className="pane-tabs">
+            <TabStrip
+              tabs={tabs}
+              activeId={pane.activeTabId ?? null}
+              onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
+              onClose={closeTab}
+              onContextMenu={(id, e) => setCtx({ x: e.clientX, y: e.clientY, tabId: id })}
             />
           </div>
-          <FileTree key={treeRoot} rootPath={treeRoot} onOpenFile={openHere} />
-        </>
-      }
-      title={
-        <div className="pane-tabs">
-          <TabStrip
-            tabs={tabs}
-            activeId={pane.activeTabId ?? null}
-            onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
-            onClose={closeTab}
-          />
-        </div>
-      }
-      extraActions={
-        <Tooltip label={t('openFileTooltip')}>
-          <button className="pbtn" onClick={openDialog}>
-            <FolderOpen />
-          </button>
-        </Tooltip>
-      }
-    >
-      {body}
-    </PaneFrame>
+        }
+        extraActions={
+          <Tooltip label={t('openFileTooltip')}>
+            <button className="pbtn" onClick={openDialog}>
+              <FolderOpen />
+            </button>
+          </Tooltip>
+        }
+      >
+        {body}
+      </PaneFrame>
+      {ctx && <CtxMenu x={ctx.x} y={ctx.y} items={ctxItems()} onClose={() => setCtx(null)} />}
+    </>
   )
 }

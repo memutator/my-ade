@@ -203,6 +203,53 @@ export function Dropdown({
   )
 }
 
+export type CtxItem =
+  | { sep: true }
+  | {
+      sep?: false
+      label: string
+      hint?: string
+      danger?: boolean
+      disabled?: boolean
+      act?: () => void
+    }
+
+/* right-click menu — portaled, never clipped by a scroll area */
+export function CtxMenu({
+  x,
+  y,
+  items,
+  onClose
+}: {
+  x: number
+  y: number
+  items: CtxItem[]
+  onClose: () => void
+}): React.JSX.Element {
+  return (
+    <Popup pos={{ left: x, top: y }} onClose={onClose} className="ctxmenu">
+      {items.map((it, i) =>
+        it.sep ? (
+          <div key={i} className="ctx-sep" />
+        ) : (
+          <button
+            key={i}
+            className={`ctx-item${it.danger ? ' danger' : ''}`}
+            disabled={it.disabled}
+            onClick={() => {
+              onClose()
+              it.act?.()
+            }}
+          >
+            <span>{it.label}</span>
+            {it.hint && <kbd>{it.hint}</kbd>}
+          </button>
+        )
+      )}
+    </Popup>
+  )
+}
+
 export function Select({
   value,
   options,

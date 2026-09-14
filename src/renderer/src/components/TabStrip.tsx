@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref
+} from 'react'
 import { X } from 'lucide-react'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
@@ -13,6 +21,11 @@ export interface TabItem {
   dotTip?: string
 }
 
+export interface TabStripHandle {
+  /** put a tab's label into inline-edit mode (used by the ctx menu's rename) */
+  startRename: (id: string) => void
+}
+
 export default function TabStrip({
   tabs,
   activeId,
@@ -20,7 +33,9 @@ export default function TabStrip({
   onClose,
   onRename,
   onReorder,
-  addControl
+  onContextMenu,
+  addControl,
+  ref
 }: {
   tabs: TabItem[]
   activeId?: string | null
@@ -28,7 +43,9 @@ export default function TabStrip({
   onClose?: (id: string) => void
   onRename?: (id: string, name: string) => void
   onReorder?: (from: number, to: number) => void
+  onContextMenu?: (id: string, e: React.MouseEvent) => void
   addControl?: ReactNode
+  ref?: Ref<TabStripHandle>
 }): React.JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -172,6 +189,19 @@ export default function TabStrip({
     setEditingId(null)
   }
 
+  useImperativeHandle(
+    ref,
+    (): TabStripHandle => ({
+      startRename: (id) => {
+        const tab = tabs.find((x) => x.id === id)
+        if (!tab || !onRename) return
+        setEditingId(id)
+        setEditValue(tab.label)
+      }
+    }),
+    [tabs, onRename]
+  )
+
   return (
     <div className="tstrip-wrap" ref={wrapRef}>
       <div
@@ -209,6 +239,13 @@ export default function TabStrip({
                 dragIdx.current = -1
               }}
               onClick={() => onActivate(tab.id)}
+              onContextMenu={(e) => {
+                if (!onContextMenu) return
+                e.preventDefault()
+                // right-click also selects — makes "close others" predictable
+                onActivate(tab.id)
+                onContextMenu(tab.id, e)
+              }}
               onDoubleClick={() => {
                 if (!onRename) return
                 setEditingId(tab.id)

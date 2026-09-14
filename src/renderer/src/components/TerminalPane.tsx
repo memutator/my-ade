@@ -15,8 +15,8 @@ import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
 import Tooltip from './Tooltip'
 import PaneFrame from './PaneFrame'
-import TabStrip, { type TabItem } from './TabStrip'
-import { Popup } from './Menu'
+import TabStrip, { type TabItem, type TabStripHandle } from './TabStrip'
+import { CtxMenu, type CtxItem } from './Menu'
 
 const TERM_THEME = {
   dark: {
@@ -463,52 +463,18 @@ function TerminalTabView({
         </div>
       )}
       {ctx && (
-        <Popup
-          pos={{ left: ctx.x, top: ctx.y }}
+        <CtxMenu
+          x={ctx.x}
+          y={ctx.y}
           onClose={() => setCtx(null)}
-          className="ctxmenu"
-        >
-          <button
-            className="ctx-item"
-            disabled={!ctx.sel}
-            onClick={() => {
-              setCtx(null)
-              copySelection()
-            }}
-          >
-            <span>{t('copy')}</span>
-            <kbd>Ctrl+Shift+C</kbd>
-          </button>
-          <button
-            className="ctx-item"
-            onClick={() => {
-              setCtx(null)
-              pasteClipboard()
-            }}
-          >
-            <span>{t('paste')}</span>
-            <kbd>Ctrl+Shift+V</kbd>
-          </button>
-          <div className="ctx-sep" />
-          <button
-            className="ctx-item"
-            onClick={() => {
-              setCtx(null)
-              termRef.current?.selectAll()
-            }}
-          >
-            <span>{t('selectAll')}</span>
-          </button>
-          <button
-            className="ctx-item"
-            onClick={() => {
-              setCtx(null)
-              termRef.current?.clear()
-            }}
-          >
-            <span>{t('clear')}</span>
-          </button>
-        </Popup>
+          items={[
+            { label: t('copy'), hint: 'Ctrl+Shift+C', disabled: !ctx.sel, act: copySelection },
+            { label: t('paste'), hint: 'Ctrl+Shift+V', act: pasteClipboard },
+            { sep: true },
+            { label: t('selectAll'), act: () => termRef.current?.selectAll() },
+            { label: t('clear'), act: () => termRef.current?.clear() }
+          ]}
+        />
       )}
     </>
   )
@@ -537,6 +503,9 @@ export default function TerminalPane({
   const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
   const activeTabId = activeTab?.id ?? null
 
+  const stripRef = useRef<TabStripHandle>(null)
+  const [ctx, setCtx] = useState<{ x: number; y: number; tabId: string } | null>(null)
+
   // kill the old session AND clear the session id — the remount must spawn a
   // fresh shell, not attach back to the session being "restarted" (unmount
   // cleanup won't kill it: the tab record still exists)
@@ -554,19 +523,53 @@ export default function TerminalPane({
     updatePane(pane.id, { tabs: [...tabs, tab], activeTabId: tab.id }, wsId)
   }
 
-  const closeTab = (tabId: string): void => {
-    const next = tabs.filter((x) => x.id !== tabId)
-    // closing the last tab closes the pane — a terminal without a shell is dead
-    // weight; unmounting the pane kills the pty via the tab view's cleanup.
-    // in a detached window the record lives in the main store — pane:cmd
-    // closes it there and tears this window down
+  // closing the last tab closes the pane — a terminal without a shell is dead
+  // weight; unmounting the pane kills the pty via the tab view's cleanup.
+  // in a detached window the record lives in the main store — pane:cmd
+  // closes it there and tears this window down
+  const applyTabs = (next: TerminalTab[], keepId?: string): void => {
     if (next.length === 0) {
       if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
       else closePane(pane.id, wsId)
       return
     }
-    const keep = activeTabId && activeTabId !== tabId ? activeTabId : next.at(-1)!.id
+    const want = keepId ?? activeTabId
+    const keep = want && next.some((x) => x.id === want) ? want : next.at(-1)!.id
     updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
+  }
+  const closeTab = (tabId: string): void => applyTabs(tabs.filter((x) => x.id !== tabId))
+
+  const ctxItems = (): CtxItem[] => {
+    const i = tabs.findIndex((x) => x.id === ctx?.tabId)
+    const tab = tabs[i]
+    if (!tab) return []
+    return [
+      {
+        label: t('rename'),
+        // eslint-disable-next-line react-hooks/refs -- act runs on menu click, not render
+        act: () => stripRef.current?.startRename(tab.id)
+      },
+      {
+        label: t('copyCwd'),
+        disabled: !tab.cwd,
+        act: () => tab.cwd && void window.ade.clipboard.write(tab.cwd)
+      },
+      { sep: true },
+      { label: t('restartShell'), act: () => restartTab(tab.id) },
+      { label: t('newTerminalTab'), act: newTab },
+      { sep: true },
+      { label: t('close'), act: () => closeTab(tab.id) },
+      {
+        label: t('closeOthers'),
+        disabled: tabs.length < 2,
+        act: () => applyTabs([tab], tab.id)
+      },
+      {
+        label: t('closeToRight'),
+        disabled: i >= tabs.length - 1,
+        act: () => applyTabs(tabs.slice(0, i + 1))
+      }
+    ]
   }
 
   const renameTab = (tabId: string, name: string): void => {
@@ -611,53 +614,58 @@ export default function TerminalPane({
   }))
 
   return (
-    <PaneFrame
-      pane={pane}
-      wsId={wsId}
-      icon={<TerminalSquare className="picon" />}
-      title={
-        <div className="pane-tabs">
-          <TabStrip
-            tabs={items}
-            activeId={activeTabId}
-            onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
-            onClose={closeTab}
-            onRename={renameTab}
-            onReorder={reorderTabs}
-          />
-        </div>
-      }
-      extraActions={
-        <>
-          {activeTab?.exited && (
-            <Tooltip label={t('restartShell')}>
-              <button className="pbtn" onClick={() => restartTab(activeTab.id)}>
-                <RotateCw />
+    <>
+      <PaneFrame
+        pane={pane}
+        wsId={wsId}
+        icon={<TerminalSquare className="picon" />}
+        title={
+          <div className="pane-tabs">
+            <TabStrip
+              ref={stripRef}
+              tabs={items}
+              activeId={activeTabId}
+              onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
+              onClose={closeTab}
+              onRename={renameTab}
+              onReorder={reorderTabs}
+              onContextMenu={(id, e) => setCtx({ x: e.clientX, y: e.clientY, tabId: id })}
+            />
+          </div>
+        }
+        extraActions={
+          <>
+            {activeTab?.exited && (
+              <Tooltip label={t('restartShell')}>
+                <button className="pbtn" onClick={() => restartTab(activeTab.id)}>
+                  <RotateCw />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip label={t('newTerminalTab')}>
+              <button className="pbtn" onClick={newTab}>
+                <Plus />
               </button>
             </Tooltip>
-          )}
-          <Tooltip label={t('newTerminalTab')}>
-            <button className="pbtn" onClick={newTab}>
-              <Plus />
-            </button>
-          </Tooltip>
-        </>
-      }
-    >
-      {tabs.map((tab) => (
-        <div key={tab.id} className="term-tab" hidden={tab.id !== activeTabId}>
-          <TerminalTabView
-            wsId={wsId}
-            paneId={pane.id}
-            tabId={tab.id}
-            projectPath={projectPath}
-            active={tab.id === activeTabId}
-            epoch={epochs[tab.id] ?? 0}
-            focused={focused}
-            onRestart={() => restartTab(tab.id)}
-          />
-        </div>
-      ))}
-    </PaneFrame>
+          </>
+        }
+      >
+        {tabs.map((tab) => (
+          <div key={tab.id} className="term-tab" hidden={tab.id !== activeTabId}>
+            <TerminalTabView
+              wsId={wsId}
+              paneId={pane.id}
+              tabId={tab.id}
+              projectPath={projectPath}
+              active={tab.id === activeTabId}
+              epoch={epochs[tab.id] ?? 0}
+              focused={focused}
+              onRestart={() => restartTab(tab.id)}
+            />
+          </div>
+        ))}
+      </PaneFrame>
+      {ctx && <CtxMenu x={ctx.x} y={ctx.y} items={ctxItems()} onClose={() => setCtx(null)} />}
+    </>
   )
 }

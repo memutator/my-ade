@@ -21,6 +21,9 @@ const en = {
   minimize: 'Minimize',
   maximize: 'Maximize',
   close: 'Close',
+  closeOthers: 'Close Others',
+  closeToRight: 'Close to the Right',
+  closeAll: 'Close All',
 
   // workspaces / projects
   newWorkspace: 'New workspace',
@@ -56,6 +59,7 @@ const en = {
   ptyError: 'pty error',
   selectAll: 'Select all',
   clear: 'Clear',
+  copyCwd: 'Copy Working Directory',
 
   // editor pane
   openFileTooltip: 'Open file…',
@@ -227,6 +231,9 @@ const ko: Record<TKey, string> = {
   minimize: '최소화',
   maximize: '최대화',
   close: '닫기',
+  closeOthers: '다른 탭 닫기',
+  closeToRight: '오른쪽 탭 닫기',
+  closeAll: '모든 탭 닫기',
 
   newWorkspace: '새 워크스페이스',
   addProjectItem: '+ 프로젝트 추가…',
@@ -259,6 +266,7 @@ const ko: Record<TKey, string> = {
   ptyError: 'pty 오류',
   selectAll: '전체 선택',
   clear: '지우기',
+  copyCwd: '작업 디렉터리 경로 복사',
 
   openFileTooltip: '파일 열기…',
   noFileOpen: '열린 파일 없음',
