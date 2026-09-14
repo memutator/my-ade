@@ -1,6 +1,6 @@
 {
   "name": "ade",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Minimal tiling shell for terminals, browsers, and file views",
   "main": "./out/main/index.js",
   "author": "pyosechang",
