@@ -110,6 +110,10 @@ async function boot(tag) {
       pending.set(id, (r) => (r.error ? rej(new Error(r.error.message)) : res(r.result)))
       ws.send(JSON.stringify({ id, method, params }))
     })
+  // the test window must actually hold OS focus for attended/ambient paths —
+  // on a real desktop it can open unfocused, so pull it to front
+  await send('Page.enable').catch(() => {})
+  const focus = () => send('Page.bringToFront').catch(() => {})
   const ev = async (expression) => {
     const r = await send('Runtime.evaluate', {
       expression,
@@ -177,7 +181,7 @@ async function boot(tag) {
       'a terminal tab with a live pty'
     )
   const type = (pty, s) => ev(`window.ade.pty.write(${JSON.stringify(pty)}, ${JSON.stringify(s)})`)
-  return { cfg, child, ev, waitFor, quit, term, type, dump, focusState }
+  return { cfg, child, ev, waitFor, quit, term, type, dump, focusState, focus }
 }
 
 // ---------- helpers shared by scenarios ----------
@@ -314,24 +318,62 @@ async function scAttention() {
   // fake in ws2's tab; 'n' keypress emits needs-input through the real path
   await h.type(t2.pty, `${FAKE} --session-id s-amb\n`)
   await sleep(1200)
+  await h.focus()
+  await sleep(300)
   await h.type(t2.pty, 'n')
-  const toasted = await h
-    .waitFor(`window.__ade.getState().toasts.length > 0`, 'ambient toast', 8000)
-    .then(() => true)
-    .catch(async () => {
-      console.log(`  [debug] focused=${await h.focusState()}`)
-      console.log(`  [debug] notifications=${JSON.stringify(await h.ev(`window.__ade.getState().notifications`))}`)
-      h.dump()
-      return false
-    })
-  ok(toasted, 'ambient needs-input produced an in-app toast')
+  // the attention level depends on real OS focus (Wayland won't let a window
+  // self-focus) — so assert the verdict in notify-decisions.log is coherent
+  // with its level: ambient must toast, away must go to the OS path
+  let decision = null
+  {
+    const dl = Date.now() + 8000
+    while (Date.now() < dl) {
+      const f = join(h.cfg, 'ade', 'notify-decisions.log')
+      if (existsSync(f)) {
+        const d = readFileSync(f, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => {
+            try {
+              return JSON.parse(l)
+            } catch {
+              return null
+            }
+          })
+          .filter(Boolean)
+          .find((x) => x.ev?.event === 'needs-input' && x.ev?.sessionId === 's-amb')
+        if (d) {
+          decision = d
+          break
+        }
+      }
+      await sleep(250)
+    }
+  }
+  ok(!!decision, 'needs-input produced a policy decision')
+  if (decision) {
+    const level = String(decision.reason ?? '')
+    if (level.startsWith('ambient')) {
+      const toasted = await h
+        .waitFor(`window.__ade.getState().toasts.length > 0`, 'ambient toast', 8000)
+        .then(() => true)
+        .catch(() => false)
+      ok(toasted, 'ambient verdict produced an in-app toast')
+    } else {
+      ok(
+        decision.action === 'os',
+        `unfocused-window verdict used OS notification (level=${level}, action=${decision.action})`
+      )
+    }
+  }
   const unread = await h.ev(
     `window.__ade.getState().notifications.filter((n) => !n.read).length`
   )
-  ok(unread > 0, 'ambient notification is unread')
+  ok(unread > 0, 'notification is unread')
 
   // read-on-view: activate ws2 → the pending ping settles to read
   await h.ev(`window.__ade.getState().activateWorkspace(${JSON.stringify(ws2)})`)
+  await h.focus()
   await sleep(600)
   const stillUnread = await h.ev(
     `window.__ade.getState().notifications.filter((n) => !n.read && n.tabId === ${JSON.stringify(t2.tabId)}).length`
@@ -340,9 +382,43 @@ async function scAttention() {
   await h.quit()
 }
 
+async function scAdopt() {
+  console.log('\n■ adopt — previous-run orphan events re-register their session')
+  const h = await boot('adopt')
+  await mkws(h)
+  const t = await h.term()
+  const hook = join(h.cfg, 'ade', 'ade-hook.cjs')
+  await h.waitFor(`true`, 'warmup', 500) // let the app copy the hook script over
+  const emit = (sessionId, extraEnv = {}) =>
+    spawnSync(
+      process.execPath,
+      [hook, 'fake', 'turn-complete', JSON.stringify({ session_id: sessionId, cwd: ROOT })],
+      {
+        env: {
+          ...process.env,
+          ADE_CONFIG_DIR: join(h.cfg, 'ade'),
+          ADE_SESSION: 'dead-run-uuid',
+          ...extraEnv
+        }
+      }
+    )
+  // a previous-run orphan: foreign adeSession but exact pane/tab stamps
+  emit('sess-orph', { ADE_PANE: t.paneId, ADE_TAB: t.tabId })
+  const got = await h
+    .waitFor(`window.__ade.getState().resumeSessions['sess-orph']`, 'orphan re-registered', 8000)
+    .catch(() => null)
+  ok(got?.tabId === t.tabId, 'orphan event adopted → session re-registered to its tab')
+  // an unstamped foreign event must still be dropped
+  emit('sess-foreign')
+  await sleep(800)
+  const foreign = await h.ev(`window.__ade.getState().resumeSessions['sess-foreign'] ?? null`)
+  ok(!foreign, 'unstamped foreign event still dropped')
+  await h.quit()
+}
+
 // ---------- runner ----------
 
-const ALL = { orphans: scOrphans, resume: scResume, attention: scAttention }
+const ALL = { orphans: scOrphans, resume: scResume, attention: scAttention, adopt: scAdopt }
 const picked = process.argv.slice(2).filter((s) => s in ALL)
 const list = picked.length ? picked : Object.keys(ALL)
 

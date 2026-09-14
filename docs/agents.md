@@ -98,7 +98,12 @@ The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
 - starts at EOF — history is not replayed; truncates the file past 2 MB
 - `fs.watch`, with a 1 s stat-poll fallback when inotify is exhausted
 - stamps `ours` (`adeSession === process.env.ADE_SESSION`) — the renderer drops
-  everything else, so foreign sessions never notify
+  everything else, so foreign sessions never notify. One exception: an event
+  whose stamped `paneId`/`tabId` exists in our restored workspaces is adopted
+  anyway — an agent orphaned by a previous run still carries those env values,
+  foreign agents can't forge them, and another instance's ids never collide.
+  This is how a surviving session re-registers (and keeps notifying) after a
+  restart instead of being silently filtered out
 - dedupes notifying events on provider+session+cwd+kind+message —
   compat-loaded hooks re-emit the identical payload ~0 ms apart, while
   distinct turns/prompts carry different messages and must not collapse

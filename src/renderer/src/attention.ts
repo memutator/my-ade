@@ -371,10 +371,25 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     return
   }
   // hooks are installed globally, so agents launched in terminals outside
-  // ade (no ADE_SESSION in their env) append here too — never act on those
+  // ade (no ADE_SESSION in their env) append here too — never act on those.
+  // Exception: an agent orphaned by a previous run still carries its
+  // env-stamped paneId/tabId, and those ids only exist in our own persisted
+  // workspaces — foreign agents can't forge them and another ade instance's
+  // ids never collide. Adopt it: its events attribute to the restored tab and
+  // the session re-registers as resumable instead of vanishing.
   if (!ev.ours) {
-    logDecision(ev, null, 'drop', 'foreign', 'hook')
-    return
+    const adopted =
+      !!ev.paneId &&
+      st.workspaces.some((w) => {
+        const p = w.panes[ev.paneId!]
+        return (
+          !!p && (!ev.tabId || (p.type === 'terminal' && p.tabs.some((t) => t.id === ev.tabId)))
+        )
+      })
+    if (!adopted) {
+      logDecision(ev, null, 'drop', 'foreign', 'hook')
+      return
+    }
   }
   const t = resolveTarget(st, ev.sessionId, ev.cwd, ev.provider, ev)
   // track the session ↔ tab association so later events (and renames) land
