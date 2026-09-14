@@ -124,12 +124,14 @@ without being asked:
   permission/question.asked). `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
   per provider. Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run
-  UUID set in main): the env chain is pty-host → spawned shell → agent → hook.
-  The tailer stamps `ours` (`adeSession === ours`); the renderer drops every
-  event that isn't ours — hooks are global so agents in foreign terminals
-  never notify. Ade-owned hook artifacts (script copy, grok's hook file,
-  opencode plugin) refresh to the shipped version on app start; user-owned
-  configs need a re-Install click.
+  UUID set in main) plus `paneId`/`tabId` — the pty id's first two segments,
+  stamped as `ADE_PANE`/`ADE_TAB` at spawn and echoed by the hook — so events
+  attribute to the exact emitting tab (cwd guessing collapses when tabs share
+  a directory). The tailer stamps `ours` (`adeSession === ours`); the renderer
+  drops every event that isn't ours — hooks are global so agents in foreign
+  terminals never notify. Ade-owned hook artifacts (script copy, grok's hook
+  file, opencode plugin) refresh to the shipped version on app start;
+  user-owned configs need a re-Install click.
 - **session resume** (`src/renderer/src/resume.ts`, spec: `docs/agents.md` →
   Session resume): `resumeSessions` is the persisted, bounded set of sessions
   alive at last shutdown — `{sessionId, provider, cwd, wsId, paneId, tabId}`

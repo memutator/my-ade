@@ -107,7 +107,11 @@ The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
 `ADE_SESSION` is a per-run UUID set in main and inherited down the chain:
 pty-host → spawned shell → agent → hook script. Hooks are installed globally,
 so every codex run on the machine appends to this file — `adeSession` is how
-ade tells its own sessions apart.
+ade tells its own sessions apart. The same env chain carries `ADE_PANE` /
+`ADE_TAB` (parsed out of the pty id `paneId:tabId:uuid` at spawn): events
+stamp `paneId`/`tabId`, so the renderer attributes them to the exact emitting
+tab instead of guessing by cwd — which collapses whenever several tabs share
+a directory.
 
 ### Renderer policy
 
@@ -116,13 +120,14 @@ taxonomy, attention levels, coalescing. Short version:
 
 Every agent signal (hook events, pty process-detection idle, detached-window
 relays) flows through `src/renderer/src/attention.ts`, which resolves a
-workspace/pane/tab target — session registry first, then longest-prefix `cwd`
-matching — and applies the attention level:
+workspace/pane/tab target — the event's stamped `paneId`/`tabId` first, then
+the session registry, then longest-prefix `cwd` matching — and applies the
+attention level:
 
 - **attended** (you're looking at the emitting tab): records pre-read, no
   banner — except `needs-input`, which always badges (it's pending work).
 - **ambient** (app focused, target off-screen): unread badge + a dot on the
-  workspace tab, no OS banner.
+  workspace tab + an in-app toast, no OS banner.
 - **away** (hosting window unfocused): unread badge + OS notification.
 
 Process-detection idle is suppressed for providers with an installed hook —
@@ -150,8 +155,11 @@ one click.
 **Tracking** (`src/renderer/src/resume.ts` + `attention.ts`): every `ours`
 hook event carrying a `sessionId` upserts a record `{sessionId, provider, cwd,
 wsId, paneId, tabId}` — providers without lifecycle hooks are still picked up
-by their first turn event (e.g. codex `notify`). Records leave the set when
-the session actually ends:
+by their first turn event (e.g. codex `notify`). A tab hosts one live
+session: a new record claims its tab outright, and weaker signals
+(`idle`/`other`) never displace the recorded session — sub-session churn
+demoted to `other` would otherwise steal records from the resumable parent.
+Records leave the set when the session actually ends:
 
 - `session-end` hook events (`SessionEnd`, opencode `session.deleted`, grok's
   teardown `Stop`),
@@ -163,10 +171,13 @@ the session actually ends:
 (their persisted pty ids respawn). Accepting the dialog types the manifest's
 resume command — `claude --resume <id>`, `codex resume <id>`,
 `opencode --session <id>`, `grok|devin|zcode --resume <id>` — into each
-session's old tab and activates it. Tabs whose shell hasn't spawned yet (a
-detached window still booting) get the command queued until their `spawned`
-event; tabs already running an agent are skipped. The resumed harness's own
-`session-start` then re-registers it as live.
+session's old tab in layout pane order then tab order, activating the
+leftmost resumed tab per pane. Two records claiming one tab collapse to the
+newest — both typing into a single shell would land in the first agent's
+prompt. Tabs whose shell hasn't spawned yet (a detached window still
+booting) get the command queued until their `spawned` event; tabs already
+running an agent are skipped. The resumed harness's own `session-start` then
+re-registers it as live.
 
 **Shutdown**: `will-quit` kills the pty-host so its shells and agents die
 with the app instead of lingering as orphans (closing the pty master SIGHUPs

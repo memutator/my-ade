@@ -129,6 +129,9 @@ export const AdeEventsPlugin = async ({ directory }) => ({
           sessionId: p.sessionID || p.info?.id,
           message: messageFor(event.type, p) || undefined,
           adeSession: process.env.ADE_SESSION || undefined,
+          // pty-stamped hosting pane/tab — exact event attribution
+          paneId: process.env.ADE_PANE || undefined,
+          tabId: process.env.ADE_TAB || undefined,
           ts: now
         }) + '\n',
         { flag: 'a' }

@@ -19,6 +19,8 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { $prose, $useKeymap } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { useT } from '../i18n'
+import { useStore } from '../store'
+import { isDetachedWin, detachedWsId, detachedPaneId } from '../detached'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
 import '@milkdown/kit/prose/gapcursor/style/gapcursor.css'
 import '@milkdown/kit/prose/tables/style/tables.css'
@@ -34,8 +36,23 @@ const linkKeymap = $useKeymap('adeLink', {
   }
 })
 
-// Ctrl/Cmd+click opens a link in the system browser — a plain click just
-// moves the caret (hover shows the preview tooltip: copy/edit/remove)
+// links open ADE-first — an in-app browser pane (the tooltip's window.open
+// is bounced back by the main process as 'open-url' and lands the same way;
+// a detached editor relays through pane:cmd since only the main store owns
+// workspaces). A plain click just moves the caret.
+function openLink(href: string): void {
+  if (isDetachedWin && detachedWsId && detachedPaneId) {
+    window.ade.win.paneCmd({
+      action: 'openUrl',
+      wsId: detachedWsId,
+      paneId: detachedPaneId,
+      url: href
+    })
+  } else {
+    useStore.getState().openUrlInBrowser(href)
+  }
+}
+
 const linkOpenPlugin = $prose(
   (ctx) =>
     new Plugin({
@@ -49,9 +66,9 @@ const linkOpenPlugin = $prose(
             const href = view.state.doc
               .nodeAt(coords.pos)
               ?.marks.find((m) => m.type === linkSchema.mark.type(ctx))?.attrs.href
-            if (typeof href !== 'string' || !href) return false
+            if (typeof href !== 'string' || !href || !/^https?:\/\//.test(href)) return false
             event.preventDefault()
-            window.ade.openExternal(href)
+            openLink(href)
             return true
           }
         }

@@ -281,6 +281,7 @@ const ade = {
       paneId: string
       tabId?: string
       provider?: string
+      url?: string
     }): void => ipcRenderer.send('pane:cmd', m),
     onPaneCmd: (
       cb: (m: {
@@ -289,14 +290,30 @@ const ade = {
         paneId: string
         tabId?: string
         provider?: string
+        url?: string
       }) => void
     ): (() => void) => {
       const handler = (
         _: unknown,
-        m: { action: string; wsId: string; paneId: string; tabId?: string; provider?: string }
+        m: {
+          action: string
+          wsId: string
+          paneId: string
+          tabId?: string
+          provider?: string
+          url?: string
+        }
       ): void => cb(m)
       ipcRenderer.on('pane:cmd', handler)
       return () => ipcRenderer.removeListener('pane:cmd', handler)
+    },
+    // a window.open from this renderer (markdown link tooltips etc.) — the
+    // main process denies the window and bounces the url back so links open
+    // as in-app browser panes instead of the system browser
+    onOpenUrl: (cb: (url: string) => void): (() => void) => {
+      const handler = (_: unknown, url: string): void => cb(url)
+      ipcRenderer.on('open-url', handler)
+      return () => ipcRenderer.removeListener('open-url', handler)
     },
     // detached renderer pushes its pane object up to the main store
     paneSyncUp: (m: { wsId: string; paneId: string; pane: unknown }): void =>

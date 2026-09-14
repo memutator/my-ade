@@ -76,6 +76,16 @@ export default function DetachedApp({
     return () => window.removeEventListener('focus', report)
   }, [wsId, paneId, attendedTabId])
 
+  // window.open here (markdown link tooltips) bounces back as 'open-url' —
+  // panes are owned by the main store, so relay the request there
+  useEffect(
+    () =>
+      window.ade.win.onOpenUrl((url) =>
+        window.ade.win.paneCmd({ action: 'openUrl', wsId, paneId, url })
+      ),
+    [wsId, paneId]
+  )
+
   // push local pane-state edits (tab renames, cwd/agent patches, closes) up
   // to the main window's store — it's the single source of truth
   useEffect(() => {

@@ -109,6 +109,14 @@ function detectAgent(shellPid) {
 function handleSpawn(m) {
   const command = m.command || process.env.SHELL || '/bin/bash'
   const args = Array.isArray(m.args) ? m.args : []
+  // m.id is `paneId:tabId:uuid` — stamp the shell so hook events emitted by
+  // agents launched inside carry exact pane/tab attribution (env survives the
+  // shell → agent → hook chain; cwd-guessing can't distinguish tabs that
+  // share a directory)
+  const [adePane, adeTab] = String(m.id).split(':')
+  const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+  if (adePane) env.ADE_PANE = adePane
+  if (adeTab) env.ADE_TAB = adeTab
   let proc
   try {
     proc = pty.spawn(command, args, {
@@ -116,7 +124,7 @@ function handleSpawn(m) {
       cols: m.cols || 80,
       rows: m.rows || 24,
       cwd: m.cwd || process.env.HOME || '/',
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+      env
     })
   } catch (e) {
     send({ t: 'error', id: m.id, msg: String(e && e.message ? e.message : e) })

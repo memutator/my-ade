@@ -142,6 +142,18 @@ export interface AppNotification {
   read: boolean
 }
 
+/** ephemeral in-app toast — ambient-level agent signals slide down from the
+ *  top center; clicking jumps to the emitting target via its notification */
+export interface ToastItem {
+  id: string
+  /** notification to open on click — marks it read and navigates */
+  notifId?: string
+  title: string
+  body?: string
+  agent?: string
+  ts: number
+}
+
 export type Theme = 'dark' | 'light' | 'system'
 
 export type Language = 'ko' | 'en' | 'system'
@@ -178,6 +190,10 @@ export interface AgentHookEvent {
   event: string
   cwd?: string
   sessionId?: string
+  /** pane/tab the emitting shell was spawned into (pty-stamped env) — exact
+   *  attribution, beats cwd/registry guessing */
+  paneId?: string
+  tabId?: string
   /** true when the event came from an ade-spawned terminal session */
   ours?: boolean
   /** session-rename payload: the new session name */

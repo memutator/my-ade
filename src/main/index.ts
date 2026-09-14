@@ -108,7 +108,10 @@ function createDetachedWindow(key: string): void {
     winKeyByWebContents.delete(wcId)
   })
   win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // links open in-app: bounce the url back so the renderer routes it to a
+    // browser pane; oddball schemes still go to the system handler
+    if (/^https?:\/\//.test(details.url)) win.webContents.send('open-url', details.url)
+    else shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
@@ -158,7 +161,8 @@ function createWindow(): void {
   mainWindow.on('closed', () => (mainWindow = null))
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (/^https?:\/\//.test(details.url)) mainWindow?.webContents.send('open-url', details.url)
+    else shell.openExternal(details.url)
     return { action: 'deny' }
   })
 

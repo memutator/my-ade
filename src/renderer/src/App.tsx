@@ -19,6 +19,7 @@ import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
 import SettingsPage from './components/SettingsPage'
 import ResumePrompt from './components/ResumePrompt'
+import Toasts from './components/Toasts'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   const newPane = useStore((s) => s.newPane)
@@ -151,6 +152,10 @@ export default function App(): React.JSX.Element {
   // records; pending resume commands drain on spawn)
   useEffect(() => initResumeTracking(), [])
 
+  // window.open from this renderer (markdown link tooltips) arrives as
+  // 'open-url' — open it as an in-app browser pane, ADE-first
+  useEffect(() => window.ade.win.onOpenUrl((url) => useStore.getState().openUrlInBrowser(url)), [])
+
   // read-on-view: unread pings for whatever the user is attending clear
   // without a click. Runs on store changes (workspace switch, tab activate,
   // pane layout, new ping) and when the window gains focus.
@@ -189,6 +194,9 @@ export default function App(): React.JSX.Element {
       // a detached window is attending its pane — clear pings aimed at it
       if (m.action === 'attended')
         useStore.getState().markAttendedRead({ wsId: m.wsId, paneId: m.paneId, tabId: m.tabId })
+      // detached windows can't own panes — a link opened there lands in the
+      // main store's workspace
+      if (m.action === 'openUrl' && m.url) useStore.getState().openUrlInBrowser(m.url, m.wsId)
     })
     const offSync = window.ade.win.onPaneSync?.((m) => {
       const st = useStore.getState()
@@ -265,6 +273,7 @@ export default function App(): React.JSX.Element {
       </div>
       <SettingsPage />
       <ResumePrompt />
+      <Toasts />
     </div>
   )
 }

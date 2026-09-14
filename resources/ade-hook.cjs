@@ -232,6 +232,10 @@ function buildEvent(provider, argEvent, payload) {
     // stamped by the shell env chain (pty spawn → agent → hook) so ade can
     // tell our sessions' events apart from agents running elsewhere
     adeSession: process.env.ADE_SESSION || undefined,
+    // pty spawn stamps the hosting pane/tab — exact attribution, no cwd
+    // guessing (tabs sharing a directory resolve to the first match)
+    paneId: process.env.ADE_PANE || undefined,
+    tabId: process.env.ADE_TAB || undefined,
     ts: Date.now()
   }
 }

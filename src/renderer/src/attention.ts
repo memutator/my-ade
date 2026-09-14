@@ -29,6 +29,17 @@ export interface Target {
 // events that can demand attention — everything else is tracking-only
 const NOTIFY_EVENTS = new Set(['turn-complete', 'needs-input', 'error'])
 
+// events proving a real top-level turn — only these may displace another
+// session's claim on a tab in the resume set
+const STRONG_RESUME_EVENTS = new Set([
+  'session-start',
+  'turn-start',
+  'turn-complete',
+  'turn-cancelled',
+  'needs-input',
+  'error'
+])
+
 // per-provider hook-installed state, refreshed on boot and after Settings
 // installs. When a provider's hook is installed the process-exit proxy stops
 // notifying — the hook owns completion, and a missing agent process is then
@@ -61,16 +72,26 @@ function logDecision(
   })
 }
 
-// Resolve an event to a workspace/pane/tab. The session registry wins once
-// known (survives `cd`, disambiguates agents sharing a dir); else longest
-// project-path prefix picks the workspace and an exact live-cwd match picks
-// the tab (background tabs count — the emitter may not be the visible one).
+// Resolve an event to a workspace/pane/tab. Exact env attribution wins
+// (pty-stamped ADE_PANE/ADE_TAB ride the shell → agent → hook chain), then
+// the session registry, then cwd prefix matching — which can't distinguish
+// tabs that share a directory, so it lands on the first match.
 function resolveTarget(
   st: ReturnType<typeof useStore.getState>,
   sessionId: string | undefined,
   cwd: string | undefined,
-  provider?: string
+  provider?: string,
+  at?: { paneId?: string; tabId?: string }
 ): Target {
+  if (at?.paneId) {
+    for (const w of st.workspaces) {
+      const p = w.panes[at.paneId]
+      if (!p) continue
+      const tab =
+        p.type === 'terminal' && at.tabId ? p.tabs.find((t) => t.id === at.tabId) : undefined
+      return { ws: w, paneId: p.id, tabId: tab?.id, tab }
+    }
+  }
   const reg = sessionId ? st.agentSessions[sessionId] : undefined
   if (reg?.wsId && reg.paneId) {
     const ws = st.workspaces.find((w) => w.id === reg.wsId)
@@ -255,18 +276,29 @@ async function deliver(
     t.tab?.title ??
     (ev.cwd ? shortPath(ev.cwd) : undefined)
   const body = ev.message || ''
-  if (wsId) {
-    st.notify({
-      workspaceId: wsId,
-      paneId: t.paneId,
-      tabId: t.tabId,
+  const nid = wsId
+    ? st.notify({
+        workspaceId: wsId,
+        paneId: t.paneId,
+        tabId: t.tabId,
+        title,
+        body,
+        session,
+        agent: ev.provider,
+        kind: ev.event === 'needs-input' ? 'needs-input' : undefined,
+        sessionId: ev.sessionId,
+        read: action === 'silent'
+      })
+    : undefined
+  // ambient-level events get an in-app toast — the app has the user's
+  // attention, so a slide-down nudge beats a silent badge (and away gets the
+  // OS banner instead)
+  if (nid && level === 'ambient' && action === 'badge') {
+    st.pushToast({
+      notifId: nid,
       title,
-      body,
-      session,
-      agent: ev.provider,
-      kind: ev.event === 'needs-input' ? 'needs-input' : undefined,
-      sessionId: ev.sessionId,
-      read: action === 'silent'
+      body: [session, body].filter(Boolean).join(' — ') || undefined,
+      agent: ev.provider
     })
   }
   if (action === 'os' && st.settings.osNotifications) {
@@ -304,16 +336,22 @@ export function sweepAttended(): void {
     if (p.detached || p.minimized || (!p.floating && !leaves.has(p.id))) continue
     attended.set(p.id, p.type === 'terminal' ? p.activeTabId : undefined)
   }
+  // a ping pointing at a pane/tab that no longer exists degrades to the
+  // coarsest live level — stale targets must not badge the workspace forever
   const ids = new Set(
     st.notifications
-      .filter(
-        (n) =>
-          !n.read &&
-          n.workspaceId === ws.id &&
-          (n.paneId === undefined ||
-            (attended.has(n.paneId) &&
-              (n.tabId === undefined || n.tabId === attended.get(n.paneId))))
-      )
+      .filter((n) => {
+        if (n.read || n.workspaceId !== ws.id) return false
+        const pane = n.paneId === undefined ? undefined : ws.panes[n.paneId]
+        if (n.paneId === undefined || !pane) return true
+        if (!attended.has(n.paneId)) return false
+        if (n.tabId === undefined) return true
+        const tabGone =
+          'tabs' in pane && Array.isArray(pane.tabs)
+            ? !pane.tabs.some((t) => t.id === n.tabId)
+            : false
+        return tabGone || n.tabId === attended.get(n.paneId)
+      })
       .map((n) => n.id)
   )
   if (!ids.size) return
@@ -338,7 +376,7 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     logDecision(ev, null, 'drop', 'foreign', 'hook')
     return
   }
-  const t = resolveTarget(st, ev.sessionId, ev.cwd, ev.provider)
+  const t = resolveTarget(st, ev.sessionId, ev.cwd, ev.provider, ev)
   // track the session ↔ tab association so later events (and renames) land
   // precisely even after the session's cwd drifts
   if (ev.sessionId) {
@@ -352,18 +390,26 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     // the live-session set powering restart-resume: any event means the
     // session is alive (providers without session-start hooks still get
     // tracked), session-end takes it out. `force` test events are synthetic
-    // — no real session exists to reopen.
+    // — no real session exists to reopen. Weak signals (idle/other) never
+    // displace a tab's recorded session — sub-session churn demoted to
+    // 'other' would otherwise steal the record from the session you could
+    // actually resume.
     if (!ev.force) {
       if (ev.event === 'session-end') st.dropResumeSession(ev.sessionId)
       else if (t.ws && t.paneId && t.tabId && resumeSupported(ev.provider)) {
-        st.upsertResumeSession({
-          sessionId: ev.sessionId,
-          provider: ev.provider,
-          cwd: ev.cwd,
-          wsId: t.ws.id,
-          paneId: t.paneId,
-          tabId: t.tabId
-        })
+        const claimed = Object.values(st.resumeSessions).find(
+          (r) => r.tabId === t.tabId && r.sessionId !== ev.sessionId
+        )
+        if (!claimed || STRONG_RESUME_EVENTS.has(ev.event)) {
+          st.upsertResumeSession({
+            sessionId: ev.sessionId,
+            provider: ev.provider,
+            cwd: ev.cwd,
+            wsId: t.ws.id,
+            paneId: t.paneId,
+            tabId: t.tabId
+          })
+        }
       }
     }
   }

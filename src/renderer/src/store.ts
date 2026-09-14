@@ -16,6 +16,7 @@ import type {
   Settings,
   TerminalPaneState,
   TerminalTab,
+  ToastItem,
   TodoItem,
   Workspace
 } from './types'
@@ -329,6 +330,8 @@ export interface PersistedState {
 
 interface AdeState extends PersistedState {
   notifications: AppNotification[]
+  /** ambient-level pings shown as slide-down toasts — runtime-only */
+  toasts: ToastItem[]
   notifOpen: boolean
   settingsOpen: boolean
   resolvedTheme: 'dark' | 'light'
@@ -414,7 +417,9 @@ interface AdeState extends PersistedState {
   addBookmark: (b: { title: string; url: string; scope: string }) => void
   removeBookmark: (id: string) => void
 
-  notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'> & { read?: boolean }) => void
+  notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'> & { read?: boolean }) => string
+  pushToast: (t: Omit<ToastItem, 'id' | 'ts'>) => void
+  dismissToast: (id: string) => void
   /** settle pending needs-input pings for a session or tab (turn resumed /
    *  ended / cancelled — the prompt is stale either way) */
   settleInput: (k: { wsId?: string; paneId?: string; tabId?: string; sessionId?: string }) => void
@@ -470,6 +475,7 @@ export const useStore = create<AdeState>((set, get) => {
     treeRoots: [],
     sidebarRoots: {},
     notifications: [],
+    toasts: [],
     notifOpen: false,
     settingsOpen: false,
     resolvedTheme: 'dark',
@@ -1355,7 +1361,8 @@ export const useStore = create<AdeState>((set, get) => {
 
     removeBookmark: (id) => set((s) => ({ bookmarks: s.bookmarks.filter((x) => x.id !== id) })),
 
-    notify: (n) =>
+    notify: (n) => {
+      const id = uid()
       set((s) => {
         const now = Date.now()
         // a same-title unread ping for the workspace already badges — keep the
@@ -1370,12 +1377,19 @@ export const useStore = create<AdeState>((set, get) => {
               now - x.ts < 15000
           )
         return {
-          notifications: [
-            { ...n, id: uid(), ts: now, read: n.read || dupe },
-            ...s.notifications
-          ].slice(0, 100)
+          notifications: [{ ...n, id, ts: now, read: n.read || dupe }, ...s.notifications].slice(
+            0,
+            100
+          )
         }
-      }),
+      })
+      return id
+    },
+
+    pushToast: (t) =>
+      set((s) => ({ toasts: [{ ...t, id: uid(), ts: Date.now() }, ...s.toasts].slice(0, 4) })),
+
+    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
 
     settleInput: (k) =>
       set((s) => ({
@@ -1395,16 +1409,27 @@ export const useStore = create<AdeState>((set, get) => {
       })),
 
     markAttendedRead: (m) =>
-      set((s) => ({
-        notifications: s.notifications.map((n) =>
-          !n.read &&
-          n.workspaceId === m.wsId &&
-          (n.paneId === undefined || n.paneId === m.paneId) &&
-          (n.tabId === undefined || n.tabId === m.tabId)
-            ? { ...n, read: true }
-            : n
-        )
-      })),
+      set((s) => {
+        const pane = s.workspaces.find((w) => w.id === m.wsId)?.panes[m.paneId ?? '']
+        // a ping whose recorded tab no longer exists degrades to pane-level —
+        // otherwise a stale target can never be cleared by looking at it
+        const tabGone = (n: AppNotification): boolean =>
+          n.tabId !== undefined &&
+          !!pane &&
+          'tabs' in pane &&
+          Array.isArray(pane.tabs) &&
+          !pane.tabs.some((t) => t.id === n.tabId)
+        return {
+          notifications: s.notifications.map((n) =>
+            !n.read &&
+            n.workspaceId === m.wsId &&
+            (n.paneId === undefined || n.paneId === m.paneId) &&
+            (n.tabId === undefined || n.tabId === m.tabId || tabGone(n))
+              ? { ...n, read: true }
+              : n
+          )
+        }
+      }),
 
     markAllRead: () =>
       set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
@@ -1491,11 +1516,15 @@ export const useStore = create<AdeState>((set, get) => {
     upsertResumeSession: (r) =>
       set((s) => {
         const prev = s.resumeSessions[r.sessionId]
-        const next = {
-          ...s.resumeSessions,
-          // later events may omit cwd — keep the one already observed
-          [r.sessionId]: { ...prev, ...r, cwd: r.cwd ?? prev?.cwd, ts: Date.now() }
+        const next = { ...s.resumeSessions }
+        // a tab hosts one live session — a new session observed here retires
+        // whatever the tab was recorded as running (its end event may never
+        // have fired)
+        for (const [k, v] of Object.entries(next)) {
+          if (k !== r.sessionId && v.tabId === r.tabId) delete next[k]
         }
+        // later events may omit cwd — keep the one already observed
+        next[r.sessionId] = { ...prev, ...r, cwd: r.cwd ?? prev?.cwd, ts: Date.now() }
         // the set is meant to hold live sessions only — cap it anyway so a
         // bookkeeping leak can't grow state without bound
         const keys = Object.keys(next)

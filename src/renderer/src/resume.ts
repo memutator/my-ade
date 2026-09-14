@@ -11,7 +11,7 @@
 // agent is gone → its records leave the resume set. Records also drop on
 // `session-end` hook events (attention.ts) and pane/workspace close (store).
 
-import { useStore } from './store'
+import { useStore, visibleLeafIds } from './store'
 import { agentProviders, resumeCommand } from './agents'
 import type { ResumeSession, TerminalTab } from './types'
 
@@ -72,14 +72,18 @@ export function initResumeTracking(): () => void {
 
 // candidates that can actually be resumed right now: the record's pane+tab
 // still exist, the tab has a pty and no agent already running in it, the
-// provider knows how to resume, and it isn't disabled in settings
+// provider knows how to resume, and it isn't disabled in settings. Two
+// records claiming the same tab (stale cwd-guessed attribution) collapse to
+// the newest — both typing into one shell would land in the first agent's
+// prompt. Order follows the layout's pane order then the pane's tab order,
+// so restoring walks the sessions the way the user sees them.
 export function resumeCandidates(
   st: ReturnType<typeof useStore.getState>,
   wsId: string
 ): ResumeCandidate[] {
   const ws = st.workspaces.find((w) => w.id === wsId)
   if (!ws) return []
-  const out: ResumeCandidate[] = []
+  const byTab = new Map<string, ResumeCandidate>()
   for (const rec of Object.values(st.resumeSessions)) {
     if (rec.wsId !== wsId) continue
     const pane = ws.panes[rec.paneId]
@@ -88,9 +92,22 @@ export function resumeCandidates(
     if (!tab || tab.exited || !tab.pty || tab.agent) continue
     if (st.settings.providers[rec.provider] === false) continue
     const cmd = resumeCommand(rec.provider, rec.sessionId)
-    if (cmd) out.push({ rec, tab, cmd })
+    if (!cmd) continue
+    const prev = byTab.get(tab.id)
+    if (!prev || rec.ts > prev.rec.ts) byTab.set(tab.id, { rec, tab, cmd })
   }
-  return out.sort((a, b) => a.rec.ts - b.rec.ts)
+  const paneOrder = new Map(visibleLeafIds(ws.root, ws.panes).map((id, i) => [id, i]))
+  const tabIndex = (c: ResumeCandidate): number => {
+    const p = ws.panes[c.rec.paneId]
+    return p?.type === 'terminal' ? p.tabs.findIndex((t) => t.id === c.rec.tabId) : 0
+  }
+  return [...byTab.values()].sort(
+    (a, b) =>
+      (paneOrder.get(a.rec.paneId) ?? Number.MAX_SAFE_INTEGER) -
+        (paneOrder.get(b.rec.paneId) ?? Number.MAX_SAFE_INTEGER) ||
+      tabIndex(a) - tabIndex(b) ||
+      a.rec.ts - b.rec.ts
+  )
 }
 
 // type each resume command into its tab's shell and bring the tab forward.
@@ -99,13 +116,14 @@ export function resumeCandidates(
 export function resumeWorkspaceSessions(wsId: string): number {
   const st = useStore.getState()
   const cands = resumeCandidates(st, wsId)
-  const panes = new Map<string, string>() // paneId → last resumed tabId
+  const panes = new Map<string, string>() // paneId → first resumed tabId
   let n = 0
   for (const c of cands) {
     const pty = c.tab.pty!
     if (live.has(pty)) window.ade.pty.write(pty, c.cmd + '\r')
     else pending.set(pty, c.cmd) // drained by the tab's own spawned event
-    panes.set(c.rec.paneId, c.rec.tabId)
+    // leftmost resumed tab ends up active — matches the visual restore order
+    if (!panes.has(c.rec.paneId)) panes.set(c.rec.paneId, c.rec.tabId)
     st.dropResumeSession(c.rec.sessionId)
     n++
   }

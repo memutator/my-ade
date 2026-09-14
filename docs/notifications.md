@@ -56,7 +56,7 @@ target of an event is resolved to `{workspace, pane, tab}` (see Resolution).
 | level      | condition                                                                 | in-app list     | OS banner |
 | ---------- | ------------------------------------------------------------------------- | --------------- | --------- |
 | `attended` | hosting window focused **and** workspace active **and** pane on-screen (not minimized; a detached pane counts when its own window is focused) **and** the emitting tab is the pane's active tab | recorded, pre-read | no |
-| `ambient`  | hosting window focused but the target isn't fully on-screen (background tab, minimized pane, unfocused pane, or an inactive workspace) | unread          | no        |
+| `ambient`  | hosting window focused but the target isn't fully on-screen (background tab, minimized pane, unfocused pane, or an inactive workspace) | unread + toast  | no        |
 | `away`     | hosting window not focused / minimized (for a detached pane: its own window unfocused or minimized) | unread          | yes       |
 
 Rules:
@@ -68,9 +68,10 @@ Rules:
   already looking at.
 - `turn-complete` / `error` at `attended` land pre-read: the list doubles as an
   activity log, but nothing demands a click.
-- OS banners exist only for `away`. While the app is focused the workspace tab
-  carries an unread dot instead — that's the discovery path, so nothing is
-  lost by skipping the banner.
+- OS banners exist only for `away`. While the app is focused the workspace
+  tab carries an unread dot **and** `ambient` events raise an in-app toast
+  (slide-down card, top-center; click jumps to the target, ~6 s auto-expire)
+  — that's the discovery path, so nothing is lost by skipping the banner.
 - An event that resolves to no workspace at all can't be attended (nothing on
   screen shows it): focused window → `ambient`, unfocused → `away`.
 
@@ -82,7 +83,10 @@ window on every store change (workspace switch, tab activate, pane layout,
 new ping) and on window focus: a ping reads when its workspace is active, its
 pane is on screen, and (for tab-scoped pings) its emitting tab is the pane's
 active tab. A detached window reports its own attendance via `pane:cmd`
-`action:'attended'` — its focus isn't observable from the main renderer.
+`action:'attended'` — its focus isn't observable from the main renderer. A
+ping whose recorded pane or tab no longer exists degrades to the coarsest
+live level (pane gone → workspace-level, tab gone → pane-level) so a stale
+target can't badge a workspace forever.
 
 ## Coalescing
 
