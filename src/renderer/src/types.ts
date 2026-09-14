@@ -81,6 +81,9 @@ export interface EditorTab {
   path: string
   name: string
   dirty?: boolean
+  /** VS Code-style preview tab — italic label, replaced in place by the next
+      preview open, pins permanently on edit / double-click / Keep Open */
+  preview?: boolean
 }
 
 export interface EditorPaneState extends PaneBase {

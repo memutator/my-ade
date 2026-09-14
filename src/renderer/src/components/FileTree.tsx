@@ -59,6 +59,7 @@ interface TreeCtx {
   isCut: (p: string) => boolean
   onRowMouseDown: (e: ReactMouseEvent, entry: DirEntry) => void
   onRowClick: (e: ReactMouseEvent, entry: DirEntry) => void
+  onRowDoubleClick: (entry: DirEntry) => void
   onRowContextMenu: (e: ReactMouseEvent, entry: DirEntry) => void
   onRowDragStart: (e: ReactDragEvent, entry: DirEntry) => void
   onRowDragOver: (e: ReactDragEvent, entry: DirEntry) => void
@@ -154,6 +155,7 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }): React.J
         }}
         onMouseDown={(e) => ctx.onRowMouseDown(e, entry)}
         onClick={(e) => ctx.onRowClick(e, entry)}
+        onDoubleClick={() => ctx.onRowDoubleClick(entry)}
         onContextMenu={(e) => ctx.onRowContextMenu(e, entry)}
         draggable={!isRenaming}
         onDragStart={(e) => ctx.onRowDragStart(e, entry)}
@@ -221,15 +223,16 @@ export default function FileTree({
   rootPath: string
   apiRef?: RefObject<FileTreeApi | null>
   // where file activations go — defaults to the store's focused/first editor
-  // pane; detached windows pass a callback that opens into their own pane
-  onOpenFile?: (path: string, name: string) => void
+  // pane; detached windows pass a callback that opens into their own pane.
+  // permanent=true pins the tab (double-click); default is a preview tab
+  onOpenFile?: (path: string, name: string, permanent?: boolean) => void
 }): React.JSX.Element {
   const t = useT()
   const clip = useTreeClip()
   const openFile = useCallback(
-    (path: string, name: string): void => {
-      if (onOpenFile) onOpenFile(path, name)
-      else useStore.getState().openFileInEditor(path, name)
+    (path: string, name: string, permanent = false): void => {
+      if (onOpenFile) onOpenFile(path, name, permanent)
+      else useStore.getState().openFileInEditor(path, name, undefined, !permanent)
     },
     [onOpenFile]
   )
@@ -513,7 +516,8 @@ export default function FileTree({
       setSelected(new Set([r.path]))
       setFocused(r.path)
       setAnchor(r.path)
-      if (c.kind === 'file') openFile(r.path, nm)
+      // a freshly created file opens pinned — the user means to edit it
+      if (c.kind === 'file') openFile(r.path, nm, true)
     },
     [creating, flash, reload, openFile]
   )
@@ -569,6 +573,14 @@ export default function FileTree({
       else openFile(entry.path, entry.name)
     },
     [open, setDirOpen, openFile]
+  )
+
+  // double-click pins the file open permanently (VS Code preview semantics)
+  const onRowDoubleClick = useCallback(
+    (entry: DirEntry): void => {
+      if (!entry.isDir) openFile(entry.path, entry.name, true)
+    },
+    [openFile]
   )
 
   const onRowContextMenu = useCallback(
@@ -875,6 +887,7 @@ export default function FileTree({
     isCut: (p) => clip.cut && clip.paths.includes(p),
     onRowMouseDown,
     onRowClick,
+    onRowDoubleClick,
     onRowContextMenu,
     onRowDragStart,
     onRowDragOver,

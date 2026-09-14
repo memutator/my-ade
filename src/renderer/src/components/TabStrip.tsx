@@ -19,6 +19,8 @@ export interface TabItem {
   dirty?: boolean
   /** tooltip for the dirty/status dot (default: unsaved-changes text) */
   dotTip?: string
+  /** VS Code-style preview tab — italic label until pinned */
+  preview?: boolean
 }
 
 export interface TabStripHandle {
@@ -34,6 +36,7 @@ export default function TabStrip({
   onRename,
   onReorder,
   onContextMenu,
+  onDoubleClick,
   addControl,
   ref
 }: {
@@ -44,6 +47,8 @@ export default function TabStrip({
   onRename?: (id: string, name: string) => void
   onReorder?: (from: number, to: number) => void
   onContextMenu?: (id: string, e: React.MouseEvent) => void
+  /** fires alongside rename-on-double-click — editor uses it to pin previews */
+  onDoubleClick?: (id: string) => void
   addControl?: ReactNode
   ref?: Ref<TabStripHandle>
 }): React.JSX.Element {
@@ -219,7 +224,7 @@ export default function TabStrip({
           // never changes on hover, so the close button keeps a fixed spot
           <Tooltip key={tab.id} label={tab.sub ? `${tab.label} — ${tab.sub}` : tab.label}>
             <div
-              className={`ctab${tab.id === activeId ? ' active' : ''}${armedTab === tab.id ? ' drag-armed' : ''}`}
+              className={`ctab${tab.id === activeId ? ' active' : ''}${armedTab === tab.id ? ' drag-armed' : ''}${tab.preview ? ' preview' : ''}`}
               data-tab-id={tab.id}
               draggable={!!onReorder && editingId !== tab.id && armedTab === tab.id}
               onPointerDown={(e) => {
@@ -247,6 +252,7 @@ export default function TabStrip({
                 onContextMenu(tab.id, e)
               }}
               onDoubleClick={() => {
+                onDoubleClick?.(tab.id)
                 if (!onRename) return
                 setEditingId(tab.id)
                 setEditValue(tab.label)

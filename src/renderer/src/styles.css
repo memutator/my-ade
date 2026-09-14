@@ -1544,6 +1544,11 @@ html[data-theme='light'] .ctab.active {
   flex: 1;
 }
 
+/* VS Code preview tab — italic until pinned */
+.ctab.preview .ctab-label {
+  font-style: italic;
+}
+
 .ctab-dot {
   width: 6px;
   height: 6px;

@@ -33,8 +33,13 @@ splittable pane layout scoped to a project directory.
   tab/pane/workspace removes the record → cleanup kills; `restartTab` kills
   its session explicitly before clearing `pty`.
 - **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
-  Files are editable (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered
-  WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs stay mounted. Closing
+  Tree single-click / Enter / ctx "Open" open a VS Code-style **preview tab**
+  (italic label — replaced in place by the next preview open); double-click on
+  the tree row or the tab, "Keep Open" in the tab menu, or making the buffer
+  dirty pins it. Explicit opens (file dialog, terminal links, create-and-open)
+  are always pinned. Files are editable (CodeMirror); `.md`/`.markdown` open in
+  Milkdown live-rendered WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs
+  stay mounted. Closing
   the last tab closes the pane (`closeFilesUnder` does the same when a tree
   delete empties it). The pane icon is the tree control — identical docked,
   floating, detached: hover ~350ms dwell pops a portaled peek overlay

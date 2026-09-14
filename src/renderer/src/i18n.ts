@@ -65,6 +65,7 @@ const en = {
   openFileTooltip: 'Open file…',
   noFileOpen: 'no file open',
   openFile: 'open file…',
+  keepOpen: 'Keep Open',
   saveFailed: 'save failed: {name}',
   unsavedChanges: 'unsaved changes',
 
@@ -271,6 +272,7 @@ const ko: Record<TKey, string> = {
   openFileTooltip: '파일 열기…',
   noFileOpen: '열린 파일 없음',
   openFile: '파일 열기…',
+  keepOpen: '계속 열기',
   saveFailed: '저장 실패: {name}',
   unsavedChanges: '저장되지 않은 변경 사항',
 

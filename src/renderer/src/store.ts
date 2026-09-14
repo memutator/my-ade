@@ -374,7 +374,7 @@ interface AdeState extends PersistedState {
   cycleFocus: (dir: 1 | -1, wsId?: string) => void
   cyclePaneTab: (dir: 1 | -1, wsId?: string) => void
 
-  openFileInEditor: (path: string, name: string, wsId?: string) => void
+  openFileInEditor: (path: string, name: string, wsId?: string, preview?: boolean) => void
   openUrlInBrowser: (url: string, wsId?: string) => void
   // file-tree ops: keep open editor tabs pointing at real paths — a rename or
   // move remaps tab.path (incl. descendants of a renamed dir), a delete closes
@@ -984,17 +984,34 @@ export const useStore = create<AdeState>((set, get) => {
       )
     },
 
-    openFileInEditor: (path, name, wsIdArg) =>
+    openFileInEditor: (path, name, wsIdArg, preview) =>
       set((s) => {
         const wsId = wsIdArg ?? s.activeWorkspaceId
         if (!wsId) return s
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
 
-        const tab: EditorTab = { id: uid(), path, name }
+        const tab: EditorTab = { id: uid(), path, name, preview: preview || undefined }
         const applyTab = (p: EditorPaneState): EditorPaneState => {
           const existing = p.tabs.find((t) => t.path === path)
-          if (existing) return { ...p, activeTabId: existing.id }
+          if (existing) {
+            // a permanent open on a preview tab pins it
+            const tabs =
+              existing.preview && !preview
+                ? p.tabs.map((t) => (t.id === existing.id ? { ...t, preview: undefined } : t))
+                : p.tabs
+            return { ...p, tabs, activeTabId: existing.id }
+          }
+          // a preview open reuses the pane's current preview slot
+          if (preview) {
+            const pi = p.tabs.findIndex((t) => t.preview)
+            if (pi >= 0)
+              return {
+                ...p,
+                tabs: p.tabs.map((t, i) => (i === pi ? tab : t)),
+                activeTabId: tab.id
+              }
+          }
           return { ...p, tabs: [...p.tabs, tab], activeTabId: tab.id }
         }
 

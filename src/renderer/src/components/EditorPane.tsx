@@ -34,28 +34,49 @@ export default function EditorPane({
   const [ctx, setCtx] = useState<{ x: number; y: number; tabId: string } | null>(null)
 
   // files always open into THIS pane — the store default would hunt for the
-  // focused/first editor, which in a detached window is the wrong store
-  const openHere = (path: string, name: string): void => {
+  // focused/first editor, which in a detached window is the wrong store.
+  // VS Code preview tabs: a transient open reuses the pane's preview slot;
+  // permanent opens (double-click, file dialog, links) append a pinned tab.
+  const openHere = (path: string, name: string, permanent = false): void => {
     const existing = pane.tabs.find((t) => t.path === path)
     if (existing) {
-      updatePane(pane.id, { activeTabId: existing.id }, wsId)
-    } else {
-      const tab = { id: crypto.randomUUID(), path, name }
-      updatePane(pane.id, { tabs: [...pane.tabs, tab], activeTabId: tab.id }, wsId)
+      const tabs =
+        existing.preview && permanent
+          ? pane.tabs.map((t) => (t.id === existing.id ? { ...t, preview: undefined } : t))
+          : pane.tabs
+      updatePane(pane.id, { tabs, activeTabId: existing.id }, wsId)
+      return
     }
+    const tab: EditorTab = { id: crypto.randomUUID(), path, name, preview: !permanent || undefined }
+    const pi = pane.tabs.findIndex((t) => t.preview)
+    const tabs =
+      !permanent && pi >= 0
+        ? pane.tabs.map((t, i) => (i === pi ? tab : t))
+        : [...pane.tabs, tab]
+    updatePane(pane.id, { tabs, activeTabId: tab.id }, wsId)
+  }
+
+  // pin a preview tab — double-click on the tab or "Keep Open" in its menu
+  const keepTab = (tabId: string): void => {
+    updatePane(
+      pane.id,
+      { tabs: pane.tabs.map((t) => (t.id === tabId ? { ...t, preview: undefined } : t)) },
+      wsId
+    )
   }
 
   const openDialog = async (): Promise<void> => {
     const p = await window.ade.file.openDialog()
     if (!p) return
-    openHere(p, p.split('/').pop() ?? p)
+    openHere(p, p.split('/').pop() ?? p, true)
   }
 
   const tabs: TabItem[] = pane.tabs.map((t) => ({
     id: t.id,
     label: t.name,
     sub: t.path,
-    dirty: t.dirty
+    dirty: t.dirty,
+    preview: t.preview
   }))
 
   // closing the last tab closes the pane — an editor with nothing open is
@@ -83,6 +104,12 @@ export default function EditorPane({
         ? tab.path.slice(projectPath.length + 1)
         : tab.path
     return [
+      ...(tab.preview
+        ? [
+            { label: t('keepOpen'), act: () => keepTab(tab.id) } as CtxItem,
+            { sep: true } as CtxItem
+          ]
+        : []),
       { label: t('close'), act: () => applyTabs(pane.tabs.filter((x) => x.id !== tab.id)) },
       {
         label: t('closeOthers'),
@@ -102,10 +129,17 @@ export default function EditorPane({
     ]
   }
 
+  // an edited preview tab pins itself — the content is now worth keeping
   const markDirty = (tabId: string, dirty: boolean): void => {
     updatePane(
       pane.id,
-      { tabs: pane.tabs.map((t) => (t.id === tabId ? { ...t, dirty: dirty || undefined } : t)) },
+      {
+        tabs: pane.tabs.map((t) =>
+          t.id === tabId
+            ? { ...t, dirty: dirty || undefined, preview: dirty ? undefined : t.preview }
+            : t
+        )
+      },
       wsId
     )
   }
@@ -165,6 +199,7 @@ export default function EditorPane({
               onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
               onClose={closeTab}
               onContextMenu={(id, e) => setCtx({ x: e.clientX, y: e.clientY, tabId: id })}
+              onDoubleClick={keepTab}
             />
           </div>
         }
