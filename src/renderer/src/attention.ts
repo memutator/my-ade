@@ -11,6 +11,7 @@
 
 import { useStore, visibleLeafIds } from './store'
 import { agentLabel } from './agents'
+import { resumeSupported } from './resume'
 import { translate } from './i18n'
 import { shortPath } from './utils'
 import type { AgentHookEvent, Language, PaneState, TerminalTab, Workspace } from './types'
@@ -67,7 +68,8 @@ function logDecision(
 function resolveTarget(
   st: ReturnType<typeof useStore.getState>,
   sessionId: string | undefined,
-  cwd: string | undefined
+  cwd: string | undefined,
+  provider?: string
 ): Target {
   const reg = sessionId ? st.agentSessions[sessionId] : undefined
   if (reg?.wsId && reg.paneId) {
@@ -108,6 +110,22 @@ function resolveTarget(
           tab = hit
           break
         }
+      }
+    }
+    // cwd missed (agent moved dirs before ade saw it) — attribute to the tab
+    // currently hosting this provider, if exactly one does
+    if (!tab && provider) {
+      const hits: { paneId: string; tab: TerminalTab }[] = []
+      for (const p of Object.values(ws.panes)) {
+        if (p.type !== 'terminal') continue
+        for (const t of p.tabs ?? []) {
+          if (t.agent === provider) hits.push({ paneId: p.id, tab: t })
+        }
+      }
+      if (hits.length === 1) {
+        paneId = hits[0].paneId
+        tabId = hits[0].tab.id
+        tab = hits[0].tab
       }
     }
     // cwd didn't match a live terminal — still land on something sensible so
@@ -267,6 +285,44 @@ async function deliver(
   )
 }
 
+// Read-on-view sweep for the MAIN window: an unread ping whose target the
+// user is attending (this window focused, its workspace active, its pane on
+// screen, its emitting tab selected) has done its job — clear it without a
+// click. Detached panes report 'attended' over pane:cmd from their own
+// window, whose focus isn't observable here. needs-input clears too — the
+// prompt itself is on screen.
+export function sweepAttended(): void {
+  if (!document.hasFocus()) return
+  const st = useStore.getState()
+  if (!st.notifications.some((n) => !n.read)) return
+  const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
+  if (!ws) return
+  const leaves = new Set(visibleLeafIds(ws.root, ws.panes))
+  // paneId → attended tab (undefined = whole pane counts as seen)
+  const attended = new Map<string, string | undefined>()
+  for (const p of Object.values(ws.panes)) {
+    if (p.detached || p.minimized || (!p.floating && !leaves.has(p.id))) continue
+    attended.set(p.id, p.type === 'terminal' ? p.activeTabId : undefined)
+  }
+  const ids = new Set(
+    st.notifications
+      .filter(
+        (n) =>
+          !n.read &&
+          n.workspaceId === ws.id &&
+          (n.paneId === undefined ||
+            (attended.has(n.paneId) &&
+              (n.tabId === undefined || n.tabId === attended.get(n.paneId))))
+      )
+      .map((n) => n.id)
+  )
+  if (!ids.size) return
+  // one set — markAttendedRead in a loop would re-enter this sweep
+  useStore.setState((s) => ({
+    notifications: s.notifications.map((n) => (ids.has(n.id) ? { ...n, read: true } : n))
+  }))
+}
+
 // agent:event IPC entry — the real harness signals.
 export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
   const st = useStore.getState()
@@ -282,7 +338,7 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     logDecision(ev, null, 'drop', 'foreign', 'hook')
     return
   }
-  const t = resolveTarget(st, ev.sessionId, ev.cwd)
+  const t = resolveTarget(st, ev.sessionId, ev.cwd, ev.provider)
   // track the session ↔ tab association so later events (and renames) land
   // precisely even after the session's cwd drifts
   if (ev.sessionId) {
@@ -293,6 +349,23 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
       paneId: t.paneId,
       tabId: t.tabId
     })
+    // the live-session set powering restart-resume: any event means the
+    // session is alive (providers without session-start hooks still get
+    // tracked), session-end takes it out. `force` test events are synthetic
+    // — no real session exists to reopen.
+    if (!ev.force) {
+      if (ev.event === 'session-end') st.dropResumeSession(ev.sessionId)
+      else if (t.ws && t.paneId && t.tabId && resumeSupported(ev.provider)) {
+        st.upsertResumeSession({
+          sessionId: ev.sessionId,
+          provider: ev.provider,
+          cwd: ev.cwd,
+          wsId: t.ws.id,
+          paneId: t.paneId,
+          tabId: t.tabId
+        })
+      }
+    }
   }
   settleFor(st, ev, t)
   if (!NOTIFY_EVENTS.has(ev.event)) {

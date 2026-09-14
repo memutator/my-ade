@@ -50,9 +50,7 @@ export default function EditorPane({
     const tab: EditorTab = { id: crypto.randomUUID(), path, name, preview: !permanent || undefined }
     const pi = pane.tabs.findIndex((t) => t.preview)
     const tabs =
-      !permanent && pi >= 0
-        ? pane.tabs.map((t, i) => (i === pi ? tab : t))
-        : [...pane.tabs, tab]
+      !permanent && pi >= 0 ? pane.tabs.map((t, i) => (i === pi ? tab : t)) : [...pane.tabs, tab]
     updatePane(pane.id, { tabs, activeTabId: tab.id }, wsId)
   }
 

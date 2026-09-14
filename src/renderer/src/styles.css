@@ -754,6 +754,77 @@ webview.browser-view {
   min-height: 0;
   overflow: auto;
   user-select: text;
+  position: relative; /* link tooltips anchor here */
+}
+
+/* link tooltips (milkdown link-tooltip component) — the provider toggles
+   data-show and sets absolute left/top */
+.md-editor .milkdown-link-preview,
+.md-editor .milkdown-link-edit {
+  position: absolute;
+  z-index: 70;
+  display: none;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 4px 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.md-editor .milkdown-link-preview[data-show='true'],
+.md-editor .milkdown-link-edit[data-show='true'] {
+  display: flex;
+}
+
+.md-editor .milkdown-link-preview .link-display {
+  color: var(--accent);
+  text-decoration: none;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+.md-editor .milkdown-link-preview .link-display:hover {
+  text-decoration: underline;
+}
+
+.md-editor .milkdown-icon.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.md-editor .milkdown-icon.button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.md-editor .milkdown-link-edit .input-area {
+  background: var(--bg-pane);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 240px;
+  outline: none;
+  font-family: inherit;
+}
+
+.md-editor .milkdown-link-edit .input-area:focus {
+  border-color: var(--accent);
 }
 
 .md-editor .milkdown {
@@ -845,14 +916,47 @@ webview.browser-view {
   margin: 0;
 }
 
-.md-editor .ProseMirror ul[data-type='taskList'] {
+/* list-item-block nodeview: label (bullet/number/checkbox) sits in the list
+   gutter, item content in .children */
+.md-editor .ProseMirror .milkdown-list-item-block .list-item {
+  display: flex;
   list-style: none;
-  padding-left: 6px;
 }
 
-.md-editor .ProseMirror li[data-checked] > label,
-.md-editor .ProseMirror li[data-checked] input[type='checkbox'] {
-  margin-right: 6px;
+.md-editor .ProseMirror .milkdown-list-item-block .label-wrapper {
+  flex: none;
+  width: 22px;
+  margin-left: -22px;
+  padding-right: 7px;
+  text-align: right;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.md-editor .ProseMirror .milkdown-list-item-block .children {
+  flex: 1;
+  min-width: 0;
+}
+
+.md-editor .ProseMirror .milkdown-list-item-block .taskbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: transparent;
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: -2px;
+  cursor: pointer;
+}
+
+.md-editor .ProseMirror .milkdown-list-item-block .taskbox.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .md-editor .ProseMirror table {
@@ -1353,6 +1457,64 @@ webview.browser-view {
 .sbtn.accent {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* ── session resume prompt ───────────────── */
+
+.resume-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.resume-hint {
+  padding: 8px 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.resume-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 4px;
+}
+.resume-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-pane);
+}
+.resume-info {
+  flex: 1;
+  min-width: 0;
+}
+.resume-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.resume-actions .sbtn {
+  height: 28px;
+  padding: 0 14px;
+  font-size: 12px;
 }
 .sbtn.danger,
 .wt-rm.danger {

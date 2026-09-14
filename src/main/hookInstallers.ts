@@ -134,21 +134,27 @@ const PROVIDERS: ProviderDef[] = [
     id: 'claude',
     label: 'Claude',
     bin: 'claude',
-    mechanism: 'Stop + Notification hooks — ~/.claude/settings.json',
+    mechanism: 'Stop + Notification + SessionStart/End hooks — ~/.claude/settings.json',
     configPath: (home) => path.join(home, '.claude', 'settings.json'),
     installed: (home) => fileMentions(path.join(home, '.claude', 'settings.json'), HOOK_MARK),
     install: (home, cmd) => {
       const file = path.join(home, '.claude', 'settings.json')
       const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
-      // Stop = turn end; Notification = permission prompts / idle waits.
-      // Installing both gives each event once — grok/devin compat-load this
-      // file too, but the script relabels provider by env and the tailer
-      // dedupes the double fire.
-      const r = appendJsonHook(file, 'Stop', group)
-      const r2 = appendJsonHook(file, 'Notification', group)
+      // Stop = turn end; Notification = permission prompts / idle waits;
+      // SessionStart/SessionEnd track resumable sessions. Installing all
+      // gives each event once — grok/devin compat-load this file too, but
+      // the script relabels provider by env and the tailer dedupes the
+      // double fire.
+      const rs = ['Stop', 'Notification', 'SessionStart', 'SessionEnd'].map((ev) =>
+        appendJsonHook(file, ev, group)
+      )
       return {
-        ok: r.ok && r2.ok,
-        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+        ok: rs.every((r) => r.ok),
+        detail:
+          rs
+            .map((r) => r.detail)
+            .filter(Boolean)
+            .join('; ') || undefined
       }
     }
   },
@@ -230,7 +236,8 @@ const PROVIDERS: ProviderDef[] = [
     id: 'grok',
     label: 'Grok',
     bin: 'grok',
-    mechanism: 'Stop/StopCancelled/StopFailure + Notification hooks — ~/.grok/hooks/ade.json',
+    mechanism:
+      'Stop/StopCancelled/StopFailure + Notification + SessionStart/End — ~/.grok/hooks/ade.json',
     configPath: (home) => path.join(home, '.grok', 'hooks', 'ade.json'),
     installed: (home) => fileMentions(path.join(home, '.grok', 'hooks', 'ade.json'), HOOK_MARK),
     install: (home, cmd) => {
@@ -243,7 +250,11 @@ const PROVIDERS: ProviderDef[] = [
           StopFailure: [{ hooks: [{ type: 'command', command: cmd }] }],
           // no matcher: the hook script classifies notificationType itself —
           // permission_prompt → needs-input, idle_prompt → silent backstop
-          Notification: [{ hooks: [{ type: 'command', command: cmd }] }]
+          Notification: [{ hooks: [{ type: 'command', command: cmd }] }],
+          // lifecycle — powers the restart-resume session set (no-ops if the
+          // harness never emits them)
+          SessionStart: [{ hooks: [{ type: 'command', command: cmd }] }],
+          SessionEnd: [{ hooks: [{ type: 'command', command: cmd }] }]
         }
       }
       const text = JSON.stringify(doc, null, 2) + '\n'
@@ -264,23 +275,26 @@ const PROVIDERS: ProviderDef[] = [
     id: 'devin',
     label: 'Devin',
     bin: 'devin',
-    mechanism: 'Stop + PermissionRequest hooks — ~/.config/devin/config.json',
+    mechanism: 'Stop + PermissionRequest + SessionStart/End hooks — ~/.config/devin/config.json',
     configPath: (home) => path.join(configHome(home), 'devin', 'config.json'),
     installed: (home) =>
       fileMentions(path.join(configHome(home), 'devin', 'config.json'), HOOK_MARK),
     install: (home, cmd) => {
       const file = path.join(configHome(home), 'devin', 'config.json')
-      const r = appendJsonHook(file, 'Stop', {
-        hooks: [{ type: 'command', command: cmd, timeout: 10 }]
-      })
+      const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
       // passive observer: the script prints no decision, so the normal
-      // permission prompt still runs — ade just gets told it's waiting
-      const r2 = appendJsonHook(file, 'PermissionRequest', {
-        hooks: [{ type: 'command', command: cmd }]
-      })
+      // permission prompt still runs — ade just gets told it's waiting.
+      // SessionStart/End feed the restart-resume set.
+      const rs = ['Stop', 'PermissionRequest', 'SessionStart', 'SessionEnd'].map((ev) =>
+        appendJsonHook(file, ev, group)
+      )
       return {
-        ok: r.ok && r2.ok,
-        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+        ok: rs.every((r) => r.ok),
+        detail:
+          rs
+            .map((r) => r.detail)
+            .filter(Boolean)
+            .join('; ') || undefined
       }
     }
   },
@@ -288,18 +302,23 @@ const PROVIDERS: ProviderDef[] = [
     id: 'zcode',
     label: 'ZCode',
     bin: 'zcode',
-    mechanism: 'Stop + PermissionRequest hooks — ~/.zcode/cli/config.json',
+    mechanism: 'Stop + PermissionRequest + SessionStart/End — ~/.zcode/cli/config.json',
     configPath: (home) => path.join(home, '.zcode', 'cli', 'config.json'),
     installed: (home) => fileMentions(path.join(home, '.zcode', 'cli', 'config.json'), HOOK_MARK),
     install: (home, cmd) => {
       const file = path.join(home, '.zcode', 'cli', 'config.json')
       const group = { hooks: [{ type: 'command', command: cmd }] }
       const opts = { eventsKey: true, enable: true }
-      const r = appendJsonHook(file, 'Stop', group, opts)
-      const r2 = appendJsonHook(file, 'PermissionRequest', group, opts)
+      const rs = ['Stop', 'PermissionRequest', 'SessionStart', 'SessionEnd'].map((ev) =>
+        appendJsonHook(file, ev, group, opts)
+      )
       return {
-        ok: r.ok && r2.ok,
-        detail: [r.detail, r2.detail].filter(Boolean).join('; ') || undefined
+        ok: rs.every((r) => r.ok),
+        detail:
+          rs
+            .map((r) => r.detail)
+            .filter(Boolean)
+            .join('; ') || undefined
       }
     }
   },

@@ -169,6 +169,8 @@ export interface AgentProviderInfo {
   domain?: string
   /** brand color — letter-monogram fallback when no icon can be fetched */
   color?: string
+  /** how to reopen a session: `<cmd> <args…> <sessionId>` in the tab's shell */
+  resume?: { cmd: string; args?: string[] }
 }
 
 export interface AgentHookEvent {
@@ -184,6 +186,23 @@ export interface AgentHookEvent {
   /** test events bypass attention gating (hooks:test proves the pipeline) */
   force?: boolean
   ts?: number
+}
+
+/**
+ * A live agent session worth offering to resume after an app restart. One per
+ * harness sessionId — the set is the sessions that were alive when the state
+ * was last persisted, never a history. Entries are dropped as soon as the
+ * session ends (session-end event, agent process leaving the tab's process
+ * tree, pty exit, tab/pane/workspace close).
+ */
+export interface ResumeSession {
+  sessionId: string
+  provider: string
+  cwd?: string
+  wsId: string
+  paneId: string
+  tabId: string
+  ts: number
 }
 
 /** registry entry for a harness sessionId observed via hook events */

@@ -4,7 +4,13 @@ import { useStore, visibleLeafIds } from './store'
 import { applyShortcut } from './shortcuts'
 import { useT } from './i18n'
 import { agentProviders } from './agents'
-import { handleHookEvent, reportProcessIdle, refreshHookInstalled } from './attention'
+import {
+  handleHookEvent,
+  reportProcessIdle,
+  refreshHookInstalled,
+  sweepAttended
+} from './attention'
+import { initResumeTracking } from './resume'
 
 import TopBar from './components/TopBar'
 import SplitView, { PanePortals } from './components/SplitView'
@@ -12,6 +18,7 @@ import FloatLayer from './components/FloatLayer'
 import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
 import SettingsPage from './components/SettingsPage'
+import ResumePrompt from './components/ResumePrompt'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
   const newPane = useStore((s) => s.newPane)
@@ -95,6 +102,7 @@ export default function App(): React.JSX.Element {
           bookmarks: s.bookmarks,
           todos: s.todos,
           agentSessions: s.agentSessions,
+          resumeSessions: s.resumeSessions,
           treeRoots: s.treeRoots,
           sidebarRoots: s.sidebarRoots
         })
@@ -139,6 +147,22 @@ export default function App(): React.JSX.Element {
     return window.ade.hooks.onEvent((ev) => void handleHookEvent(ev))
   }, [])
 
+  // live-session bookkeeping for restart-resume (pty exit / agent loss drop
+  // records; pending resume commands drain on spawn)
+  useEffect(() => initResumeTracking(), [])
+
+  // read-on-view: unread pings for whatever the user is attending clear
+  // without a click. Runs on store changes (workspace switch, tab activate,
+  // pane layout, new ping) and when the window gains focus.
+  useEffect(() => {
+    const unsub = useStore.subscribe(sweepAttended)
+    window.addEventListener('focus', sweepAttended)
+    return () => {
+      unsub()
+      window.removeEventListener('focus', sweepAttended)
+    }
+  }, [])
+
   // restore detached windows across restarts — the flag persists but the
   // windows themselves are runtime-only
   useEffect(() => {
@@ -162,6 +186,9 @@ export default function App(): React.JSX.Element {
       // invisible; only this renderer owns the bell)
       if (m.action === 'agentIdle' && m.provider && m.tabId)
         reportProcessIdle(m.provider, m.wsId, m.paneId, m.tabId)
+      // a detached window is attending its pane — clear pings aimed at it
+      if (m.action === 'attended')
+        useStore.getState().markAttendedRead({ wsId: m.wsId, paneId: m.paneId, tabId: m.tabId })
     })
     const offSync = window.ade.win.onPaneSync?.((m) => {
       const st = useStore.getState()
@@ -237,6 +264,7 @@ export default function App(): React.JSX.Element {
         </div>
       </div>
       <SettingsPage />
+      <ResumePrompt />
     </div>
   )
 }

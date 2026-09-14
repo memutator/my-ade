@@ -111,6 +111,12 @@ const en = {
   agentError: '{agent} error',
   wsUnread: 'unread notifications',
 
+  // session resume
+  resumeTitle: 'Resume agent sessions',
+  resumeHint: '{name} had {n} agent session(s) running when ade closed. Reopen them in their tabs?',
+  resumeAll: 'Resume all ({n})',
+  resumeLater: 'Later',
+
   // settings modal
   settings: 'settings',
   appearance: 'appearance',
@@ -138,6 +144,7 @@ const en = {
   editorFont: 'Editor font',
   rawView: 'Raw',
   renderedView: 'Rendered',
+  linkPlaceholder: 'Paste a link…',
   bmGlobal: 'Global',
   bmEmpty: 'No bookmarks yet',
   shortcuts: 'Shortcuts',
@@ -315,6 +322,12 @@ const ko: Record<TKey, string> = {
   agentError: '{agent} 오류',
   wsUnread: '읽지 않은 알림',
 
+  resumeTitle: '에이전트 세션 복구',
+  resumeHint:
+    '{name} — ade 종료 시 실행 중이던 에이전트 세션 {n}개가 있습니다. 해당 탭에서 이어서 복구할까요?',
+  resumeAll: '모두 복구 ({n})',
+  resumeLater: '나중에',
+
   settings: '설정',
   appearance: '모양',
   theme: '테마',
@@ -341,6 +354,7 @@ const ko: Record<TKey, string> = {
   editorFont: '에디터 글꼴',
   rawView: '원문',
   renderedView: '렌더링',
+  linkPlaceholder: '링크 붙여넣기…',
   bmGlobal: '전역',
   bmEmpty: '북마크가 없습니다',
   shortcuts: '단축키',

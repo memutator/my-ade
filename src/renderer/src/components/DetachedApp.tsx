@@ -62,6 +62,20 @@ export default function DetachedApp({
     })
   }, [wsId, paneId])
 
+  // report what this window is attending (on mount, focus gain, active-tab
+  // change) so the main store clears pings aimed at this pane without
+  // needing a notification click — our focus isn't observable from there
+  const attendedTabId = pane?.type === 'terminal' ? pane.activeTabId : undefined
+  useEffect(() => {
+    const report = (): void => {
+      if (document.hasFocus())
+        window.ade.win.paneCmd({ action: 'attended', wsId, paneId, tabId: attendedTabId })
+    }
+    report()
+    window.addEventListener('focus', report)
+    return () => window.removeEventListener('focus', report)
+  }, [wsId, paneId, attendedTabId])
+
   // push local pane-state edits (tab renames, cwd/agent patches, closes) up
   // to the main window's store — it's the single source of truth
   useEffect(() => {

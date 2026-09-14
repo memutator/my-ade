@@ -12,6 +12,7 @@ import type {
   PaneState,
   PaneType,
   Project,
+  ResumeSession,
   Settings,
   TerminalPaneState,
   TerminalTab,
@@ -316,6 +317,9 @@ export interface PersistedState {
   todos: Record<string, TodoItem[]>
   /** harness sessionId → observed info (name set via session-rename) */
   agentSessions: Record<string, AgentSessionInfo>
+  /** live agent sessions → offered for resume after a restart (see
+   *  ResumeSession — a current set, not a history) */
+  resumeSessions: Record<string, ResumeSession>
   /** most-recently-picked file-tree roots (any host: sidebar, overlay, pane) */
   treeRoots: string[]
   /** per-project sidebar tree root overrides — sidebar trees can point
@@ -415,12 +419,21 @@ interface AdeState extends PersistedState {
    *  ended / cancelled — the prompt is stale either way) */
   settleInput: (k: { wsId?: string; paneId?: string; tabId?: string; sessionId?: string }) => void
   markRead: (id: string) => void
+  /** a window reports the target it's currently attending — unread pings
+   *  pointed at it clear without needing a notification click */
+  markAttendedRead: (m: { wsId: string; paneId?: string; tabId?: string }) => void
   markAllRead: () => void
   clearNotifications: () => void
   goToNotification: (id: string) => void
 
   upsertAgentSession: (sessionId: string, info: Partial<AgentSessionInfo>) => void
   renameAgentSession: (sessionId: string, name: string) => void
+
+  upsertResumeSession: (r: Omit<ResumeSession, 'ts'>) => void
+  dropResumeSession: (sessionId: string) => void
+  /** drop every resume candidate matching a predicate — tab/pane/workspace
+   *  teardown paths call this so closed shells leave nothing to restore */
+  dropResumeWhere: (pred: (r: ResumeSession) => boolean) => void
 }
 
 function updWs(
@@ -453,6 +466,7 @@ export const useStore = create<AdeState>((set, get) => {
     bookmarks: [],
     todos: {},
     agentSessions: {},
+    resumeSessions: {},
     treeRoots: [],
     sidebarRoots: {},
     notifications: [],
@@ -461,19 +475,30 @@ export const useStore = create<AdeState>((set, get) => {
     resolvedTheme: 'dark',
     setResolvedTheme: (t) => set({ resolvedTheme: t }),
 
-    hydrate: (s) =>
+    hydrate: (s) => {
+      const workspaces = (s.workspaces ?? []).map(normalizeWorkspace)
+      // resume records survive restarts, but only while their pane+tab do —
+      // anything that died structurally since the last save is unrecoverable
+      const resumeSessions = Object.fromEntries(
+        Object.entries(s.resumeSessions ?? {}).filter(([, r]) => {
+          const pane = workspaces.find((w) => w.id === r.wsId)?.panes[r.paneId]
+          return pane?.type === 'terminal' && pane.tabs.some((t) => t.id === r.tabId)
+        })
+      )
       set({
         projects: s.projects ?? [],
-        workspaces: (s.workspaces ?? []).map(normalizeWorkspace),
+        workspaces,
         activeWorkspaceId: s.activeWorkspaceId ?? s.workspaces?.[0]?.id ?? null,
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
         sidebarOpen: s.sidebarOpen ?? false,
         bookmarks: s.bookmarks ?? [],
         todos: s.todos ?? {},
         agentSessions: s.agentSessions ?? {},
+        resumeSessions,
         treeRoots: s.treeRoots ?? [],
         sidebarRoots: s.sidebarRoots ?? {}
-      }),
+      })
+    },
 
     addProject: (path, name) => {
       const existing = get().projects.find((p) => p.path === path)
@@ -491,11 +516,16 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => {
         const todos = { ...s.todos }
         delete todos[id]
+        const deadWs = new Set(s.workspaces.filter((w) => w.projectId === id).map((w) => w.id))
+        const resumeSessions = Object.fromEntries(
+          Object.entries(s.resumeSessions).filter(([, r]) => !deadWs.has(r.wsId))
+        )
         return {
           projects: s.projects.filter((p) => p.id !== id),
           workspaces: s.workspaces.filter((w) => w.projectId !== id),
           bookmarks: s.bookmarks.filter((b) => b.scope !== id),
-          todos
+          todos,
+          resumeSessions
         }
       }),
 
@@ -537,7 +567,10 @@ export const useStore = create<AdeState>((set, get) => {
           const next = workspaces[Math.min(idx, workspaces.length - 1)]
           activeWorkspaceId = next?.id ?? null
         }
-        return { workspaces, activeWorkspaceId }
+        const resumeSessions = Object.fromEntries(
+          Object.entries(s.resumeSessions).filter(([, r]) => r.wsId !== id)
+        )
+        return { workspaces, activeWorkspaceId, resumeSessions }
       }),
 
     moveWorkspace: (from, to) =>
@@ -595,7 +628,10 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => {
         const wsId = wsId0
         return {
-          workspaces: updWs(s.workspaces, wsId, (w) => removePaneFromWs(w, paneId))
+          workspaces: updWs(s.workspaces, wsId, (w) => removePaneFromWs(w, paneId)),
+          resumeSessions: Object.fromEntries(
+            Object.entries(s.resumeSessions).filter(([, r]) => r.paneId !== paneId)
+          )
         }
       })
     },
@@ -1358,6 +1394,18 @@ export const useStore = create<AdeState>((set, get) => {
         notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n))
       })),
 
+    markAttendedRead: (m) =>
+      set((s) => ({
+        notifications: s.notifications.map((n) =>
+          !n.read &&
+          n.workspaceId === m.wsId &&
+          (n.paneId === undefined || n.paneId === m.paneId) &&
+          (n.tabId === undefined || n.tabId === m.tabId)
+            ? { ...n, read: true }
+            : n
+        )
+      })),
+
     markAllRead: () =>
       set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
 
@@ -1438,6 +1486,43 @@ export const useStore = create<AdeState>((set, get) => {
           }
         }
         return patch
+      }),
+
+    upsertResumeSession: (r) =>
+      set((s) => {
+        const prev = s.resumeSessions[r.sessionId]
+        const next = {
+          ...s.resumeSessions,
+          // later events may omit cwd — keep the one already observed
+          [r.sessionId]: { ...prev, ...r, cwd: r.cwd ?? prev?.cwd, ts: Date.now() }
+        }
+        // the set is meant to hold live sessions only — cap it anyway so a
+        // bookkeeping leak can't grow state without bound
+        const keys = Object.keys(next)
+        if (keys.length > 64) {
+          keys
+            .sort((a, b) => next[a].ts - next[b].ts)
+            .slice(0, keys.length - 64)
+            .forEach((k) => delete next[k])
+        }
+        return { resumeSessions: next }
+      }),
+
+    dropResumeSession: (sessionId) =>
+      set((s) => {
+        if (!s.resumeSessions[sessionId]) return s
+        const next = { ...s.resumeSessions }
+        delete next[sessionId]
+        return { resumeSessions: next }
+      }),
+
+    dropResumeWhere: (pred) =>
+      set((s) => {
+        const keys = Object.keys(s.resumeSessions).filter((k) => pred(s.resumeSessions[k]))
+        if (!keys.length) return s
+        const next = { ...s.resumeSessions }
+        for (const k of keys) delete next[k]
+        return { resumeSessions: next }
       })
   }
 })

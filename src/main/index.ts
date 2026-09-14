@@ -17,7 +17,7 @@ import { readFile, writeFile, stat, readdir } from 'fs/promises'
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { startPtyHost, registerPtyIpc, configureAgents } from './pty'
+import { startPtyHost, registerPtyIpc, configureAgents, stopPtyHost } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
 import { appendCapped, decisionsFilePath } from './eventsFile'
 import { registerFileWatchIpc } from './filewatch'
@@ -511,4 +511,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// take the pty-host down with us — its shell/agent children die with it
+// (SIGHUP on master close) instead of lingering as orphans after every quit
+app.on('will-quit', () => {
+  stopPtyHost()
 })

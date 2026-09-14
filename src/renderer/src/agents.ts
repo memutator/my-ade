@@ -23,6 +23,15 @@ export function agentColor(id: string): string | undefined {
   return manifest[id]?.color
 }
 
+// `<cmd> <args…> '<sessionId>'` typed into the session's old shell — null for
+// providers with no manifest resume spec (their sessions aren't offered).
+export function resumeCommand(provider: string, sessionId: string): string | null {
+  const spec = manifest[provider]?.resume
+  if (!spec?.cmd) return null
+  const q = `'${sessionId.replace(/'/g, `'\\''`)}'`
+  return [spec.cmd, ...(spec.args ?? []), q].join(' ')
+}
+
 // one fetch per provider per session — the main side disk-caches the image
 const iconCache = new Map<string, Promise<string | null>>()
 

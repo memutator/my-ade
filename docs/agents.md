@@ -18,7 +18,12 @@ spawned shell it polls `/proc` every ~1.2 s:
   pattern means that agent owns the shell → `{t:'agent', id, agent}` event.
 
 Patterns come from `resources/agents/manifest.json` — each entry is
-`{match, label, domain, color}`. Main pushes all `match` arrays to the host at
+`{match, label, domain, color, resume?}` where `resume` is
+`{cmd, args}` producing the shell command `<cmd> <args…> '<sessionId>'` used to
+reopen a session after an app restart (see [Session resume](#session-resume)).
+Providers without `resume` (cursor, copilot, aider, amp) are detected and
+tracked but never offered for restore. Main pushes all `match` arrays to the
+host at
 startup; the renderer re-pushes the set filtered by the Settings → agents
 provider toggles whenever they change (`agents:config` IPC). If the manifest is
 missing the host falls back to a built-in pattern list.
@@ -49,12 +54,12 @@ as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 
 | Provider | Mechanism                                               | Config touched                          |
 | -------- | ------------------------------------------------------- | --------------------------------------- |
-| claude   | `Stop` + `Notification` hook groups                     | `~/.claude/settings.json`               |
+| claude   | `Stop` + `Notification` + `SessionStart`/`SessionEnd` hook groups | `~/.claude/settings.json`               |
 | codex    | `notify = ["node", <hook>, "codex"]` top-level key      | `~/.codex/config.toml`                  |
-| grok     | `Stop`, `StopCancelled`, `StopFailure`, `Notification`  | `~/.grok/hooks/ade.json`                |
-| devin    | `Stop` + `PermissionRequest` hook groups                | `~/.config/devin/config.json`           |
-| zcode    | `Stop` + `PermissionRequest` in `hooks.events` + `hooks.enabled` | `~/.zcode/cli/config.json`   |
-| opencode | plugin `AdeEventsPlugin` on `session.idle`, `session.error`, `permission.asked`/`updated`, `question.asked` | `~/.config/opencode/plugins/ade-events.js` |
+| grok     | `Stop`, `StopCancelled`, `StopFailure`, `Notification`, `SessionStart`, `SessionEnd` | `~/.grok/hooks/ade.json`                |
+| devin    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` hook groups | `~/.config/devin/config.json`           |
+| zcode    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` in `hooks.events` + `hooks.enabled` | `~/.zcode/cli/config.json`   |
+| opencode | plugin `AdeEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`/`updated`, `question.asked` | `~/.config/opencode/plugins/ade-events.js` |
 
 The hook script copy under `~/.config/ade`, grok's hook file and the opencode
 plugin file are refreshed to the shipped version on every app start — fixes to
@@ -122,7 +127,9 @@ matching — and applies the attention level:
 
 Process-detection idle is suppressed for providers with an installed hook —
 the hook owns completion there. A pending `needs-input` settles to read on the
-next event for its session or tab.
+next event for its session or tab. Unread pings also clear without a click
+once you're attending their target (read-on-view: the main window sweeps on
+store changes + focus; a detached window reports via `pane:cmd` `attended`).
 
 Clicking the in-app notification or the OS notification jumps to the
 workspace, focuses the pane (or raises the detached window it lives in), and
@@ -131,6 +138,42 @@ activates the emitting tab.
 Settings → agent hooks also has **Test** (writes a synthetic `turn-complete`
 through the real file channel — end-to-end check) and shows each provider's
 status and mechanism.
+
+## Session resume
+
+ade keeps a bounded, persisted set of the agent sessions that were **alive at
+last shutdown** (`resumeSessions` in `ade-state.json`, keyed by harness
+`sessionId` — a current set, never a history). On the next launch, activating a
+workspace with resumable sessions pops a dialog offering to reopen them all in
+one click.
+
+**Tracking** (`src/renderer/src/resume.ts` + `attention.ts`): every `ours`
+hook event carrying a `sessionId` upserts a record `{sessionId, provider, cwd,
+wsId, paneId, tabId}` — providers without lifecycle hooks are still picked up
+by their first turn event (e.g. codex `notify`). Records leave the set when
+the session actually ends:
+
+- `session-end` hook events (`SessionEnd`, opencode `session.deleted`, grok's
+  teardown `Stop`),
+- the agent process leaving the tab's process tree (`agent → idle`),
+- the tab's pty exiting, or its tab/pane/workspace being closed,
+- hydration-time pruning of records whose pane/tab no longer exists.
+
+**Restore**: the workspace's terminal tabs restart as plain shells on boot
+(their persisted pty ids respawn). Accepting the dialog types the manifest's
+resume command — `claude --resume <id>`, `codex resume <id>`,
+`opencode --session <id>`, `grok|devin|zcode --resume <id>` — into each
+session's old tab and activates it. Tabs whose shell hasn't spawned yet (a
+detached window still booting) get the command queued until their `spawned`
+event; tabs already running an agent are skipped. The resumed harness's own
+`session-start` then re-registers it as live.
+
+**Shutdown**: `will-quit` kills the pty-host so its shells and agents die
+with the app instead of lingering as orphans (closing the pty master SIGHUPs
+the children). Their `session-end` events land in the log file after the
+renderer is gone — the tailer starts at EOF next launch, so the records
+survive and stay resumable. A `beforeunload` guard keeps dying sessions'
+`exit` events from stripping the set mid-persist.
 
 ## Caveats
 

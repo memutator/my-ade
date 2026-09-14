@@ -3,31 +3,43 @@
     "match": ["claude"],
     "label": "Claude",
     "domain": "claude.ai",
-    "color": "#D97757"
+    "color": "#D97757",
+    "resume": { "cmd": "claude", "args": ["--resume"] }
   },
   "codex": {
     "match": ["codex"],
     "label": "Codex",
     "domain": "openai.com",
-    "color": "#10A37F"
+    "color": "#10A37F",
+    "resume": { "cmd": "codex", "args": ["resume"] }
   },
   "gemini": {
     "match": ["gemini"],
     "label": "Gemini",
     "domain": "gemini.google.com",
-    "color": "#1B72E8"
+    "color": "#1B72E8",
+    "resume": { "cmd": "gemini", "args": ["--resume"] }
   },
   "grok": {
     "match": ["grok"],
     "label": "Grok",
     "domain": "grok.com",
-    "color": "#8B8B8B"
+    "color": "#8B8B8B",
+    "resume": { "cmd": "grok", "args": ["--resume"] }
   },
   "devin": {
     "match": ["devin"],
     "label": "Devin",
     "domain": "devin.ai",
-    "color": "#7C7CFF"
+    "color": "#7C7CFF",
+    "resume": { "cmd": "devin", "args": ["--resume"] }
+  },
+  "zcode": {
+    "match": ["zcode"],
+    "label": "ZCode",
+    "domain": "z.ai",
+    "color": "#084CCF",
+    "resume": { "cmd": "zcode", "args": ["--resume"] }
   },
   "cursor": {
     "match": ["cursor-agent", "cursor"],
@@ -51,7 +63,8 @@
     "match": ["opencode"],
     "label": "OpenCode",
     "domain": "opencode.ai",
-    "color": "#E5C07B"
+    "color": "#E5C07B",
+    "resume": { "cmd": "opencode", "args": ["--session"] }
   },
   "amp": {
     "match": ["amp"],

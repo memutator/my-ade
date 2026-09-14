@@ -74,6 +74,21 @@ splittable pane layout scoped to a project directory.
 - `npm run typecheck` / `npm run lint` / `npm run build`
 - `npm run build:linux` — package via electron-builder
 
+## Releases
+
+Packaging is versioned — before every `npm run build:linux`, do all three
+without being asked:
+
+1. **Bump `version` in `package.json`** (patch by default; minor for
+   milestones). Never repackage an unchanged version — an installed `ade`
+   can't be told apart from the previous build under the same number.
+2. **Write `requirements/<version>.md`** from `requirements/_template.md` —
+   one `- [ ]` item (+ a `비고:` line) per user-facing behavior change in
+   that release, grouped by area, so the user can verify each item while
+   using the app. Files for older versions stay untouched.
+3. After packaging, report the artifacts and the reinstall command
+   (`sudo apt install --reinstall ./dist/ade_<version>_amd64.deb`).
+
 ## Architecture
 
 - **Electron main** (`src/main/index.ts`): frameless `BrowserWindow`; IPC for files,
@@ -100,11 +115,12 @@ splittable pane layout scoped to a project directory.
   invocation to `hook-raw.log` (always on, tail-kept). Installers: codex
   (`~/.codex/config.toml` notify), grok (`~/.grok/hooks/ade.json` — Stop,
   StopCancelled→error-or-silent, StopFailure→error, Notification classified by
-  `notificationType`: `permission_prompt`→needs-input, `idle_prompt`→idle),
-  claude (`~/.claude/settings.json` Stop+Notification — every Notification is
-  needs-input, incl. the ≥60s "waiting for your input"), devin/zcode
-  (Stop+PermissionRequest), opencode (plugin: session.idle/error — Esc-abort
-  classifies as turn-cancelled, sub-session idles demote to `other` —
+  `notificationType`: `permission_prompt`→needs-input, `idle_prompt`→idle,
+  SessionStart/SessionEnd), claude (`~/.claude/settings.json` Stop+Notification
+  +SessionStart/SessionEnd — every Notification is needs-input, incl. the ≥60s
+  "waiting for your input"), devin/zcode (Stop+PermissionRequest+SessionStart/
+  SessionEnd), opencode (plugin: session.idle/error/created/deleted — Esc-abort
+  classifies as turn-cancelled, sub-session lifecycles demote to `other` —
   permission/question.asked). `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
   per provider. Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run
@@ -114,6 +130,18 @@ splittable pane layout scoped to a project directory.
   never notify. Ade-owned hook artifacts (script copy, grok's hook file,
   opencode plugin) refresh to the shipped version on app start; user-owned
   configs need a re-Install click.
+- **session resume** (`src/renderer/src/resume.ts`, spec: `docs/agents.md` →
+  Session resume): `resumeSessions` is the persisted, bounded set of sessions
+  alive at last shutdown — `{sessionId, provider, cwd, wsId, paneId, tabId}`
+  upserted on any `ours` event carrying a sessionId, dropped on `session-end`,
+  agent→idle, pty `exit`, tab/pane/workspace close, and hydration-time
+  structural pruning. On boot, activating a workspace with candidates shows
+  `ResumePrompt`; accepting types the manifest's `resume` command
+  (`<cmd> <args> '<sid>'`) into each session's tab — freshly spawned on boot —
+  via `pty.write` (queued on `spawned` when the shell isn't up yet, e.g. a
+  detached window still opening). `will-quit` kills the pty-host so agents die
+  with the app instead of orphaning; a `beforeunload` guard keeps dying
+  sessions' `exit` events from stripping the set mid-shutdown.
 - **attention policy** (`src/renderer/src/attention.ts`, spec:
   `docs/notifications.md`): every agent signal (hook events, pty agent→idle
   fallback, detached-window `agentIdle` relays) funnels through one policy —

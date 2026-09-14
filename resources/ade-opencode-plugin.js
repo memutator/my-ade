@@ -19,6 +19,8 @@ const RAW_CAP = 1024 * 1024
 const KIND = {
   'session.idle': 'turn-complete',
   'session.error': 'error',
+  'session.created': 'session-start',
+  'session.deleted': 'session-end',
   'permission.asked': 'needs-input',
   'permission.updated': 'needs-input',
   'question.asked': 'needs-input'
@@ -88,7 +90,14 @@ export const AdeEventsPlugin = async ({ directory }) => ({
       let kind = KIND[event.type]
       if (kind) {
         if (event.type === 'session.error' && isAbort(p)) kind = 'turn-cancelled'
-        if (event.type === 'session.idle' && childSessions.has(p.sessionID)) kind = 'other'
+        const sid = p.sessionID || p.info?.id
+        if (
+          (event.type === 'session.idle' ||
+            event.type === 'session.created' ||
+            event.type === 'session.deleted') &&
+          childSessions.has(sid)
+        )
+          kind = 'other' // sub-agent lifecycles aren't resumable targets
       }
 
       // raw capture — mapped kinds always; unmapped types throttled to one
@@ -117,7 +126,7 @@ export const AdeEventsPlugin = async ({ directory }) => ({
           provider: 'opencode',
           event: kind,
           cwd: directory,
-          sessionId: p.sessionID,
+          sessionId: p.sessionID || p.info?.id,
           message: messageFor(event.type, p) || undefined,
           adeSession: process.env.ADE_SESSION || undefined,
           ts: now

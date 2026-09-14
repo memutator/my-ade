@@ -61,9 +61,11 @@ target of an event is resolved to `{workspace, pane, tab}` (see Resolution).
 
 Rules:
 
-- **`needs-input` is always unread**, even when `attended` — it represents
-  pending work, not news. The badge stays until the turn resumes (any later
-  event for the same session/tab settles it to read).
+- **`needs-input` is never pre-read**, even when `attended` — it represents
+  pending work, not news. It clears when the turn resumes (any later event
+  for the same session/tab settles it) or when the user attends the target —
+  read-on-view below; the badge marks work you haven't seen, not work you're
+  already looking at.
 - `turn-complete` / `error` at `attended` land pre-read: the list doubles as an
   activity log, but nothing demands a click.
 - OS banners exist only for `away`. While the app is focused the workspace tab
@@ -71,6 +73,16 @@ Rules:
   lost by skipping the banner.
 - An event that resolves to no workspace at all can't be attended (nothing on
   screen shows it): focused window → `ambient`, unfocused → `away`.
+
+### Read-on-view
+
+An unread ping clears without a click once its target is being attended —
+seeing the thing is the acknowledgement. `sweepAttended` runs in the main
+window on every store change (workspace switch, tab activate, pane layout,
+new ping) and on window focus: a ping reads when its workspace is active, its
+pane is on screen, and (for tab-scoped pings) its emitting tab is the pane's
+active tab. A detached window reports its own attendance via `pane:cmd`
+`action:'attended'` — its focus isn't observable from the main renderer.
 
 ## Coalescing
 
@@ -120,7 +132,10 @@ An event targets a workspace/pane/tab by:
 3. **no match** — the active workspace, pane-less.
 
 Every `ours` event (any kind, including tracking-only) refreshes the registry
-entry — first event binds the session to a tab, later events reuse it.
+entry — first event binds the session to a tab, later events reuse it. The
+same upsert feeds `resumeSessions`, the persisted set of live sessions offered
+for reopen after a restart (see [agents.md → Session resume](agents.md#session-resume)) —
+`session-end` removes the record again.
 
 ## Settling
 

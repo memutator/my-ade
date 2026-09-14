@@ -131,6 +131,18 @@ export function startPtyHost(): void {
   })
 }
 
+// Kill the host on app quit. Otherwise it outlives ade as an orphan (its
+// poll timers keep the event loop alive even after stdin EOF) — and the
+// orphaned shells keep their agents running as zombies, so a restart would
+// offer to "resume" sessions that are still alive somewhere invisible.
+export function stopPtyHost(): void {
+  try {
+    host?.kill()
+  } catch {
+    /* already gone */
+  }
+}
+
 export function registerPtyIpc(): void {
   ipcMain.handle('pty:spawn', (_e, m) => sendToHost({ t: 'spawn', ...m }))
   ipcMain.handle(
