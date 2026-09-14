@@ -22,6 +22,7 @@ interface WatchEntry {
   poll: ReturnType<typeof setInterval> | null
   renameSeen: boolean
   deleted: boolean // last broadcast was a deletion — dedupe repeats
+  missingSince: number | null // first failed stat — delete needs a grace window
   lastMtimeMs: number | null // last broadcast mtime — dedupe repeats
 }
 
@@ -102,6 +103,7 @@ async function probe(entry: WatchEntry): Promise<void> {
   try {
     const st = await stat(entry.path)
     if (!st.isFile()) throw new Error('not a file')
+    entry.missingSince = null
     const renamed = entry.renameSeen
     entry.renameSeen = false
     if (entry.deleted || st.mtimeMs !== entry.lastMtimeMs) {
@@ -121,11 +123,23 @@ async function probe(entry: WatchEntry): Promise<void> {
     }
     if (!entry.watcher) armWatch(entry)
   } catch {
+    goDead(entry)
+    // a missing path isn't a deletion until it STAYS missing — tmp+rename
+    // and rm+recreate writers leave a gap where stat fails mid-write. Keep
+    // re-probing on a short clock; only once the grace window expires does
+    // the renderer hear "deleted" (it used to broadcast on the first failed
+    // stat, so every atomic save flashed a bogus deleted banner)
+    entry.missingSince ??= Date.now()
+    if (Date.now() - entry.missingSince < 800) {
+      if (entry.debounce) clearTimeout(entry.debounce)
+      entry.debounce = setTimeout(() => void probe(entry), 300)
+      entry.debounce.unref()
+      return
+    }
     if (!entry.deleted) {
       entry.deleted = true
       broadcast(entry, { path: entry.path, deleted: true })
     }
-    goDead(entry)
   }
 }
 
@@ -147,6 +161,7 @@ function addRef(path: string, wc: WebContents): WatchEntry {
       poll: null,
       renameSeen: false,
       deleted: false,
+      missingSince: null,
       lastMtimeMs: null
     }
     watchers.set(path, entry)

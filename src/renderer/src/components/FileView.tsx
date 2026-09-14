@@ -78,8 +78,11 @@ export default function FileView({
   const [dirty, setDirty] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [langExt, setLangExt] = useState<Extension | null>(null)
-  // external-change UI: banner while dirty (or file deleted), confirm on save
+  // external-change UI, VS Code style: clean buffers reload silently; a real
+  // delete only leaves a meta-line note (save offers to recreate); the banner
+  // is reserved for dirty-buffer conflicts — the buffer is the only copy then
   const [diskConflict, setDiskConflict] = useState<'changed' | 'deleted' | null>(null)
+  const [diskDeleted, setDiskDeleted] = useState(false)
   const [saveConfirm, setSaveConfirm] = useState<'overwrite' | 'recreate' | null>(null)
   const [reloadKey, setReloadKey] = useState(0) // bumps to remount the editor on reload
   const [reloadedFlash, setReloadedFlash] = useState(false)
@@ -125,6 +128,7 @@ export default function FileView({
       setDirty(false)
       setSaveError(null)
       setDiskConflict(null)
+      setDiskDeleted(false)
       onDirtyChangeRef.current?.(false)
     } else {
       const msg = r.error ?? 'save failed'
@@ -194,11 +198,13 @@ export default function FileView({
       const r = await window.ade.file.read(path)
       if (!r.ok) {
         mtimeRef.current = null
-        setDiskConflict('deleted')
+        setDiskDeleted(true)
+        if (dirtyRef.current) setDiskConflict('deleted')
         return
       }
       applyRead(r, false)
       setDiskConflict(null)
+      setDiskDeleted(false)
       setSaveConfirm(null)
       setMdSeed(null) // fresh disk text becomes the seed again
       setReloadKey((k) => k + 1)
@@ -236,7 +242,10 @@ export default function FileView({
       if (e.path !== path) return
       if (e.deleted) {
         mtimeRef.current = null
-        setDiskConflict('deleted')
+        setDiskDeleted(true)
+        // a dirty buffer is the only surviving copy — surface the choice;
+        // a clean one just notes it (save recreates)
+        if (dirtyRef.current) setDiskConflict('deleted')
       } else if (
         // our own file.write trips the watcher — ignore the echo (mtime match,
         // with a 300ms time window as fallback for e.g. missing mtimeMs)
@@ -405,6 +414,9 @@ export default function FileView({
         <div className="file-meta">
           {loaded.meta}
           {dirty && <span className="file-dirty-note"> · {t('unsavedChanges')}</span>}
+          {diskDeleted && !diskConflict && (
+            <span className="file-dirty-note"> · {t('fileDeletedOnDisk')}</span>
+          )}
           {reloadedFlash && <span className="file-dirty-note"> · {t('reloadedFromDisk')}</span>}
           {saveError && <span className="file-err"> · {t('saveFailed', { name: saveError })}</span>}
         </div>
