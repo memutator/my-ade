@@ -385,7 +385,7 @@ body {
 .term-host {
   position: absolute;
   inset: 0;
-  padding: 4px 0 0 8px;
+  padding: 8px 0 0 8px;
 }
 
 .term-host .xterm {
