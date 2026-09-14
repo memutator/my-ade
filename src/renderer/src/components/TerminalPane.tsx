@@ -281,12 +281,17 @@ function TerminalTabView({
       const k = e.key.toLowerCase()
       if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'c') {
         if (term.hasSelection()) {
+          e.preventDefault() // else Chromium fires 'copy' on the textarea too
           void window.ade.clipboard.write(term.getSelection())
           return false
         }
         return e.ctrlKey && !e.shiftKey && !e.metaKey
       }
       if (!e.altKey && k === 'v' && ((e.ctrlKey && e.shiftKey) || e.metaKey)) {
+        // returning false only skips xterm's key handling — the keydown's
+        // default action still dispatches 'paste' on the textarea and xterm's
+        // own paste listener writes the clipboard a second time. Cancel it.
+        e.preventDefault()
         void window.ade.clipboard.read().then((s) => s && term.paste(s))
         return false
       }
