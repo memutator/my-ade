@@ -612,9 +612,7 @@ export default function TerminalPane({
 
   // unread notifications also badge the exact tab inside the pane — the
   // workspace strip only points at the workspace level
-  const unreadTabs = new Set(
-    notifications.filter((n) => !n.read && n.tabId).map((n) => n.tabId)
-  )
+  const unreadTabs = new Set(notifications.filter((n) => !n.read && n.tabId).map((n) => n.tabId))
   const items: TabItem[] = tabs.map((tab) => ({
     id: tab.id,
     label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),

@@ -31,6 +31,7 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 | claude         | `Notification` "waiting for your input" | `needs-input` | idle ≥60 s — the user must respond, so it *notifies* (was misclassified as silent `idle`) |
 | codex          | `notify` `agent-turn-complete`     | `turn-complete`  | codex's only signal; no needs-input channel exists |
 | codex          | `agent-turn-complete` with `{"recap":…}` | `other`    | auto-compaction summary — mid-turn bookkeeping, the agent keeps going |
+| codex          | internal catch-up thread (`input-messages` = "Write a brief catch-up…") | `other`, sessionId stripped | no rollout/threads row exists — registering it would offer a `resume` that can't resolve ("No saved session found with ID") |
 | grok           | `Stop`                             | `turn-complete`  | `reason: channel_closed`/`shutdown` → `session-end` |
 | grok           | `StopCancelled`                    | `turn-cancelled` / `error` | by `cancelledBy`/`reason` — user vs runtime |
 | grok           | `StopFailure`                      | `error`          | |

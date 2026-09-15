@@ -182,13 +182,19 @@ function buildEvent(provider, argEvent, payload) {
   ) {
     event = 'session-end'
   }
-  // codex's auto-compaction emits an agent-turn-complete whose assistant
-  // message is a {"recap": …} bookkeeping blob — mid-turn summarization, not
-  // the end of user-visible work (the agent keeps going). Demote to tracking.
-  if (
-    event === 'turn-complete' &&
-    /^\s*\{\s*"recap"/.test(String(p['last-assistant-message'] ?? ''))
-  ) {
+  // codex's auto-compaction and internal catch-up threads emit
+  // agent-turn-complete too. A {"recap":…} assistant blob is mid-turn
+  // bookkeeping, not user-visible work → tracking only. A catch-up prompt in
+  // input-messages means the whole thread is codex-internal — its thread-id
+  // has no rollout/session row, so it must not register as a resumable
+  // session (codex resume → "No saved session found with ID").
+  const lastMsg = String(p['last-assistant-message'] ?? '')
+  const firstInput = String(
+    Array.isArray(p['input-messages']) ? (p['input-messages'][0] ?? '') : ''
+  )
+  const recapTurn = /^\s*\{\s*"recap"/.test(lastMsg)
+  const internalThread = firstInput.startsWith('Write a brief catch-up')
+  if (event === 'turn-complete' && (recapTurn || internalThread)) {
     event = 'other'
   }
   const cwd = firstString(
@@ -201,14 +207,16 @@ function buildEvent(provider, argEvent, payload) {
     process.env.CLAUDE_PROJECT_DIR,
     process.env.CODEX_WORKSPACE_ROOT
   )
-  const sessionId = firstString(
-    p.session_id,
-    p.sessionId,
-    p['thread-id'],
-    p.thread_id,
-    p.threadId,
-    process.env.GROK_SESSION_ID
-  )
+  const sessionId = internalThread
+    ? ''
+    : firstString(
+        p.session_id,
+        p.sessionId,
+        p['thread-id'],
+        p.thread_id,
+        p.threadId,
+        process.env.GROK_SESSION_ID
+      )
   const tool = firstString(p.tool_name, p.toolName, p.tool)
   const toolInput = p.tool_input || p.toolInput
   const toolCmd = clip(
