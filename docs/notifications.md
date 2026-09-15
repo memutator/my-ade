@@ -30,6 +30,7 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 | claude         | `Notification` (permission prompt) | `needs-input`    | payload carries a display `message` only |
 | claude         | `Notification` "waiting for your input" | `needs-input` | idle ≥60 s — the user must respond, so it *notifies* (was misclassified as silent `idle`) |
 | codex          | `notify` `agent-turn-complete`     | `turn-complete`  | codex's only signal; no needs-input channel exists |
+| codex          | `agent-turn-complete` with `{"recap":…}` | `other`    | auto-compaction summary — mid-turn bookkeeping, the agent keeps going |
 | grok           | `Stop`                             | `turn-complete`  | `reason: channel_closed`/`shutdown` → `session-end` |
 | grok           | `StopCancelled`                    | `turn-cancelled` / `error` | by `cancelledBy`/`reason` — user vs runtime |
 | grok           | `StopFailure`                      | `error`          | |
@@ -41,8 +42,8 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 | opencode       | `session.idle` (sub-session)       | `other`          | task-tool fan-out — the parent's idle is the user-visible unit |
 | opencode       | `session.error` (not abort)        | `error`          | |
 | opencode       | `session.error` `Aborted`          | `turn-cancelled` | user pressed Esc |
-| opencode       | `permission.asked` / `permission.updated` | `needs-input` | `updated` re-fires on rule edits — deduped per session |
-| opencode       | `question.asked`                   | `needs-input`    | |
+| opencode       | `permission.asked` / `question.asked` | `needs-input` | held ~800 ms — auto-approved asks (`*.replied` in ~20 ms) never ring |
+| opencode       | `permission.updated`               | — (unmapped)   | rule/config churn, not a pending ask |
 
 This table is validated empirically — see **Raw capture** below. When the raw
 log shows a harness emitting something unmapped, the correct class is decided

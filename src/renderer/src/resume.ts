@@ -93,8 +93,12 @@ export function resumeCandidates(
     if (st.settings.providers[rec.provider] === false) continue
     const cmd = resumeCommand(rec.provider, rec.sessionId)
     if (!cmd) continue
+    // resume inside the session's own directory, not the project root — a
+    // session recorded in a subdir (e.g. proj/sub) needs its cwd back both for
+    // cwd-scoped resume lookups and for the agent to land where it worked
+    const full = rec.cwd ? `cd '${rec.cwd.replace(/'/g, `'\\''`)}' && ${cmd}` : cmd
     const prev = byTab.get(tab.id)
-    if (!prev || rec.ts > prev.rec.ts) byTab.set(tab.id, { rec, tab, cmd })
+    if (!prev || rec.ts > prev.rec.ts) byTab.set(tab.id, { rec, tab, cmd: full })
   }
   const paneOrder = new Map(visibleLeafIds(ws.root, ws.panes).map((id, i) => [id, i]))
   const tabIndex = (c: ResumeCandidate): number => {

@@ -22,9 +22,15 @@ const KIND = {
   'session.created': 'session-start',
   'session.deleted': 'session-end',
   'permission.asked': 'needs-input',
-  'permission.updated': 'needs-input',
   'question.asked': 'needs-input'
 }
+
+// permission/question asks can be answered almost instantly — auto-approve
+// rules and "always" grants reply within ~20ms. Hold needs-input for a short
+// grace window and cancel it when the matching *.replied arrives, so asks the
+// user never actually had to answer don't ring the bell.
+const ASK_GRACE_MS = 800
+const pendingAsks = new Map() // requestId → timeout
 
 // user pressed Esc — a cancel, not a failure (spec: user aborts never notify)
 function isAbort(p) {
@@ -100,6 +106,15 @@ export const AdeEventsPlugin = async ({ directory }) => ({
           kind = 'other' // sub-agent lifecycles aren't resumable targets
       }
 
+      // an answered ask cancels its pending needs-input; replies never emit
+      if (event.type === 'permission.replied' || event.type === 'question.replied') {
+        const timer = p.requestID && pendingAsks.get(p.requestID)
+        if (timer) {
+          clearTimeout(timer)
+          pendingAsks.delete(p.requestID)
+        }
+      }
+
       // raw capture — mapped kinds always; unmapped types throttled to one
       // line per 10s each so the stream stays readable
       if (KIND[event.type] || now - (lastLoggedType.get(event.type) || 0) > 10_000) {
@@ -118,24 +133,49 @@ export const AdeEventsPlugin = async ({ directory }) => ({
 
       if (!kind) return
 
+      const write = () =>
+        appendFileSync(
+          file,
+          JSON.stringify({
+            v: 1,
+            provider: 'opencode',
+            event: kind,
+            cwd: directory,
+            sessionId: p.sessionID || p.info?.id,
+            message: messageFor(event.type, p) || undefined,
+            adeSession: process.env.ADE_SESSION || undefined,
+            // pty-stamped hosting pane/tab — exact event attribution
+            paneId: process.env.ADE_PANE || undefined,
+            tabId: process.env.ADE_TAB || undefined,
+            ts: now
+          }) + '\n',
+          { flag: 'a' }
+        )
+
       mkdirSync(dir, { recursive: true })
-      appendFileSync(
-        file,
-        JSON.stringify({
-          v: 1,
-          provider: 'opencode',
-          event: kind,
-          cwd: directory,
-          sessionId: p.sessionID || p.info?.id,
-          message: messageFor(event.type, p) || undefined,
-          adeSession: process.env.ADE_SESSION || undefined,
-          // pty-stamped hosting pane/tab — exact event attribution
-          paneId: process.env.ADE_PANE || undefined,
-          tabId: process.env.ADE_TAB || undefined,
-          ts: now
-        }) + '\n',
-        { flag: 'a' }
-      )
+      if (
+        kind === 'needs-input' &&
+        (event.type === 'permission.asked' || event.type === 'question.asked') &&
+        p.id
+      ) {
+        // grace window — auto-approved asks resolve in ~20ms; only ring the
+        // bell when the request is still open
+        const prev = pendingAsks.get(p.id)
+        if (prev) clearTimeout(prev)
+        pendingAsks.set(
+          p.id,
+          setTimeout(() => {
+            pendingAsks.delete(p.id)
+            try {
+              write()
+            } catch {
+              /* never disturb opencode */
+            }
+          }, ASK_GRACE_MS)
+        )
+        return
+      }
+      write()
     } catch {
       /* never disturb opencode */
     }

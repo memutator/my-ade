@@ -182,6 +182,15 @@ function buildEvent(provider, argEvent, payload) {
   ) {
     event = 'session-end'
   }
+  // codex's auto-compaction emits an agent-turn-complete whose assistant
+  // message is a {"recap": …} bookkeeping blob — mid-turn summarization, not
+  // the end of user-visible work (the agent keeps going). Demote to tracking.
+  if (
+    event === 'turn-complete' &&
+    /^\s*\{\s*"recap"/.test(String(p['last-assistant-message'] ?? ''))
+  ) {
+    event = 'other'
+  }
   const cwd = firstString(
     p.cwd,
     p.workingDirectory,

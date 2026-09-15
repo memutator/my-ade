@@ -496,6 +496,7 @@ export default function TerminalPane({
 }): React.JSX.Element {
   const updatePane = useStore((s) => s.updatePane)
   const closePane = useStore((s) => s.closePane)
+  const notifications = useStore((s) => s.notifications)
   const focused = useStore((s) => {
     const w = s.workspaces.find((x) => x.id === wsId)
     return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
@@ -609,13 +610,18 @@ export default function TerminalPane({
     updatePane(pane.id, { tabs: next }, wsId)
   }
 
+  // unread notifications also badge the exact tab inside the pane — the
+  // workspace strip only points at the workspace level
+  const unreadTabs = new Set(
+    notifications.filter((n) => !n.read && n.tabId).map((n) => n.tabId)
+  )
   const items: TabItem[] = tabs.map((tab) => ({
     id: tab.id,
     label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),
     sub: tab.cwd ? shortPath(tab.cwd) : undefined,
     icon: tab.agent ? <AgentIcon id={tab.agent} size={16} /> : undefined,
-    dirty: tab.exited,
-    dotTip: t('shellExited')
+    dirty: tab.exited || unreadTabs.has(tab.id),
+    dotTip: tab.exited ? t('shellExited') : t('wsUnread')
   }))
 
   return (

@@ -124,7 +124,8 @@ without being asked:
   "waiting for your input"), devin/zcode (Stop+PermissionRequest+SessionStart/
   SessionEnd), opencode (plugin: session.idle/error/created/deleted — Esc-abort
   classifies as turn-cancelled, sub-session lifecycles demote to `other` —
-  permission/question.asked). `hooks:test` writes a synthetic event through the
+  permission/question.asked, held ~800ms so auto-approved asks never notify).
+  `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
   per provider. Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run
   UUID set in main) plus `paneId`/`tabId` — the pty id's first two segments,
@@ -141,8 +142,9 @@ without being asked:
   upserted on any `ours` event carrying a sessionId, dropped on `session-end`,
   agent→idle, pty `exit`, tab/pane/workspace close, and hydration-time
   structural pruning. On boot, activating a workspace with candidates shows
-  `ResumePrompt`; accepting types the manifest's `resume` command
-  (`<cmd> <args> '<sid>'`) into each session's tab — freshly spawned on boot —
+  `ResumePrompt`; accepting types `cd '<rec.cwd>' && <cmd> <args> '<sid>'`
+  into each session's tab — freshly spawned on boot in `project.path`, so the
+  cd puts the agent back in the session's own directory —
   via `pty.write` (queued on `spawned` when the shell isn't up yet, e.g. a
   detached window still opening). `will-quit` kills the pty-host so agents die
   with the app instead of orphaning; a `beforeunload` guard keeps dying

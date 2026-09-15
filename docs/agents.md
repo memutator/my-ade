@@ -59,7 +59,7 @@ as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 | grok     | `Stop`, `StopCancelled`, `StopFailure`, `Notification`, `SessionStart`, `SessionEnd` | `~/.grok/hooks/ade.json`                |
 | devin    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` hook groups | `~/.config/devin/config.json`           |
 | zcode    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` in `hooks.events` + `hooks.enabled` | `~/.zcode/cli/config.json`   |
-| opencode | plugin `AdeEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`/`updated`, `question.asked` | `~/.config/opencode/plugins/ade-events.js` |
+| opencode | plugin `AdeEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`, `question.asked` | `~/.config/opencode/plugins/ade-events.js` |
 
 The hook script copy under `~/.config/ade`, grok's hook file and the opencode
 plugin file are refreshed to the shipped version on every app start — fixes to
@@ -87,7 +87,7 @@ The shared taxonomy — three kinds notify, the rest are tracking-only:
 | ade event        | meaning                                        | sources |
 | ---------------- | ---------------------------------------------- | ------- |
 | `turn-complete`  | turn finished normally                         | `Stop`, `agent-turn-complete` (codex notify), `session.idle`, grok `task_complete` |
-| `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (all claude messages — permission prompts and the ≥60 s "waiting for your input"; grok `permission_prompt` etc.), opencode `permission.asked`/`updated`, `question.asked` |
+| `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (all claude messages — permission prompts and the ≥60 s "waiting for your input"; grok `permission_prompt` etc.), opencode `permission.asked`, `question.asked` (800 ms grace — cancelled on a fast `*.replied`) |
 | `error`          | turn failed or the runtime aborted it          | `StopFailure`, `StopCancelled` with `cancelledBy: runtime`/`unknown` (`max_turns`, `no_progress`), `session.error` |
 | `turn-cancelled` | the user stopped the turn                      | `StopCancelled` with `cancelledBy: user` / `user_interrupt`/`permission_*` reasons, opencode `session.error` `Aborted` |
 | `idle`           | post-settle backstop ping, redundant with the turn-end report | grok `idle_prompt` |
