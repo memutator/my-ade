@@ -14,7 +14,7 @@
 // (attended vs ambient) assume it keeps focus for the few seconds it runs.
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -428,9 +428,116 @@ async function scAdopt() {
   await h.quit()
 }
 
+async function scProjectRm() {
+  console.log('\n■ projectrm — removing a project drops its workspaces + cleans state')
+  const h = await boot('projectrm')
+  const { pid: pidA } = await mkws(h)
+  const t = await h.term()
+  await h.type(t.pty, `${FAKE} --session-id s-prm\n`)
+  await h.waitFor(`window.__ade.getState().resumeSessions['s-prm']`, 'session registered')
+
+  // a second project+ws (distinct path — addProject dedupes on path) so
+  // removing A exercises the active-workspace fallback
+  const { pid: pidB, wsId: wsB } = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    const p = s.addProject('/tmp')
+    s.createWorkspace(p.id)
+    const w = window.__ade.getState().workspaces.at(-1)
+    s.activateWorkspace(w.id)
+    return { pid: p.id, wsId: w.id }
+  })()`)
+  // re-activate A's workspace — deleting must fix a dangling activeWorkspaceId
+  const wsA = await h.ev(
+    `(() => { const w = window.__ade.getState().workspaces.find((x) => x.projectId === ${JSON.stringify(pidA)}); window.__ade.getState().activateWorkspace(w.id); return w.id })()`
+  )
+
+  await h.ev(`window.__ade.getState().removeProject(${JSON.stringify(pidA)})`)
+  await sleep(300)
+  const after = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    return {
+      projGone: !s.projects.some((p) => p.id === ${JSON.stringify(pidA)}),
+      wsLeft: s.workspaces.filter((w) => w.projectId === ${JSON.stringify(pidA)}).length,
+      active: s.activeWorkspaceId,
+      recGone: !s.resumeSessions['s-prm']
+    }
+  })()`)
+  ok(after.projGone, 'project removed from registry')
+  ok(after.wsLeft === 0, 'its workspaces are gone')
+  ok(after.active === wsB, `activeWorkspaceId fell back to a surviving workspace (${after.active})`)
+  ok(after.recGone, 'resume records under the dead workspaces were dropped')
+  ok(existsSync(ROOT), 'the project directory on disk is untouched')
+  await sleep(800)
+  ok(
+    pgrep('ade-fake.mjs --session-id s-prm').length === 0,
+    'agent running in the removed workspace was killed with its tab'
+  )
+
+  // removing the last project must leave a valid empty state
+  await h.ev(`window.__ade.getState().removeProject(${JSON.stringify(pidB)})`)
+  await sleep(300)
+  const empty = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    return { ws: s.workspaces.length, active: s.activeWorkspaceId, dom: !!document.querySelector('.empty-state') }
+  })()`)
+  ok(empty.ws === 0 && empty.active === null, 'last project removed → no workspaces, no active id')
+  ok(empty.dom, 'empty state screen renders')
+  await h.quit()
+}
+
+async function scBrowserFile() {
+  console.log('\n■ browserfile — html opens as a file:// tab in a browser pane')
+  const h = await boot('browserfile')
+  await mkws(h)
+  const page = join(BASE, 'pa ge#1.html') // space + '#' — encoding must survive
+  writeFileSync(page, '<h1>hi</h1>')
+  const f1 = 'file://' + page.split('/').map(encodeURIComponent).join('/')
+  const f2 = 'file:///tmp/other.html'
+
+  await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f1)}, undefined, true)`)
+  const first = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    const bps = Object.values(s.workspaces[0].panes).filter((p) => p.type === 'browser')
+    return bps.length === 1 && bps[0].tabs.length === 1 &&
+      bps[0].tabs[0].url === ${JSON.stringify(f1)} && bps[0].activeTabId === bps[0].tabs[0].id
+  })()`)
+  ok(first === true, 'no browser pane → new pane with the file url')
+
+  const loaded = await h
+    .waitFor(
+      `(() => {
+        const wv = document.querySelector('webview')
+        return wv && wv.getURL() === ${JSON.stringify(f1)} ? wv.getURL() : null
+      })()`,
+      'webview loaded the file url'
+    )
+    .catch(() => null)
+  ok(loaded === f1, `webview navigated to the file (${loaded})`)
+
+  // a second file open appends a tab — the loaded page must not be clobbered
+  await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f2)}, undefined, true)`)
+  const after = await h.ev(`(() => {
+    const bp = Object.values(window.__ade.getState().workspaces[0].panes)
+      .find((p) => p.type === 'browser')
+    return { urls: bp.tabs.map((t) => t.url), active: bp.tabs.at(-1).id === bp.activeTabId }
+  })()`)
+  ok(
+    after.urls.length === 2 && after.urls[0] === f1 && after.urls[1] === f2 && after.active,
+    'second open appended a tab instead of replacing the page'
+  )
+  await h.quit()
+}
+
 // ---------- runner ----------
 
-const ALL = { orphans: scOrphans, resume: scResume, attention: scAttention, adopt: scAdopt }
+const ALL = {
+  orphans: scOrphans,
+  resume: scResume,
+  attention: scAttention,
+  adopt: scAdopt,
+  projectrm: scProjectRm,
+  browserfile: scBrowserFile
+}
 const picked = process.argv.slice(2).filter((s) => s in ALL)
 const list = picked.length ? picked : Object.keys(ALL)
 

@@ -23,6 +23,9 @@ import { useFileIcon } from '../fileIcons'
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
 const dirname = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/'
 const joinPath = (d: string, n: string): string => (d.endsWith('/') ? d : d + '/') + n
+// per-segment encoding — '#' or '?' in a name must not become URL syntax
+const fileUrl = (p: string): string => 'file://' + p.split('/').map(encodeURIComponent).join('/')
+const isHtml = (name: string): boolean => /\.html?$/i.test(name)
 const isUnder = (p: string, dir: string): boolean =>
   p === dir || p.startsWith(dir.endsWith('/') ? dir : dir + '/')
 
@@ -811,7 +814,16 @@ export default function FileTree({
             {
               label: t('open'),
               act: () => openFile(entry.path, entry.name)
-            }
+            },
+            ...(isHtml(entry.name)
+              ? [
+                  {
+                    label: t('openInBrowser'),
+                    act: () =>
+                      useStore.getState().openUrlInBrowser(fileUrl(entry.path), undefined, true)
+                  }
+                ]
+              : [])
           ]),
       ...newItems,
       { sep: true },

@@ -1421,6 +1421,11 @@ webview.browser-view {
   background: var(--hover);
   color: var(--accent);
 }
+.ws-menu-del:hover,
+.ws-menu-del.armed {
+  background: var(--hover);
+  color: var(--danger, #e5534b);
+}
 
 /* worktree modal */
 .wt-title {

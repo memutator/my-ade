@@ -215,7 +215,11 @@ Two tools live under `tools/` (both plain Node, lint-ignored):
   [name…]`): `orphans` (quit kills agent processes), `resume` (two sessions,
   one pane, distinct tabs → reboot → both offered and re-injected into their
   own tabs), `attention` (attended/ambient/away verdicts, ambient toast,
-  read-on-view), `adopt` (previous-run orphan events re-register). Harness
+  read-on-view), `adopt` (previous-run orphan events re-register),
+  `projectrm` (project removal drops its workspaces/resume records, kills
+  their agents, fixes `activeWorkspaceId`, leaves the directory on disk),
+  `browserfile` (`openUrlInBrowser` opens a `file://` url — encoded names
+  survive — and `newTab` appends rather than replacing). Harness
   diversity is covered by replaying captured `hook-raw.log` payloads rather
   than simulating CLIs — the normalizer accepts canonical event names
   idempotently so tools can emit `needs-input`/`turn-complete` directly.

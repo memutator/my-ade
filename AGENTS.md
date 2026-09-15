@@ -6,7 +6,11 @@ splittable pane layout scoped to a project directory.
 
 ## Domain model
 
-- **project** = a directory (`{id, name, path}`), global registry.
+- **project** = a directory (`{id, name, path}`), global registry. The `+`
+  workspace menu lists them with a two-click trash action: `removeProject`
+  drops the project's workspaces (killing their ptys/agents), its todos,
+  project-scoped bookmarks and resume records, and re-points a dangling
+  `activeWorkspaceId` at a survivor — the directory on disk is untouched.
 - **workspace** = a tab = one split-pane layout, belongs to a project (`project:workspace = 1:N`).
   All workspaces across projects share the single `WorkspaceStrip` in the title bar.
   Switching happens only via workspace tabs; project is chosen when creating a workspace.
@@ -54,7 +58,10 @@ splittable pane layout scoped to a project directory.
   reorder. Surfaced as a sidebar section and as a `'todo'` pane type.
 - **bookmarks** are global or project-scoped (`bookmarks: Bookmark[]`, `scope:
 'global' | projectId`); browser panes own a `tabs[]` + `activeTabId` list exposed
-  via header dropdowns (no room for a tab strip).
+  via header dropdowns (no room for a tab strip). `openUrlInBrowser(url, wsId?,
+newTab?)` navigates the focused/first browser pane or creates one; the file
+  tree's "Open in browser" ctx item (`.html`/`.htm`) passes `newTab` so a file
+  open never clobbers a loaded page — `file://` urls are per-segment encoded.
 
 * **minimized panes** (`pane.minimized`) keep their leaf in the layout tree —
   `SplitView` hides fully-minimized subtrees with the `hidden` attr, so the pane

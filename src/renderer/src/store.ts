@@ -385,7 +385,9 @@ interface AdeState extends PersistedState {
   cyclePaneTab: (dir: 1 | -1, wsId?: string) => void
 
   openFileInEditor: (path: string, name: string, wsId?: string, preview?: boolean) => void
-  openUrlInBrowser: (url: string, wsId?: string) => void
+  // newTab appends a tab instead of navigating the active one — explicit
+  // opens (file tree) shouldn't destroy a page the user is on
+  openUrlInBrowser: (url: string, wsId?: string, newTab?: boolean) => void
   // file-tree ops: keep open editor tabs pointing at real paths — a rename or
   // move remaps tab.path (incl. descendants of a renamed dir), a delete closes
   // the tab
@@ -536,12 +538,17 @@ export const useStore = create<AdeState>((set, get) => {
         const todos = { ...s.todos }
         delete todos[id]
         const deadWs = new Set(s.workspaces.filter((w) => w.projectId === id).map((w) => w.id))
+        const workspaces = s.workspaces.filter((w) => w.projectId !== id)
         const resumeSessions = Object.fromEntries(
           Object.entries(s.resumeSessions).filter(([, r]) => !deadWs.has(r.wsId))
         )
         return {
           projects: s.projects.filter((p) => p.id !== id),
-          workspaces: s.workspaces.filter((w) => w.projectId !== id),
+          workspaces,
+          // don't leave the active id dangling on a dead workspace
+          activeWorkspaceId: deadWs.has(s.activeWorkspaceId ?? '')
+            ? (workspaces[0]?.id ?? null)
+            : s.activeWorkspaceId,
           bookmarks: s.bookmarks.filter((b) => b.scope !== id),
           todos,
           resumeSessions
@@ -1099,7 +1106,7 @@ export const useStore = create<AdeState>((set, get) => {
 
     // Navigate a browser pane in the workspace: focused browser pane, else the
     // first browser pane, else a new one (split off the focused pane).
-    openUrlInBrowser: (url, wsIdArg) =>
+    openUrlInBrowser: (url, wsIdArg, newTab) =>
       set((s) => {
         const wsId = wsIdArg ?? s.activeWorkspaceId
         if (!wsId) return s
@@ -1115,16 +1122,20 @@ export const useStore = create<AdeState>((set, get) => {
 
         if (target) {
           const bp = ws.panes[target] as BrowserPaneState
-          const tabs = (bp.tabs ?? []).map((t) =>
-            t.id === (bp.activeTabId ?? bp.tabs?.[0]?.id) ? { ...t, url } : t
-          )
+          const tab: BrowserTab = { id: uid(), url, title: '' }
+          const pane: BrowserPaneState = newTab
+            ? { ...bp, tabs: [...(bp.tabs ?? []), tab], activeTabId: tab.id, url }
+            : {
+                ...bp,
+                tabs: (bp.tabs ?? []).map((t) =>
+                  t.id === (bp.activeTabId ?? bp.tabs?.[0]?.id) ? { ...t, url } : t
+                ),
+                url
+              }
           return {
             workspaces: updWs(s.workspaces, wsId, (w) => ({
               ...w,
-              panes: {
-                ...w.panes,
-                [target]: { ...w.panes[target], url, tabs } as PaneState
-              },
+              panes: { ...w.panes, [target]: pane as PaneState },
               focusedPaneId: target
             }))
           }

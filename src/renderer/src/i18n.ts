@@ -29,6 +29,8 @@ const en = {
   newWorkspace: 'New workspace',
   addProjectItem: '+ add project…',
   addProject: 'add project',
+  removeProject: 'Remove project',
+  removeProjectConfirm: 'Click again to remove (drops its workspaces)',
   chooseDir: 'choose dir…',
   workspace: 'workspace',
 
@@ -70,6 +72,7 @@ const en = {
   unsavedChanges: 'unsaved changes',
 
   // browser pane
+  openInBrowser: 'Open in browser',
   back: 'Back',
   forward: 'Forward',
   reload: 'Reload',
@@ -246,6 +249,8 @@ const ko: Record<TKey, string> = {
   newWorkspace: '새 워크스페이스',
   addProjectItem: '+ 프로젝트 추가…',
   addProject: '프로젝트 추가',
+  removeProject: '프로젝트 삭제',
+  removeProjectConfirm: '한 번 더 클릭하면 삭제 (워크스페이스도 닫힘)',
   chooseDir: '폴더 선택…',
   workspace: '워크스페이스',
 
@@ -283,6 +288,7 @@ const ko: Record<TKey, string> = {
   saveFailed: '저장 실패: {name}',
   unsavedChanges: '저장되지 않은 변경 사항',
 
+  openInBrowser: '브라우저에서 열기',
   back: '뒤로',
   forward: '앞으로',
   reload: '새로고침',

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { GitBranchPlus, Plus } from 'lucide-react'
+import { GitBranchPlus, Plus, Trash2 } from 'lucide-react'
 import type { Project } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
@@ -14,13 +14,23 @@ function AddWorkspaceButton({
   onWorktree: (p: Project) => void
 }): React.JSX.Element {
   const projects = useStore((s) => s.projects)
-  const { createWorkspace, addProject } = useStore()
+  const { createWorkspace, addProject, removeProject } = useStore()
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const [repos, setRepos] = useState<Record<string, boolean>>({})
+  // delete is two-click (arm → confirm) — removing a project drops all its
+  // workspaces, so a single stray click must not be destructive
+  const [armDel, setArmDel] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const t = useT()
+
+  // every close path clears an armed delete — a menu that reopened with a
+  // still-armed trash would be one stray click away from deleting a project
+  const close = (): void => {
+    setOpen(false)
+    setArmDel(null)
+  }
 
   // the menu is portaled to <body> (the strip's overflow-y:clip would hide an
   // in-place absolute menu), so "inside" for outside-close purposes is the
@@ -31,17 +41,17 @@ function AddWorkspaceButton({
       target instanceof Node &&
       (ref.current?.contains(target) === true || menuRef.current?.contains(target) === true)
     const onDown = (e: MouseEvent): void => {
-      if (!inside(e.target)) setOpen(false)
+      if (!inside(e.target)) close()
     }
     // webview clicks never reach this document — catch the focus theft instead
     // (webview focus produces no focusin, only a capture-phase focus event)
     const onFocus = (e: FocusEvent): void => {
-      if (!inside(e.target)) setOpen(false)
+      if (!inside(e.target)) close()
     }
     // a fixed menu can't follow its anchor — close if the strip scrolls or the
     // window resizes (a scroll originating inside the menu itself is exempt)
     const onMove = (e: Event): void => {
-      if (!inside(e.target)) setOpen(false)
+      if (!inside(e.target)) close()
     }
     window.addEventListener('mousedown', onDown, true)
     window.addEventListener('focus', onFocus, true)
@@ -89,7 +99,7 @@ function AddWorkspaceButton({
     if (!dir) return
     const proj = addProject(dir)
     createWorkspace(proj.id, t('workspace'))
-    setOpen(false)
+    close()
   }
 
   const toggle = (): void => {
@@ -98,8 +108,10 @@ function AddWorkspaceButton({
       // position:fixed just below the '+' button
       const r = ref.current.getBoundingClientRect()
       setPos({ top: r.bottom + 6, left: r.left })
+      setOpen(true)
+    } else {
+      close()
     }
-    setOpen(!open)
   }
 
   return (
@@ -113,7 +125,7 @@ function AddWorkspaceButton({
         pos &&
         createPortal(
           <>
-            <div className="click-catcher" onMouseDown={() => setOpen(false)} />
+            <div className="click-catcher" onMouseDown={close} />
             <div className="ws-menu" ref={menuRef} style={{ top: pos.top, left: pos.left }}>
               {projects.map((p) => (
                 <div className="ws-menu-row" key={p.id}>
@@ -121,7 +133,7 @@ function AddWorkspaceButton({
                     className="ws-menu-item"
                     onClick={() => {
                       createWorkspace(p.id, t('workspace'))
-                      setOpen(false)
+                      close()
                     }}
                   >
                     {p.name}
@@ -132,7 +144,7 @@ function AddWorkspaceButton({
                       <button
                         className="ws-menu-wt"
                         onClick={() => {
-                          setOpen(false)
+                          close()
                           onWorktree(p)
                         }}
                       >
@@ -140,6 +152,21 @@ function AddWorkspaceButton({
                       </button>
                     </Tooltip>
                   )}
+                  <Tooltip label={armDel === p.id ? t('removeProjectConfirm') : t('removeProject')}>
+                    <button
+                      className={`ws-menu-wt ws-menu-del${armDel === p.id ? ' armed' : ''}`}
+                      onClick={() => {
+                        if (armDel === p.id) {
+                          removeProject(p.id)
+                          setArmDel(null)
+                        } else {
+                          setArmDel(p.id)
+                        }
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </Tooltip>
                 </div>
               ))}
               <button className="ws-menu-item accent" onClick={pickDirectory}>
