@@ -1,22 +1,11 @@
-import { useRef, useState } from 'react'
-import {
-  ChevronRight,
-  FilePlus2,
-  FolderPlus,
-  ListCollapse,
-  ListTodo,
-  RefreshCw
-} from 'lucide-react'
-import type { TodoItem } from '../types'
+import { useRef } from 'react'
+import { FilePlus2, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { shortPath } from '../utils'
 import Tooltip from './Tooltip'
 import FileTree, { type FileTreeApi } from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
-import TodoList from './TodoList'
-
-const EMPTY_TODOS: TodoItem[] = []
 
 export default function Sidebar(): React.JSX.Element | null {
   const open = useStore((s) => s.sidebarOpen)
@@ -26,13 +15,10 @@ export default function Sidebar(): React.JSX.Element | null {
   // header dropdown can re-point it at another project or an arbitrary dir
   const root = useStore((s) => (project ? (s.sidebarRoots[project.id] ?? project.path) : ''))
   const setSidebarRoot = useStore((s) => s.setSidebarRoot)
-  const todos = useStore((s) => (project ? (s.todos[project.id] ?? EMPTY_TODOS) : EMPTY_TODOS))
-  const [todosOpen, setTodosOpen] = useState(true)
   const treeApi = useRef<FileTreeApi | null>(null)
   const t = useT()
 
   if (!open || !project) return null
-  const done = todos.filter((x) => x.status === 'done').length
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -71,17 +57,6 @@ export default function Sidebar(): React.JSX.Element | null {
         </span>
       </div>
       <FileTree key={root} rootPath={root} apiRef={treeApi} />
-      <div className="sidebar-todos">
-        <button className="sidebar-todos-head" onClick={() => setTodosOpen(!todosOpen)}>
-          <ChevronRight size={11} className={`tchev${todosOpen ? ' open' : ''}`} />
-          <ListTodo size={12} className="ticon" />
-          {t('todos')}
-          <span className="todo-count">
-            {done}/{todos.length}
-          </span>
-        </button>
-        {todosOpen && <TodoList projectId={project.id} />}
-      </div>
     </aside>
   )
 }

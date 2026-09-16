@@ -13,10 +13,9 @@ settings.
 
 | Action id         | Combo      | Description                                                              |
 | ----------------- | ---------- | ------------------------------------------------------------------------ |
-| `pane.newTerminal` | `alt+t`   | New terminal pane                                                        |
-| `pane.newBrowser`  | `alt+b`   | New browser pane                                                         |
-| `pane.newEditor`   | `alt+e`   | New editor pane                                                          |
-| `pane.newTodo`     | `alt+l`   | New todo pane                                                            |
+| `pane.newTerminal` | `alt+t`   | New terminal block (stacks into the focused leaf)                        |
+| `pane.newBrowser`  | `alt+b`   | New browser block                                                        |
+| `pane.newEditor`   | `alt+e`   | New editor block                                                         |
 | `pane.splitRight`  | `alt+d`   | Split focused pane right (new terminal; no focus → plain new terminal)   |
 | `pane.splitDown`   | `alt+s`   | Split focused pane down (same fallback)                                  |
 | `pane.close`       | `alt+w`   | Close focused pane                                                       |
@@ -54,7 +53,7 @@ are excluded.
 | Action id      | Combo   | Description                                  |
 | -------------- | ------- | -------------------------------------------- |
 | `theme.toggle` | `alt+m` | Toggle dark/light                            |
-| — fixed        | `Ctrl+S` | Save file (editor pane's own handler; `Cmd+S` also accepted) |
+| — fixed        | `Ctrl+S` | Save file (the file block's own handler; `Cmd+S` also accepted) |
 | — fixed        | `Esc`   | Close overlay/menu/settings — per-component  |
 
 ## Rebinding
@@ -91,17 +90,17 @@ table):
 - `Alt+1` … `Alt+9` — activate workspace N, clamped to the last existing one.
 - `Ctrl+Tab` / `Ctrl+Shift+Tab` — cycle tabs inside the focused pane
   (deliberately window-level so inputs, CodeMirror, and xterm can't keep it).
-- `Ctrl+S` — save in the editor pane (`FileView`'s own keydown; `Cmd+S` works
+- `Ctrl+S` — save in a file block (`FileView`'s own keydown; `Cmd+S` works
   too).
 - `Esc` — close overlays/menus, handled per component (settings page, menus,
   tree overlay, pane drag cancel, …).
 
-## Inside browser panes
+## Inside web tabs
 
 A focused `<webview>` keeps its keydowns — the host document never sees them.
 `resources/webview-preload.cjs` runs inside every guest and forwards `Alt+*`,
 `Ctrl+Tab`, and every combo in the effective binding table (pushed via
 `ade:bindings` whenever bindings change or a guest loads) as an `ipc-message`
 `ade:key` → `applyShortcut` — the same dispatch the window keydown listener
-uses. So custom combos work while typing in a browser pane; all other keys go
+uses. So custom combos work while typing in a web block; all other keys go
 to the page untouched.

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { TerminalSquare, Globe, Code2, ListTodo } from 'lucide-react'
+import { TerminalSquare, Globe, Code2 } from 'lucide-react'
 import { useStore, visibleLeafIds } from './store'
 import { applyShortcut } from './shortcuts'
 import { useT } from './i18n'
@@ -22,30 +22,25 @@ import ResumePrompt from './components/ResumePrompt'
 import Toasts from './components/Toasts'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
-  const newPane = useStore((s) => s.newPane)
+  const newBlock = useStore((s) => s.newBlock)
   const t = useT()
   return (
     <div className="empty-state">
       <div className="empty-actions">
-        <button onClick={() => newPane('terminal', wsId)}>
+        <button onClick={() => newBlock('term', wsId)}>
           <TerminalSquare />
           {t('terminal')}
           <kbd>Alt+T</kbd>
         </button>
-        <button onClick={() => newPane('browser', wsId)}>
+        <button onClick={() => newBlock('web', wsId)}>
           <Globe />
           {t('browser')}
           <kbd>Alt+B</kbd>
         </button>
-        <button onClick={() => newPane('editor', wsId)}>
+        <button onClick={() => newBlock('file', wsId)}>
           <Code2 />
           {t('editor')}
           <kbd>Alt+E</kbd>
-        </button>
-        <button onClick={() => newPane('todo', wsId)}>
-          <ListTodo />
-          {t('todos')}
-          <kbd>Alt+L</kbd>
         </button>
       </div>
     </div>
@@ -93,14 +88,13 @@ export default function App(): React.JSX.Element {
   // session events, resume records) silently never reaches disk
   useEffect(() => {
     const snapshot = (s: ReturnType<typeof useStore.getState>): Record<string, unknown> => ({
-      stateVersion: 2,
+      stateVersion: 3,
       projects: s.projects,
       workspaces: s.workspaces,
       activeWorkspaceId: s.activeWorkspaceId,
       settings: s.settings,
       sidebarOpen: s.sidebarOpen,
       bookmarks: s.bookmarks,
-      todos: s.todos,
       agentSessions: s.agentSessions,
       resumeSessions: s.resumeSessions,
       treeRoots: s.treeRoots,
@@ -140,7 +134,7 @@ export default function App(): React.JSX.Element {
           }
           if (m.tabId) {
             const p = st.workspaces.find((w) => w.id === m.workspaceId)?.panes[m.paneId]
-            if (p && 'tabs' in p && p.tabs.some((t) => t.id === m.tabId)) {
+            if (p && p.tabs.some((t) => t.id === m.tabId)) {
               st.updatePane(m.paneId, { activeTabId: m.tabId }, m.workspaceId)
             }
           }

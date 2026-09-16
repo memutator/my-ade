@@ -163,11 +163,11 @@ React 19 + a single zustand store (`store.ts`, `useStore`).
 ### Persisted state
 
 `PersistedState`: `projects`, `workspaces`, `activeWorkspaceId`, `settings`,
-`sidebarOpen`, `bookmarks`, `todos`, `agentSessions`. A `useStore.subscribe`
+`sidebarOpen`, `bookmarks`, `agentSessions`. A `useStore.subscribe`
 in `App.tsx` debounces 400 ms and calls `state:save`; `main.tsx` awaits
 `state.load()` + the agent manifest **before first render** and runs
 `hydrate()`, which migrates older saves (`normalizeWorkspace`/`normalizePane`
-— e.g. pre-tab terminal panes get a seeded tab).
+— v<3 typed panes become stacks of kind-tagged tabs; todo panes are dropped).
 
 ### Workspace + split-tree model
 
@@ -180,6 +180,19 @@ type LayoutNode =
   | { kind: 'split'; id: string; dir: 'row' | 'col'; ratio: number; a: LayoutNode; b: LayoutNode }
 ```
 
+**A pane has no type** — `PaneState = {id, tabs: PaneTab[], activeTabId, …}`
+is a stack of kind-tagged blocks (`PaneTab = TerminalTab | BrowserTab |
+EditorTab`, discriminated by `kind: 'term' | 'web' | 'file'`). The active
+tab's kind picks the content rendered inside `LeafPane` and the block chrome
+that floats over it (editor corner fab, browser omnibox header).
+
+Placement invariant: **programmatic opens stack, never split** — `newBlock`,
+`openFile`, and `openUrlInBrowser` resolve a target leaf via `stackTarget`
+(explicit requester > focused visible leaf > last visible leaf) and append a
+tab; `insertPane` (a new leaf) is reached only when nothing visible exists.
+`splitPane` is the sole implicit-geometry op and is only reachable from user
+gestures (shortcuts, `⋯` menu, drag-to-edge).
+
 `ratio` is `a`'s share of the split (clamped 0.1–0.9 by `setRatio`).
 `insertAt` splits a target leaf at a `DropEdge` (left/right → `row`, top/bottom
 → `col`; left/top inserts first), or wraps the root in a row split with ratio
@@ -187,7 +200,7 @@ type LayoutNode =
 `removeLeaf` collapses a split back to its surviving child; `movePane` is a
 strip+graft (or `swapPaneIds` for a center drop).
 
-Pane presentation flags (`PaneBase`):
+Pane presentation flags:
 
 - `minimized` — the leaf **stays** in the tree; `SplitView` hides fully
   minimized subtrees with the `hidden` attribute so the mounted xterm/webview
@@ -205,8 +218,11 @@ Pane presentation flags (`PaneBase`):
 
 - `TabStrip.tsx` — the Chrome-curved tab strip (drag reorder, dbl-click rename,
   dirty dots, wheel→horizontal scroll, overlay thumb) used by `WorkspaceStrip`
-  in the title bar **and** by `EditorPane`/`TerminalPane` inside the pane
-  title bar.
+  in the title bar **and** by `LeafPane` as the leaf's block strip.
+- `LeafPane.tsx` — the unified leaf renderer: shared `TabStrip` of the pane's
+  blocks, per-kind content views (`TerminalTabView`, `BrowserTabView`,
+  `FileView`), and the block chrome inside the content (file corner fab +
+  tree overlay, web floating header).
 - `Menu.tsx` — shared popup primitives, all portaled to `document.body`:
   `Popup` (`position:fixed`, viewport-clamped, closes on outside mousedown /
   Escape / scroll / resize / **focus theft** — a focused `<webview>` emits no

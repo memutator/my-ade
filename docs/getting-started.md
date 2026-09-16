@@ -63,12 +63,14 @@ ELECTRON_DISABLE_SANDBOX=1 ./dist/ade-0.1.0.AppImage
    directory registers it as a project and creates a workspace for it.
 2. Add more workspaces with the **`+`** button at the end of the tab strip —
    its menu lists every project. See [Workspaces](workspaces.md).
-3. Add panes with the topbar buttons or `Alt+T` (terminal), `Alt+B` (browser),
-   `Alt+E` (editor), `Alt+L` (todos). See [Panes](panes.md).
+3. Add content with the topbar buttons or `Alt+T` (terminal), `Alt+B`
+   (browser), `Alt+E` (editor) — each stacks a block as a tab into the
+   focused pane; splitting is a separate, explicit gesture. See
+   [Panes](panes.md).
 
 ## Persistence
 
-Projects, workspaces, layouts, pane state, bookmarks, todos, and settings are
+Projects, workspaces, layouts, pane state, bookmarks, and settings are
 saved (debounced) to `~/.config/ade/ade-state.json` and restored on the next
 launch. Terminal scrollback and running shells are not persisted — sessions
 respawn on restart.

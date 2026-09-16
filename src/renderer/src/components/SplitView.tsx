@@ -4,11 +4,10 @@ import type { LayoutNode } from '../types'
 import { useStore, visibleLeafIds } from '../store'
 import { registerPaneSlot, usePaneSlot } from '../paneSlots'
 import { FloatCtx } from './floatCtx'
-import TerminalPane from './TerminalPane'
-import BrowserPane from './BrowserPane'
-import EditorPane from './EditorPane'
-import TodoPane from './TodoPane'
+import LeafPane from './LeafPane'
 
+// A leaf renders its block stack — the pane record is type-agnostic, the
+// active tab's kind picks the content inside
 export function PaneFor({
   paneId,
   wsId
@@ -25,16 +24,7 @@ export function PaneFor({
     return s.projects.find((p) => p.id === w?.projectId)?.path
   })
   if (!pane) return null
-  switch (pane.type) {
-    case 'terminal':
-      return <TerminalPane pane={pane} wsId={wsId} projectPath={projectPath} />
-    case 'browser':
-      return <BrowserPane pane={pane} wsId={wsId} />
-    case 'editor':
-      return <EditorPane pane={pane} wsId={wsId} />
-    case 'todo':
-      return <TodoPane pane={pane} wsId={wsId} />
-  }
+  return <LeafPane pane={pane} wsId={wsId} projectPath={projectPath} />
 }
 
 function Divider({

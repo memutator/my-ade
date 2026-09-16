@@ -48,7 +48,6 @@ const SHORTCUT_GROUPS: { label: TKey; rows: ScRow[] }[] = [
       { desc: 'scNewTerminal', action: 'pane.newTerminal' },
       { desc: 'scNewBrowser', action: 'pane.newBrowser' },
       { desc: 'scNewEditor', action: 'pane.newEditor' },
-      { desc: 'scNewTodo', action: 'pane.newTodo' },
       { desc: 'scSplitRight', action: 'pane.splitRight' },
       { desc: 'scSplitDown', action: 'pane.splitDown' },
       { desc: 'scClosePane', action: 'pane.close' },

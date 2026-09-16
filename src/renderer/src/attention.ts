@@ -87,8 +87,9 @@ function resolveTarget(
     for (const w of st.workspaces) {
       const p = w.panes[at.paneId]
       if (!p) continue
-      const tab =
-        p.type === 'terminal' && at.tabId ? p.tabs.find((t) => t.id === at.tabId) : undefined
+      const tab = at.tabId
+        ? p.tabs.find((t): t is TerminalTab => t.id === at.tabId && t.kind === 'term')
+        : undefined
       return { ws: w, paneId: p.id, tabId: tab?.id, tab }
     }
   }
@@ -97,10 +98,9 @@ function resolveTarget(
     const ws = st.workspaces.find((w) => w.id === reg.wsId)
     const pane = ws?.panes[reg.paneId]
     if (ws && pane) {
-      const tab =
-        pane.type === 'terminal' && reg.tabId
-          ? pane.tabs.find((t) => t.id === reg.tabId)
-          : undefined
+      const tab = reg.tabId
+        ? pane.tabs.find((t): t is TerminalTab => t.id === reg.tabId && t.kind === 'term')
+        : undefined
       return { ws, paneId: pane.id, tabId: tab?.id, tab }
     }
   }
@@ -123,8 +123,9 @@ function resolveTarget(
   if (ws) {
     if (dir) {
       for (const p of Object.values(ws.panes)) {
-        if (p.type !== 'terminal') continue
-        const hit = (p.tabs ?? []).find((t) => (t.cwd ?? '').replace(/\/+$/, '') === dir)
+        const hit = p.tabs.find(
+          (t): t is TerminalTab => t.kind === 'term' && (t.cwd ?? '').replace(/\/+$/, '') === dir
+        )
         if (hit) {
           paneId = p.id
           tabId = hit.id
@@ -138,9 +139,8 @@ function resolveTarget(
     if (!tab && provider) {
       const hits: { paneId: string; tab: TerminalTab }[] = []
       for (const p of Object.values(ws.panes)) {
-        if (p.type !== 'terminal') continue
-        for (const t of p.tabs ?? []) {
-          if (t.agent === provider) hits.push({ paneId: p.id, tab: t })
+        for (const t of p.tabs) {
+          if (t.kind === 'term' && t.agent === provider) hits.push({ paneId: p.id, tab: t })
         }
       }
       if (hits.length === 1) {
@@ -177,7 +177,7 @@ async function levelFor(
   if (win !== 'focused') return { level: 'away', win }
   if (!ws || !pane || st.activeWorkspaceId !== ws.id || !paneOnScreen(ws, pane))
     return { level: 'ambient', win }
-  const tabActive = !!t.tabId && pane.type === 'terminal' && pane.activeTabId === t.tabId
+  const tabActive = !!t.tabId && pane.activeTabId === t.tabId
   return { level: tabActive ? 'attended' : 'ambient', win }
 }
 
@@ -334,7 +334,7 @@ export function sweepAttended(): void {
   const attended = new Map<string, string | undefined>()
   for (const p of Object.values(ws.panes)) {
     if (p.detached || p.minimized || (!p.floating && !leaves.has(p.id))) continue
-    attended.set(p.id, p.type === 'terminal' ? p.activeTabId : undefined)
+    attended.set(p.id, p.activeTabId)
   }
   // a ping pointing at a pane/tab that no longer exists degrades to the
   // coarsest live level — stale targets must not badge the workspace forever
@@ -346,10 +346,7 @@ export function sweepAttended(): void {
         if (n.paneId === undefined || !pane) return true
         if (!attended.has(n.paneId)) return false
         if (n.tabId === undefined) return true
-        const tabGone =
-          'tabs' in pane && Array.isArray(pane.tabs)
-            ? !pane.tabs.some((t) => t.id === n.tabId)
-            : false
+        const tabGone = !pane.tabs.some((t) => t.id === n.tabId)
         return tabGone || n.tabId === attended.get(n.paneId)
       })
       .map((n) => n.id)
@@ -382,9 +379,7 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
       !!ev.paneId &&
       st.workspaces.some((w) => {
         const p = w.panes[ev.paneId!]
-        return (
-          !!p && (!ev.tabId || (p.type === 'terminal' && p.tabs.some((t) => t.id === ev.tabId)))
-        )
+        return !!p && (!ev.tabId || p.tabs.some((t) => t.id === ev.tabId && t.kind === 'term'))
       })
     if (!adopted) {
       logDecision(ev, null, 'drop', 'foreign', 'hook')
@@ -452,7 +447,7 @@ export function reportProcessIdle(
   const st = useStore.getState()
   const ws = st.workspaces.find((w) => w.id === wsId)
   const pane = ws?.panes[paneId]
-  const tab = pane?.type === 'terminal' ? pane.tabs.find((t) => t.id === tabId) : undefined
+  const tab = pane?.tabs.find((t): t is TerminalTab => t.id === tabId && t.kind === 'term')
   const t: Target = { ws, paneId, tabId: tab ? tabId : undefined, tab }
   const ev = { provider, event: 'turn-complete', cwd: tab?.cwd }
   // the agent process is gone — a pending prompt died with it

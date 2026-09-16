@@ -17,7 +17,6 @@ export type ShortcutAction =
   | 'pane.newTerminal'
   | 'pane.newBrowser'
   | 'pane.newEditor'
-  | 'pane.newTodo'
   | 'pane.splitRight'
   | 'pane.splitDown'
   | 'pane.close'
@@ -39,7 +38,6 @@ export const DEFAULT_BINDINGS: Record<ShortcutAction, string> = {
   'pane.newTerminal': 'alt+t',
   'pane.newBrowser': 'alt+b',
   'pane.newEditor': 'alt+e',
-  'pane.newTodo': 'alt+l',
   'pane.splitRight': 'alt+d',
   'pane.splitDown': 'alt+s',
   'pane.close': 'alt+w',
@@ -162,24 +160,21 @@ function run(st: St, a: ShortcutAction): boolean {
   const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId)
   switch (a) {
     case 'pane.newTerminal':
-      st.newPane('terminal')
+      st.newBlock('term')
       return true
     case 'pane.newBrowser':
-      st.newPane('browser')
+      st.newBlock('web')
       return true
     case 'pane.newEditor':
-      st.newPane('editor')
-      return true
-    case 'pane.newTodo':
-      st.newPane('todo')
+      st.newBlock('file')
       return true
     case 'pane.splitRight':
-      if (ws?.focusedPaneId) st.splitPane(ws.focusedPaneId, 'row', 'terminal')
-      else st.newPane('terminal')
+      if (ws?.focusedPaneId) st.splitPane(ws.focusedPaneId, 'row', 'term')
+      else st.newBlock('term')
       return true
     case 'pane.splitDown':
-      if (ws?.focusedPaneId) st.splitPane(ws.focusedPaneId, 'col', 'terminal')
-      else st.newPane('terminal')
+      if (ws?.focusedPaneId) st.splitPane(ws.focusedPaneId, 'col', 'term')
+      else st.newBlock('term')
       return true
     case 'pane.close':
       if (!ws?.focusedPaneId) return false

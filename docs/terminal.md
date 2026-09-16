@@ -1,39 +1,43 @@
 # Terminal
 
-Terminal panes are xterm.js shells backed by a separate pty-host process (real
-`node-pty` under system Node — see [Getting started](getting-started.md) for
-the Node.js requirement).
+Terminal **blocks** (`term` tab kind) are xterm.js shells backed by a separate
+pty-host process (real `node-pty` under system Node — see
+[Getting started](getting-started.md) for the Node.js requirement). They are
+ordinary entries in a leaf's shared tab strip and can sit next to file and
+web tabs in the same stack.
 
 ## Tabs
 
-Each pane owns an internal **tab strip of shell tabs** — every tab keeps its
-own xterm and live pty in the background. The `+` button in the titlebar adds
-a tab; `Ctrl+Tab` / `Ctrl+Shift+Tab` cycles them. Tabs can be double-clicked
+Every terminal tab keeps its own xterm and live pty in the background —
+inactive tabs stay mounted, so shells keep running. The leaf's `+` menu
+(`Alt+T`) stacks another terminal into the focused leaf;
+`Ctrl+Tab` / `Ctrl+Shift+Tab` cycles tabs. Tabs can be double-clicked
 to rename, dragged to reorder, and closed with `×` — closing the last tab
-closes the pane.
+closes the leaf.
 
-New panes and new tabs spawn in the **workspace's project directory**. The
+New terminals spawn in the **workspace's project directory**. The
 shell's live cwd is tracked and shown as a sub-label on the tab. When a shell
-exits, its tab gets a dot and the pane shows a *process exited — click to
-restart* overlay (a restart button also appears in the titlebar).
+exits, its tab gets a dot and a *process exited — click to restart* overlay
+(a restart item also appears in the tab's context menu).
 
 ## Links in output
 
 Terminal output is linkified — hold the pointer over it and click:
 
-- **URLs** open in a browser pane of the same workspace — the focused browser
-  pane navigates, else the first browser pane, else a new one is created
-- **file paths** open in an [editor](editor.md) pane, resolved against that
-  tab's live cwd at click time — `src/foo.ts:12`, `./x`, `~/…`, `file://…`
-  URIs, `key=path` args, and extensionless basenames like `Makefile` or
-  `README` are all recognized
+- **URLs** open in the same workspace — they navigate the leaf's active web
+  tab if it has one, else stack a new web block into the link's leaf (never
+  a split; a new leaf only appears when nothing is on screen)
+- **file paths** stack a file tab into the link's own leaf, resolved against
+  that tab's live cwd at click time — `src/foo.ts:12`, `./x`, `~/…`,
+  `file://…` URIs, `key=path` args, and extensionless basenames like
+  `Makefile` or `README` are all recognized
 
 ## Agent awareness
 
 The pty host walks each shell's process tree and detects known **agent CLIs**
 — claude, codex, gemini, grok, devin, cursor, copilot, aider, opencode, amp.
-A detected agent shows in the pane titlebar/tab with its vendor icon (falling
-back to a brand-colored letter), replacing the shell name.
+A detected agent shows on its tab with its vendor icon (falling back to a
+brand-colored letter), replacing the shell name.
 
 An agent→idle transition counts as a finished turn and fires an **in-app
 notification plus an OS notification**; clicking either jumps straight to the

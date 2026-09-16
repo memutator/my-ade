@@ -178,8 +178,9 @@ async function boot(tag, opts = {}) {
         const s = window.__ade.getState()
         for (const w of s.workspaces)
           for (const p of Object.values(w.panes))
-            if (p.type === 'terminal')
-              for (const t of p.tabs) if (t.pty) return { wsId: w.id, paneId: p.id, tabId: t.id, pty: t.pty }
+            for (const t of p.tabs)
+              if (t.kind === 'term' && t.pty)
+                return { wsId: w.id, paneId: p.id, tabId: t.id, pty: t.pty }
         return null
       })()`,
       'a terminal tab with a live pty'
@@ -221,7 +222,7 @@ const mkws = async (h) => {
     const s = window.__ade.getState()
     const w = s.workspaces.at(-1)
     s.activateWorkspace(w.id)
-    s.newPane('terminal', w.id)
+    s.newBlock('term', w.id)
     return w.id
   })()`)
   return { pid, wsId }
@@ -232,7 +233,7 @@ const addTermTab = (h, wsId, paneId) =>
     const s = window.__ade.getState()
     const w = s.workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
     const p = w.panes[${JSON.stringify(paneId)}]
-    const t = { id: crypto.randomUUID() }
+    const t = { id: crypto.randomUUID(), kind: 'term' }
     s.updatePane(p.id, { tabs: [...p.tabs, t], activeTabId: t.id }, w.id)
     return t.id
   })()`)
@@ -243,8 +244,8 @@ const ptyForTab = (h, tabId) =>
       const s = window.__ade.getState()
       for (const w of s.workspaces)
         for (const p of Object.values(w.panes))
-          if (p.type === 'terminal')
-            for (const t of p.tabs) if (t.id === ${JSON.stringify(tabId)} && t.pty) return t.pty
+          for (const t of p.tabs)
+            if (t.id === ${JSON.stringify(tabId)} && t.kind === 'term' && t.pty) return t.pty
       return null
     })()`,
     `pty for tab ${tabId}`
@@ -331,15 +332,15 @@ async function scAttention() {
     s.createWorkspace(s.projects[0].id)
     s = window.__ade.getState()
     const w = s.workspaces.at(-1)
-    s.newPane('terminal', w.id)
+    s.newBlock('term', w.id)
     s.activateWorkspace(${JSON.stringify(ws1)})
     return w.id
   })()`)
   const t2 = await h.waitFor(
     `(() => {
       const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
-      const p = Object.values(w.panes).find((p) => p.type === 'terminal')
-      const t = p?.tabs?.[0]
+      const p = Object.values(w.panes).find((p) => p.tabs.some((t) => t.kind === 'term'))
+      const t = p?.tabs?.find((t) => t.kind === 'term')
       return t?.pty ? { paneId: p.id, tabId: t.id, pty: t.pty } : null
     })()`,
     'ws2 terminal'
@@ -494,14 +495,17 @@ async function scBrowserFile() {
   const f1 = 'file://' + page.split('/').map(encodeURIComponent).join('/')
   const f2 = 'file:///tmp/other.html'
 
+  // opens stack a web block into the focused leaf — no split, no new pane
   await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f1)}, undefined, true)`)
   const first = await h.ev(`(() => {
     const s = window.__ade.getState()
-    const bps = Object.values(s.workspaces[0].panes).filter((p) => p.type === 'browser')
-    return bps.length === 1 && bps[0].tabs.length === 1 &&
-      bps[0].tabs[0].url === ${JSON.stringify(f1)} && bps[0].activeTabId === bps[0].tabs[0].id
+    const leaf = Object.values(s.workspaces[0].panes).find((p) =>
+      p.tabs.some((t) => t.kind === 'web'))
+    const wt = leaf?.tabs.find((t) => t.kind === 'web')
+    return leaf?.tabs.length === 2 && wt?.url === ${JSON.stringify(f1)} &&
+      leaf.activeTabId === wt.id
   })()`)
-  ok(first === true, 'no browser pane → new pane with the file url')
+  ok(first === true, 'file url stacked a web tab into the focused leaf')
 
   const loaded = await h
     .waitFor(
@@ -514,12 +518,13 @@ async function scBrowserFile() {
     .catch(() => null)
   ok(loaded === f1, `webview navigated to the file (${loaded})`)
 
-  // a second file open appends a tab — the loaded page must not be clobbered
+  // a second file open appends a web block — the loaded page must not be clobbered
   await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f2)}, undefined, true)`)
   const after = await h.ev(`(() => {
-    const bp = Object.values(window.__ade.getState().workspaces[0].panes)
-      .find((p) => p.type === 'browser')
-    return { urls: bp.tabs.map((t) => t.url), active: bp.tabs.at(-1).id === bp.activeTabId }
+    const leaf = Object.values(window.__ade.getState().workspaces[0].panes)
+      .find((p) => p.tabs.some((t) => t.kind === 'web'))
+    const wts = leaf.tabs.filter((t) => t.kind === 'web')
+    return { urls: wts.map((t) => t.url), active: wts.at(-1).id === leaf.activeTabId }
   })()`)
   ok(
     after.urls.length === 2 && after.urls[0] === f1 && after.urls[1] === f2 && after.active,

@@ -4,11 +4,10 @@
 
 - [Getting started](getting-started.md) — install (deb / AppImage), requirements, first run
 - [Workspaces](workspaces.md) — workspace tabs, projects, strip interactions
-- [Panes](panes.md) — pane types, splitting, floating, detached windows, drag & drop
+- [Panes](panes.md) — block-stack leaves, splitting, floating, detached windows, drag & drop
 - [Terminal](terminal.md) — shell sessions, link routing, agent detection
 - [Editor](editor.md) — file tabs, CodeMirror, live markdown, previews
-- [Browser](browser.md) — webview tabs, bookmarks, omnibox
-- [Todos](todos.md) — project checklists, nesting, dependencies
+- [Browser](browser.md) — webview blocks, bookmarks, floating omnibox
 
 ## Reference
 

@@ -8,20 +8,35 @@ splittable pane layout scoped to a project directory.
 
 - **project** = a directory (`{id, name, path}`), global registry. The `+`
   workspace menu lists them with a two-click trash action: `removeProject`
-  drops the project's workspaces (killing their ptys/agents), its todos,
+  drops the project's workspaces (killing their ptys/agents),
   project-scoped bookmarks and resume records, and re-points a dangling
   `activeWorkspaceId` at a survivor — the directory on disk is untouched.
 - **workspace** = a tab = one split-pane layout, belongs to a project (`project:workspace = 1:N`).
   All workspaces across projects share the single `WorkspaceStrip` in the title bar.
   Switching happens only via workspace tabs; project is chosen when creating a workspace.
+- **a pane (leaf) has no type** — `PaneState` is a stack of kind-tagged
+  blocks (`PaneTab = TerminalTab | BrowserTab | EditorTab`, `kind:
+  'term' | 'web' | 'file'`); `LeafPane.tsx` renders the shared `TabStrip`
+  plus the active block's content (`TerminalTabView` / `BrowserTabView` /
+  `FileView`), and inactive blocks stay mounted (hidden) so shells, web
+  pages and dirty buffers all keep running. Block chrome lives inside the
+  content: a file block gets a top-left `.tree-fab` whose ~350ms hover pops
+  the directory-tree overlay (`pane.treeRoot` + `TreeRootMenu` + `FileTree`,
+  opens into that leaf); a web block floats a translucent `.web-head`
+  omnibox/nav card over the page.
+- **programmatic opens stack, never split** — `newBlock` / `openFile` /
+  `openUrlInBrowser` resolve a leaf via `stackTarget` (explicit requester >
+  focused visible > last visible) and append a tab; a new leaf is inserted
+  only when nothing visible exists. Invariant: **the focused leaf is never
+  implicitly split** — `splitPane` is reachable only from explicit user
+  gestures (Alt+D/Alt+S, the `⋯` menu, drag-to-edge).
 - Terminal cwd defaults to the workspace's `project.path`. File-tree roots are
   re-pickable via `TreeRootMenu` (MRU `treeRoots` → other projects → dir
   picker): the sidebar/peek-overlay share `sidebarRoots[projectId]` (default
-  `project.path`), while an editor pane owns `pane.treeRoot` (default project
+  `project.path`), while a leaf owns `pane.treeRoot` (default project
   path, materialized onto the pane on float/detach).
-- **terminal pane** owns an internal `TabStrip` of shell tabs (`tabs[]` +
-  `activeTabId`); every tab keeps a mounted xterm + live pty in the background,
-  and closing the last tab closes the pane. New tabs spawn in `project.path`.
+- **terminal blocks** keep a mounted xterm + live pty per tab in the
+  background. New tabs spawn in `project.path`.
 - **pane content never remounts on layout changes.** `PanePortals`
   (SplitView.tsx) renders each non-detached pane's `PaneFor` exactly once into
   a per-pane `.pane-mount` div it owns; that node is `appendChild`-ed into
@@ -36,32 +51,25 @@ splittable pane layout scoped to a project directory.
   StrictMode remounts all re-`attach` to the live session instead. Closing a
   tab/pane/workspace removes the record → cleanup kills; `restartTab` kills
   its session explicitly before clearing `pty`.
-- **editor pane** owns an internal `TabStrip` of file tabs; tree clicks open files there.
-  Tree single-click / Enter / ctx "Open" open a VS Code-style **preview tab**
-  (italic label — replaced in place by the next preview open); double-click on
-  the tree row or the tab, "Keep Open" in the tab menu, or making the buffer
-  dirty pins it. Explicit opens (file dialog, terminal links, create-and-open)
-  are always pinned. Files are editable (CodeMirror); `.md`/`.markdown` open in
-  Milkdown live-rendered WYSIWYG; `dirty` dots mark unsaved tabs; all open tabs
-  stay mounted. Closing
-  the last tab closes the pane (`closeFilesUnder` does the same when a tree
-  delete empties it). The pane icon is the tree control — identical docked,
-  floating, detached: hover ~350ms dwell pops a portaled peek overlay
-  (`pane.treeRoot` + `TreeRootMenu` + `FileTree`, opens into this pane),
-  press-and-hold then move starts the pane drag.
-- **closing the last tab of any pane closes the pane** (terminal, editor,
-  browser). In a detached window the close routes through `pane:cmd` → the
-  main store's `closePane`, which kills detached ptys and tears the window
-  down via `closeDetached`.
-- **todo items** live per project (`todos: Record<projectId, TodoItem[]>`) — checklist
-  with `todo`/`doing`/`done`, arbitrary `parentId` depth, `dependsOn` blocking, drag
-  reorder. Surfaced as a sidebar section and as a `'todo'` pane type.
+- **file blocks** use VS Code-style **preview tabs**: tree single-click /
+  Enter / ctx "Open" open an italic preview replaced in place by the next
+  preview open; double-click on the tree row or the tab, "Keep Open" in the
+  tab menu, or making the buffer dirty pins it. Explicit opens (file dialog,
+  terminal links, create-and-open) are always pinned. Files are editable
+  (CodeMirror); `.md`/`.markdown` open in Milkdown live-rendered WYSIWYG;
+  `dirty` dots mark unsaved tabs; all open tabs stay mounted.
+  `closeFilesUnder` closes file tabs under deleted paths (and the leaf when
+  it empties).
+- **closing the last tab of any leaf closes the leaf**. In a detached window
+  the close routes through `pane:cmd` → the main store's `closePane`, which
+  kills detached ptys and tears the window down via `closeDetached`.
 - **bookmarks** are global or project-scoped (`bookmarks: Bookmark[]`, `scope:
-'global' | projectId`); browser panes own a `tabs[]` + `activeTabId` list exposed
-  via header dropdowns (no room for a tab strip). `openUrlInBrowser(url, wsId?,
-newTab?)` navigates the focused/first browser pane or creates one; the file
-  tree's "Open in browser" ctx item (`.html`/`.htm`) passes `newTab` so a file
-  open never clobbers a loaded page — `file://` urls are per-segment encoded.
+'global' | projectId`); a web block's floating header exposes them via the
+  star dropdown. `openUrlInBrowser(url, wsId?, newTab?, paneId?)` stacks a
+  web block into the target leaf — or navigates its active web tab when
+  `newTab` is false; the file tree's "Open in browser" ctx item
+  (`.html`/`.htm`) passes `newTab` so a file open never clobbers a loaded
+  page — `file://` urls are per-segment encoded.
 
 * **minimized panes** (`pane.minimized`) keep their leaf in the layout tree —
   `SplitView` hides fully-minimized subtrees with the `hidden` attr, so the pane
@@ -173,9 +181,10 @@ without being asked:
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
   `workspaces[]` (each with `root`/`panes`/`focusedPaneId`), `settings`,
   `notifications`. `TabStrip.tsx` is the shared Chrome-curved-tab component used by
-  `WorkspaceStrip` (title bar) and `EditorPane`/`TerminalPane` (pane title bar).
-  `FileTree` backs both
-  the app-icon hover overlay and the pinned `Sidebar`. Persisted state is saved
+  `WorkspaceStrip` (title bar) and `LeafPane` (the leaf's block strip).
+  `FileTree` backs the
+  app-icon hover overlay, the pinned `Sidebar`, and the file block's corner-fab
+  overlay. Persisted state is saved
   debounced via `state:save` and hydrated before first render in `main.tsx`.
 - PTY session ids are `paneId:tabId:uuid` — unique per terminal tab mount so
   stale `exit` events from a killed session (StrictMode remount, HMR, tab
@@ -207,7 +216,7 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 
 | Key                           | Action                                                                                                                                                             |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Alt+T / Alt+B / Alt+E / Alt+L | new terminal / browser / editor / todo pane                                                                                                                        |
+| Alt+T / Alt+B / Alt+E         | stack a terminal / browser / editor block into the focused leaf                                                                                                    |
 | Alt+D / Alt+S                 | split focused pane right / down                                                                                                                                    |
 | Alt+W                         | close focused pane                                                                                                                                                 |
 | Alt+H                         | minimize focused pane to the dock                                                                                                                                  |
@@ -221,7 +230,8 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 
 ## Gotchas
 
-- `webview.loadURL` throws before `dom-ready`; `BrowserPane` retries via a ready flag.
+- `webview.loadURL` throws before `dom-ready`; `BrowserPane`'s `syncUrl` retries
+  on a bounded timer.
 - Pane drag & drop (`paneDnd.ts`) is pointer-event based, not HTML5 DnD — a
   `<webview>` swallows all mouse events, so an armed drag sets
   `body.pane-dragging` which forces `pointer-events: none` on every webview,

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import { useRef } from 'react'
 import {
   Columns2,
   Minus,
@@ -16,25 +17,25 @@ import { startPaneDrag } from '../paneDnd'
 import { isDetachedWin } from '../detached'
 import { useFloatCtx } from './floatCtx'
 import Tooltip from './Tooltip'
-import { Dropdown, Popup } from './Menu'
+import { Dropdown } from './Menu'
 
 export default function PaneFrame({
   pane,
   wsId,
   icon,
   title,
+  dragTitle,
   extraActions,
-  gripPeek,
   children
 }: {
   pane: PaneState
   wsId: string
   icon: ReactNode
-  title?: ReactNode
+  /** the titlebar slot — the leaf's tab strip lives here */
+  title: ReactNode
+  /** label for the pane-drag ghost chip (the active block's name) */
+  dragTitle?: string
   extraActions?: ReactNode
-  /** grip icon dwell-peek content (editor: tree overlay) — rendered in a
-      portaled card under the icon, same in docked/floating/detached */
-  gripPeek?: ReactNode
   children: ReactNode
 }): React.JSX.Element {
   const focused = useStore((s) => {
@@ -52,43 +53,6 @@ export default function PaneFrame({
   // to the main store via pane:cmd
   const detachedCtx = isDetachedWin
 
-  // ── grip icon: hover → dwell-peek card, hold → drag ──
-  // the peek opens on a 350ms dwell; a 150ms leave-delay bridges the pointer
-  // gap into the card. peek-capable icons show no tooltip — the card is the
-  // affordance (and they'd overlap)
-  const [peekRect, setPeekRect] = useState<DOMRect | null>(null)
-  const openT = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const closeT = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const clearT = (r: typeof openT): void => {
-    if (r.current) {
-      clearTimeout(r.current)
-      r.current = null
-    }
-  }
-  const gripEnter = (): void => {
-    if (!gripPeek) return
-    clearT(closeT)
-    clearT(openT)
-    openT.current = setTimeout(
-      () => setPeekRect(gripRef.current?.getBoundingClientRect() ?? null),
-      350
-    )
-  }
-  const gripLeave = (): void => {
-    clearT(openT)
-    if (!peekRect) return
-    clearT(closeT)
-    closeT.current = setTimeout(() => setPeekRect(null), 150)
-  }
-  useEffect(
-    () => () => {
-      clearT(openT)
-      clearT(closeT)
-    },
-    []
-  )
-
   return (
     <div
       className={`pane${focused ? ' focused' : ''}${floating ? ' in-float' : ''}`}
@@ -97,41 +61,24 @@ export default function PaneFrame({
       onPointerDownCapture={() => focusPane(pane.id, wsId)}
     >
       <div className="pane-titlebar" onPointerDown={floatCtx?.onTitlebarPointerDown}>
-        <Tooltip label={gripPeek ? undefined : t('dragToMove')}>
+        <Tooltip label={t('dragToMove')}>
           <span
             ref={gripRef}
             className="pane-grip"
-            onMouseEnter={gripEnter}
-            onMouseLeave={gripLeave}
             onPointerDown={(e) => {
               startPaneDrag(e, {
                 paneId: pane.id,
                 wsId,
-                title:
-                  gripRef.current?.parentElement?.querySelector('.pane-title')?.textContent ??
-                  pane.title,
+                title: dragTitle ?? '',
                 iconEl: gripRef.current,
-                paneEl: gripRef.current?.closest('.pane') as HTMLElement | null,
-                onArm: () => setPeekRect(null)
+                paneEl: gripRef.current?.closest('.pane') as HTMLElement | null
               })
             }}
           >
             {icon}
           </span>
         </Tooltip>
-        {peekRect && gripPeek && (
-          <Popup
-            pos={{ left: peekRect.left, top: peekRect.bottom + 5 }}
-            onClose={() => setPeekRect(null)}
-            insideRef={gripRef}
-            className="tree-overlay pane-peek"
-            onMouseEnter={() => clearT(closeT)}
-            onMouseLeave={() => setPeekRect(null)}
-          >
-            {gripPeek}
-          </Popup>
-        )}
-        {title ?? <span className="pane-title">{pane.title}</span>}
+        {title}
         <div className="actions">
           {extraActions}
           {detachedCtx ? (
@@ -169,14 +116,14 @@ export default function PaneFrame({
                 <>
                   <button
                     className="pact-item"
-                    onClick={() => splitPane(pane.id, 'row', 'terminal', wsId)}
+                    onClick={() => splitPane(pane.id, 'row', 'term', wsId)}
                   >
                     <Columns2 />
                     {t('splitRight')}
                   </button>
                   <button
                     className="pact-item"
-                    onClick={() => splitPane(pane.id, 'col', 'terminal', wsId)}
+                    onClick={() => splitPane(pane.id, 'col', 'term', wsId)}
                   >
                     <Rows2 />
                     {t('splitDown')}

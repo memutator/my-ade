@@ -3,20 +3,13 @@ import { Terminal } from '@xterm/xterm'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { Plus, RotateCw, TerminalSquare } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
-import type { TerminalPaneState, TerminalTab } from '../types'
-import { useStore } from '../store'
-import { agentLabel } from '../agents'
-import { shortPath } from '../utils'
+import type { PaneState, TerminalTab } from '../types'
+import { useStore, patchTerminalTab } from '../store'
 import { reportProcessIdle } from '../attention'
-import AgentIcon from './AgentIcon'
 import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
-import Tooltip from './Tooltip'
-import PaneFrame from './PaneFrame'
-import TabStrip, { type TabItem, type TabStripHandle } from './TabStrip'
-import { CtxMenu, type CtxItem } from './Menu'
+import { CtxMenu } from './Menu'
 
 const TERM_THEME = {
   dark: {
@@ -122,41 +115,24 @@ function extractPath(token: string): { path: string; start: number; end: number 
   return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
 }
 
-// Resolve against the owning tab's live cwd and open in the workspace's editor.
+// Resolve against the owning tab's live cwd and open in the workspace — the
+// file tab stacks into this tab's leaf (never a split)
 function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string): void {
-  const cwd = terminalPane(wsId, paneId)?.tabs?.find((t) => t.id === tabId)?.cwd
+  const cwd = paneAt(wsId, paneId)?.tabs.find(
+    (t): t is TerminalTab => t.id === tabId && t.kind === 'term'
+  )?.cwd
   window.ade.fs
     .resolvePath(raw, cwd)
     .then((abs) => {
       if (!abs) return
-      useStore.getState().openFileInEditor(abs, abs.split('/').pop() ?? abs, wsId)
+      useStore.getState().openFile(abs, abs.split('/').pop() ?? abs, wsId, false, paneId)
     })
     .catch(() => {})
 }
 
 /** event handlers outlive props — always read the pane fresh from the store */
-function terminalPane(wsId: string, paneId: string): TerminalPaneState | null {
-  const w = useStore.getState().workspaces.find((x) => x.id === wsId)
-  const p = w?.panes[paneId]
-  return p?.type === 'terminal' ? p : null
-}
-
-// pty events arrive keyed by session id (paneId:tabId:uuid) — route the state
-// write to the tab that owns the session, never to the pane as a whole
-function patchTerminalTab(
-  wsId: string,
-  paneId: string,
-  tabId: string,
-  patch: Partial<TerminalTab>
-): void {
-  const st = useStore.getState()
-  const p = terminalPane(wsId, paneId)
-  if (!p || !(p.tabs ?? []).some((x) => x.id === tabId)) return
-  st.updatePane(
-    paneId,
-    { tabs: (p.tabs ?? []).map((x) => (x.id === tabId ? { ...x, ...patch } : x)) },
-    wsId
-  )
+function paneAt(wsId: string, paneId: string): PaneState | undefined {
+  return useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
 }
 
 function makePathLinkProvider(
@@ -212,7 +188,7 @@ function makePathLinkProvider(
  * uses the `hidden` attribute) so shells keep running; the ResizeObserver
  * refits when a tab becomes visible again.
  */
-function TerminalTabView({
+export function TerminalTabView({
   wsId,
   paneId,
   tabId,
@@ -239,9 +215,10 @@ function TerminalTabView({
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
   const exited = useStore((s) => {
-    const w = s.workspaces.find((x) => x.id === wsId)
-    const p = w?.panes[paneId]
-    return (p?.type === 'terminal' && (p.tabs ?? []).find((x) => x.id === tabId)?.exited) ?? false
+    const p = s.workspaces.find((x) => x.id === wsId)?.panes[paneId]
+    return (
+      p?.tabs.find((x): x is TerminalTab => x.id === tabId && x.kind === 'term')?.exited ?? false
+    )
   })
   const t = useT()
   const [ctx, setCtx] = useState<{ x: number; y: number; sel: boolean } | null>(null)
@@ -309,7 +286,9 @@ function TerminalTabView({
     // Session identity lives on the tab: remounts (float/detach transitions,
     // StrictMode, HMR) re-attach to the same pty-host session — scrollback
     // replays via the host's tail buffer. A fresh tab gets a fresh id.
-    const existingPty = terminalPane(wsId, paneId)?.tabs.find((x) => x.id === tabId)?.pty
+    const existingPty = paneAt(wsId, paneId)?.tabs.find(
+      (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
+    )?.pty
     const id = existingPty ?? `${paneId}:${tabId}:${crypto.randomUUID()}`
 
     const refit = (): void => {
@@ -412,8 +391,8 @@ function TerminalTabView({
       let ownsSession = false
       for (const w of st.workspaces) {
         const p = w.panes[paneId]
-        if (p?.type === 'terminal') {
-          ownsSession = p.tabs.some((t) => t.id === tabId && t.pty === id)
+        if (p) {
+          ownsSession = p.tabs.some((t) => t.id === tabId && t.kind === 'term' && t.pty === id)
           break
         }
       }
@@ -481,200 +460,6 @@ function TerminalTabView({
           ]}
         />
       )}
-    </>
-  )
-}
-
-export default function TerminalPane({
-  pane,
-  wsId,
-  projectPath
-}: {
-  pane: TerminalPaneState
-  wsId: string
-  projectPath?: string
-}): React.JSX.Element {
-  const updatePane = useStore((s) => s.updatePane)
-  const closePane = useStore((s) => s.closePane)
-  const notifications = useStore((s) => s.notifications)
-  const focused = useStore((s) => {
-    const w = s.workspaces.find((x) => x.id === wsId)
-    return s.activeWorkspaceId === wsId && w?.focusedPaneId === pane.id
-  })
-  // per-tab restart counter — bumping re-runs the tab's spawn effect
-  const [epochs, setEpochs] = useState<Record<string, number>>({})
-  const t = useT()
-
-  const tabs = pane.tabs ?? []
-  const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
-  const activeTabId = activeTab?.id ?? null
-
-  const stripRef = useRef<TabStripHandle>(null)
-  const [ctx, setCtx] = useState<{ x: number; y: number; tabId: string } | null>(null)
-
-  // kill the old session AND clear the session id — the remount must spawn a
-  // fresh shell, not attach back to the session being "restarted" (unmount
-  // cleanup won't kill it: the tab record still exists)
-  const restartTab = (tabId: string): void => {
-    const old = tabs.find((x) => x.id === tabId)?.pty
-    if (old) window.ade.pty.kill(old)
-    patchTerminalTab(wsId, pane.id, tabId, { pty: undefined })
-    setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
-  }
-
-  // a new tab spawns a fresh shell in the workspace project dir — same cwd a
-  // brand-new terminal pane would get
-  const newTab = (): void => {
-    const tab: TerminalTab = { id: crypto.randomUUID() }
-    updatePane(pane.id, { tabs: [...tabs, tab], activeTabId: tab.id }, wsId)
-  }
-
-  // closing the last tab closes the pane — a terminal without a shell is dead
-  // weight; unmounting the pane kills the pty via the tab view's cleanup.
-  // in a detached window the record lives in the main store — pane:cmd
-  // closes it there and tears this window down
-  const applyTabs = (next: TerminalTab[], keepId?: string): void => {
-    if (next.length === 0) {
-      if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
-      else closePane(pane.id, wsId)
-      return
-    }
-    const want = keepId ?? activeTabId
-    const keep = want && next.some((x) => x.id === want) ? want : next.at(-1)!.id
-    updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
-  }
-  const closeTab = (tabId: string): void => applyTabs(tabs.filter((x) => x.id !== tabId))
-
-  const ctxItems = (): CtxItem[] => {
-    const i = tabs.findIndex((x) => x.id === ctx?.tabId)
-    const tab = tabs[i]
-    if (!tab) return []
-    return [
-      {
-        label: t('rename'),
-        // eslint-disable-next-line react-hooks/refs -- act runs on menu click, not render
-        act: () => stripRef.current?.startRename(tab.id)
-      },
-      {
-        label: t('copyCwd'),
-        disabled: !tab.cwd,
-        act: () => tab.cwd && void window.ade.clipboard.write(tab.cwd)
-      },
-      { sep: true },
-      { label: t('restartShell'), act: () => restartTab(tab.id) },
-      { label: t('newTerminalTab'), act: newTab },
-      { sep: true },
-      { label: t('close'), act: () => closeTab(tab.id) },
-      {
-        label: t('closeOthers'),
-        disabled: tabs.length < 2,
-        act: () => applyTabs([tab], tab.id)
-      },
-      {
-        label: t('closeToRight'),
-        disabled: i >= tabs.length - 1,
-        act: () => applyTabs(tabs.slice(0, i + 1))
-      }
-    ]
-  }
-
-  const renameTab = (tabId: string, name: string): void => {
-    const title = name.trim()
-    patchTerminalTab(wsId, pane.id, tabId, { title: title || undefined })
-    // session-rename hook: if a harness session was observed for this tab,
-    // propagate the name through the real event channel so the session
-    // registry (and every ade instance) learns it — powers the "which
-    // session" line in notifications
-    const st = useStore.getState()
-    const lp = st.workspaces.find((w) => w.id === wsId)?.panes[pane.id]
-    const tab = lp?.type === 'terminal' ? lp.tabs.find((t) => t.id === tabId) : undefined
-    const sid = Object.entries(st.agentSessions).find(
-      ([, i]) => i.tabId === tabId && i.wsId === wsId
-    )?.[0]
-    if (sid) {
-      st.renameAgentSession(sid, title)
-      void window.ade.hooks.emit?.({
-        provider: tab?.agent ?? st.agentSessions[sid]?.provider ?? 'unknown',
-        event: 'session-rename',
-        sessionId: sid,
-        cwd: tab?.cwd,
-        name: title || undefined
-      })
-    }
-  }
-
-  const reorderTabs = (from: number, to: number): void => {
-    const next = [...tabs]
-    const [m] = next.splice(from, 1)
-    next.splice(to, 0, m)
-    updatePane(pane.id, { tabs: next }, wsId)
-  }
-
-  // unread notifications also badge the exact tab inside the pane — the
-  // workspace strip only points at the workspace level
-  const unreadTabs = new Set(notifications.filter((n) => !n.read && n.tabId).map((n) => n.tabId))
-  const items: TabItem[] = tabs.map((tab) => ({
-    id: tab.id,
-    label: tab.title ?? (tab.agent ? agentLabel(tab.agent) : (tab.shell ?? t('terminal'))),
-    sub: tab.cwd ? shortPath(tab.cwd) : undefined,
-    icon: tab.agent ? <AgentIcon id={tab.agent} size={16} /> : undefined,
-    dirty: tab.exited || unreadTabs.has(tab.id),
-    dotTip: tab.exited ? t('shellExited') : t('wsUnread')
-  }))
-
-  return (
-    <>
-      <PaneFrame
-        pane={pane}
-        wsId={wsId}
-        icon={<TerminalSquare className="picon" />}
-        title={
-          <div className="pane-tabs">
-            <TabStrip
-              ref={stripRef}
-              tabs={items}
-              activeId={activeTabId}
-              onActivate={(id) => updatePane(pane.id, { activeTabId: id }, wsId)}
-              onClose={closeTab}
-              onRename={renameTab}
-              onReorder={reorderTabs}
-              onContextMenu={(id, e) => setCtx({ x: e.clientX, y: e.clientY, tabId: id })}
-            />
-          </div>
-        }
-        extraActions={
-          <>
-            {activeTab?.exited && (
-              <Tooltip label={t('restartShell')}>
-                <button className="pbtn" onClick={() => restartTab(activeTab.id)}>
-                  <RotateCw />
-                </button>
-              </Tooltip>
-            )}
-            <Tooltip label={t('newTerminalTab')}>
-              <button className="pbtn" onClick={newTab}>
-                <Plus />
-              </button>
-            </Tooltip>
-          </>
-        }
-      >
-        {tabs.map((tab) => (
-          <div key={tab.id} className="term-tab" hidden={tab.id !== activeTabId}>
-            <TerminalTabView
-              wsId={wsId}
-              paneId={pane.id}
-              tabId={tab.id}
-              projectPath={projectPath}
-              active={tab.id === activeTabId}
-              epoch={epochs[tab.id] ?? 0}
-              focused={focused}
-              onRestart={() => restartTab(tab.id)}
-            />
-          </div>
-        ))}
-      </PaneFrame>
-      {ctx && <CtxMenu x={ctx.x} y={ctx.y} items={ctxItems()} onClose={() => setCtx(null)} />}
     </>
   )
 }

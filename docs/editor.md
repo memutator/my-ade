@@ -1,15 +1,24 @@
 # Editor
 
-The editor pane owns an internal **tab strip of files** in its titlebar. All
-open tabs stay mounted, so unsaved buffers survive tab switches.
+An editor **block** (`file` tab kind) lives in a leaf's shared tab strip —
+it can sit next to terminals and web pages in the same stack. All open file
+tabs stay mounted, so unsaved buffers survive tab switches.
+
+When the active tab is a file block, a small **corner fab** floats at the
+content's top-left — hovering it (~350 ms dwell) pops the directory-tree
+overlay, whose root is the pane's own `treeRoot` (default: the project path,
+re-pickable via the header's root menu).
 
 ## Opening files
 
-- Click a file in the **file tree** (app-icon hover overlay or the pinned
-  sidebar) — it opens in the focused editor pane, else the first editor pane
-  in the workspace, else a new editor pane is created
-- The folder button in the pane titlebar opens a native file dialog
-- File-path links in [terminal](terminal.md) output open here too
+- Click a file in the **file tree** (app-icon hover overlay, pinned
+  sidebar, or a file block's corner-fab overlay) — it stacks as a file tab
+  into the leaf that asked, else the focused leaf; a new leaf only appears
+  when nothing is on screen
+- The folder button in the pane titlebar opens a native file dialog (shown
+  while a file block is active)
+- File-path links in [terminal](terminal.md) output stack a file tab into
+  the link's own leaf
 
 Reopening an already-open path just activates its tab. Renames and deletes
 done through the file tree keep tabs honest — moved paths remap, deleted files
@@ -53,5 +62,5 @@ The editor font is configurable separately from the terminal font in
 **Settings → appearance → editor font** (blank falls back to a monospace
 stack).
 
-Detached editor windows get their own file-tree sidebar/overlay — see
+Detached panes get the same corner-fab tree overlay — see
 [Panes](panes.md#detached-windows).

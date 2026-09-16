@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { TerminalSquare, Globe, Code2, ListTodo, Minus, Square, X, Settings } from 'lucide-react'
+import { TerminalSquare, Globe, Code2, Minus, Square, X, Settings } from 'lucide-react'
 import type { Project } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
@@ -33,7 +33,7 @@ function OverlayTree({ project }: { project: Project }): React.JSX.Element {
 
 export default function TopBar(): React.JSX.Element {
   const sidebarOpen = useStore((s) => s.sidebarOpen)
-  const { newPane, setSidebarOpen, setSettingsOpen } = useStore()
+  const { newBlock, setSidebarOpen, setSettingsOpen } = useStore()
   const activeWs = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const activeProject = useStore((s) => s.projects.find((p) => p.id === activeWs?.projectId))
   const t = useT()
@@ -83,23 +83,18 @@ export default function TopBar(): React.JSX.Element {
       </div>
 
       <Tooltip label={t('newTerminal')}>
-        <button className="tbtn" onClick={() => newPane('terminal')}>
+        <button className="tbtn" onClick={() => newBlock('term')}>
           <TerminalSquare /> {t('terminal')}
         </button>
       </Tooltip>
       <Tooltip label={t('newBrowser')}>
-        <button className="tbtn" onClick={() => newPane('browser')}>
+        <button className="tbtn" onClick={() => newBlock('web')}>
           <Globe /> {t('browser')}
         </button>
       </Tooltip>
       <Tooltip label={t('newEditor')}>
-        <button className="tbtn" onClick={() => newPane('editor')}>
+        <button className="tbtn" onClick={() => newBlock('file')}>
           <Code2 /> {t('editor')}
-        </button>
-      </Tooltip>
-      <Tooltip label={t('newTodo')}>
-        <button className="tbtn" onClick={() => newPane('todo')}>
-          <ListTodo /> {t('todos')}
         </button>
       </Tooltip>
 

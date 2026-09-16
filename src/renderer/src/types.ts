@@ -1,4 +1,5 @@
-export type PaneType = 'terminal' | 'browser' | 'editor' | 'todo'
+/** content kinds a leaf can stack — a "pane" has no type of its own */
+export type BlockKind = 'term' | 'web' | 'file'
 
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
@@ -12,10 +13,47 @@ export interface FloatRect {
   z: number
 }
 
-export interface PaneBase {
+export interface TerminalTab {
+  kind: 'term'
   id: string
-  type: PaneType
+  /** user-set label (double-click rename); falls back to agent/shell */
+  title?: string
+  cwd?: string
+  shell?: string
+  exited?: boolean
+  agent?: string | null
+  /** live pty-host session id — lets remounts/detached windows `attach`
+   *  (with scrollback replay) instead of spawning a new shell */
+  pty?: string
+}
+
+export interface BrowserTab {
+  kind: 'web'
+  id: string
+  url: string
   title: string
+}
+
+export interface EditorTab {
+  kind: 'file'
+  id: string
+  /** '' = an empty editor block (created without a file — shows the
+   *  open-file empty state until one is picked) */
+  path: string
+  name: string
+  dirty?: boolean
+  /** VS Code-style preview tab — italic label, replaced in place by the next
+      preview open, pins permanently on edit / double-click / Keep Open */
+  preview?: boolean
+}
+
+/** one tab inside a leaf — the block */
+export type PaneTab = TerminalTab | BrowserTab | EditorTab
+
+export interface PaneState {
+  id: string
+  tabs: PaneTab[]
+  activeTabId?: string
   /**
    * Minimized panes keep their leaf in the layout tree but render hidden
    * (mounted, so terminals/webviews keep running). A chip in the workspace's
@@ -35,72 +73,10 @@ export interface PaneBase {
    * pty `attach` on the stored session id.
    */
   detached?: boolean
-}
-
-export interface TerminalTab {
-  id: string
-  /** user-set label (double-click rename); falls back to agent/shell */
-  title?: string
-  cwd?: string
-  shell?: string
-  exited?: boolean
-  agent?: string | null
-  /** live pty-host session id — lets remounts/detached windows `attach`
-   *  (with scrollback replay) instead of spawning a new shell */
-  pty?: string
-}
-
-export interface TerminalPaneState extends PaneBase {
-  type: 'terminal'
-  tabs: TerminalTab[]
-  activeTabId?: string
-  /** @deprecated legacy single-shell fields — read only by normalizePane when
-   *  hydrating pre-tabs saves, then stripped */
-  cwd?: string
-  shell?: string
-  exited?: boolean
-  agent?: string | null
-}
-
-export interface BrowserTab {
-  id: string
-  url: string
-  title: string
-}
-
-export interface BrowserPaneState extends PaneBase {
-  type: 'browser'
-  /** mirror of the active tab's url (kept for backward compat with older saves) */
-  url: string
-  tabs: BrowserTab[]
-  activeTabId?: string
-}
-
-export interface EditorTab {
-  id: string
-  path: string
-  name: string
-  dirty?: boolean
-  /** VS Code-style preview tab — italic label, replaced in place by the next
-      preview open, pins permanently on edit / double-click / Keep Open */
-  preview?: boolean
-}
-
-export interface EditorPaneState extends PaneBase {
-  type: 'editor'
-  tabs: EditorTab[]
-  activeTabId?: string
-  /** the pane tree's root dir (icon-hover peek overlay) — independent of the
-   *  workspace's project; falls back to the project path, materialized onto
-   *  the pane on float/detach */
+  /** the leaf's file-tree root (editor corner-fab peek overlay) — defaults to
+   *  the project path, materialized onto the pane on float/detach */
   treeRoot?: string
 }
-
-export interface TodoPaneState extends PaneBase {
-  type: 'todo'
-}
-
-export type PaneState = TerminalPaneState | BrowserPaneState | EditorPaneState | TodoPaneState
 
 export type LayoutNode =
   | { kind: 'leaf'; id: string; paneId: string }
@@ -125,7 +101,7 @@ export interface AppNotification {
   id: string
   workspaceId: string
   paneId?: string
-  /** internal tab inside paneId to activate on click (terminal tabs) */
+  /** tab inside paneId to activate on click */
   tabId?: string
   title: string
   body?: string
@@ -272,16 +248,4 @@ export interface Bookmark {
   url: string
   scope: BookmarkScope
   createdAt: number
-}
-
-export type TodoStatus = 'todo' | 'doing' | 'done'
-
-export interface TodoItem {
-  id: string
-  text: string
-  status: TodoStatus
-  parentId?: string
-  dependsOn: string[]
-  createdAt: number
-  order: number
 }

@@ -27,7 +27,7 @@ log out and back in.
 
 **Factory reset.** Everything persisted lives in
 `~/.config/ade/ade-state.json` (`$XDG_CONFIG_HOME/ade/` when set) — projects,
-workspaces, layouts, settings, bookmarks, todos. Window geometry lives in the
+workspaces, layouts, settings, bookmarks. Window geometry lives in the
 sibling `window-state.json` (size + maximized; x/y honored on X11 only —
 Wayland compositors ignore client position requests). Quit and delete the
 files to start clean. Agent event log and icons sit alongside them
@@ -41,7 +41,7 @@ session is Wayland and no override forces X11.
 
 ## Runtime
 
-**Shortcuts do nothing inside a browser pane.** By design: a focused
+**Shortcuts do nothing inside a web tab.** By design: a focused
 `<webview>` keeps its keys, and only `Alt+*`, `Ctrl+Tab`, and your custom
 combos are relayed to the app. Everything else reaches the page. See
 [shortcuts](shortcuts.md).

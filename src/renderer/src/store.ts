@@ -2,43 +2,38 @@ import { create } from 'zustand'
 import type {
   AgentSessionInfo,
   AppNotification,
+  BlockKind,
   Bookmark,
-  BrowserPaneState,
   BrowserTab,
   DropEdge,
-  EditorPaneState,
   EditorTab,
   LayoutNode,
   PaneState,
-  PaneType,
+  PaneTab,
   Project,
   ResumeSession,
   Settings,
-  TerminalPaneState,
   TerminalTab,
   ToastItem,
-  TodoItem,
   Workspace
 } from './types'
 
 const uid = (): string => crypto.randomUUID()
 
-function makePane(type: PaneType): PaneState {
-  const id = uid()
-  switch (type) {
-    case 'terminal': {
-      const tab: TerminalTab = { id: uid() }
-      return { id, type, title: 'terminal', tabs: [tab], activeTabId: tab.id }
-    }
-    case 'browser': {
-      const tab: BrowserTab = { id: uid(), url: 'https://', title: '' }
-      return { id, type, title: 'browser', url: 'https://', tabs: [tab], activeTabId: tab.id }
-    }
-    case 'editor':
-      return { id, type, title: 'editor', tabs: [] }
-    case 'todo':
-      return { id, type, title: 'todos' }
+function makeTab(kind: BlockKind, home = ''): PaneTab {
+  switch (kind) {
+    case 'term':
+      return { kind, id: uid() }
+    case 'web':
+      return { kind, id: uid(), url: home || 'https://', title: '' }
+    case 'file':
+      return { kind, id: uid(), path: '', name: '' }
   }
+}
+
+function makePane(kind: BlockKind, home = ''): PaneState {
+  const tab = makeTab(kind, home)
+  return { id: uid(), tabs: [tab], activeTabId: tab.id }
 }
 
 function leaf(paneId: string): LayoutNode {
@@ -81,8 +76,10 @@ function insertAt(
   return leaf(paneId)
 }
 
-// Insert a pane into a workspace: as the only leaf when empty, else split the
-// focused (or last visible) leaf to the right. Focus moves to the new pane.
+// Insert a pane into a workspace: as the only leaf when empty, else appended
+// after the visible leaves (callers reach here only when nothing visible
+// exists — programmatic opens stack into a leaf instead of splitting).
+// Focus moves to the new pane.
 function insertPane(w: Workspace, pane: PaneState): Workspace {
   const panes = { ...w.panes, [pane.id]: pane }
   const vis = visibleLeafIds(w.root, w.panes)
@@ -93,6 +90,36 @@ function insertPane(w: Workspace, pane: PaneState): Workspace {
     panes,
     root: insertAt(w.root, panes, pane.id, target, 'right'),
     focusedPaneId: pane.id
+  }
+}
+
+// The leaf a programmatic open lands in: the explicit requester (a pane's own
+// UI — allowed even when detached), else the focused visible pane, else the
+// last visible leaf. Undefined = nothing on screen; the caller makes a leaf.
+// Invariant: opens stack into an existing leaf, never split — a focused leaf
+// can only be split by explicit user gestures (split keys, drag-to-edge).
+function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
+  const explicit = paneId && w.panes[paneId] && !w.panes[paneId].minimized ? paneId : undefined
+  const focused =
+    w.focusedPaneId &&
+    w.panes[w.focusedPaneId] &&
+    !w.panes[w.focusedPaneId].minimized &&
+    !w.panes[w.focusedPaneId].detached
+      ? w.focusedPaneId
+      : undefined
+  return explicit ?? focused ?? visibleLeafIds(w.root, w.panes).at(-1)
+}
+
+// Push a tab into a leaf and raise it — the shared tail of every
+// programmatic open. Focus follows unless the target is detached (its window
+// owns focus there).
+function pushTab(w: Workspace, paneId: string, tabs: PaneTab[], activeTabId: string): Workspace {
+  const p = w.panes[paneId]
+  if (!p) return w
+  return {
+    ...w,
+    panes: { ...w.panes, [paneId]: { ...p, tabs, activeTabId } },
+    focusedPaneId: p.detached ? w.focusedPaneId : paneId
   }
 }
 
@@ -188,11 +215,11 @@ function siblingOf(node: LayoutNode | null, paneId: string): LayoutNode | null {
   return siblingOf(node.a, paneId) ?? siblingOf(node.b, paneId)
 }
 
-// When an editor pane leaves the layout (float/detach) its tree root
-// materializes to the project path if it never had one — the pane keeps its
-// own root from then on, independent of the workspace it sits in.
-function withEditorTreeRoot(pane: PaneState, projectPath: string | undefined): PaneState {
-  if (pane.type !== 'editor' || pane.treeRoot || !projectPath) return pane
+// When a pane leaves the layout (float/detach) its tree root materializes to
+// the project path if it never had one — the pane keeps its own root from
+// then on, independent of the workspace it sits in.
+function withTreeRoot(pane: PaneState, projectPath: string | undefined): PaneState {
+  if (pane.treeRoot || !projectPath) return pane
   return { ...pane, treeRoot: projectPath }
 }
 
@@ -218,36 +245,45 @@ function restoreInWorkspace(w: Workspace, paneId: string): Workspace {
   }
 }
 
-// older saves predate internal tabs: browser panes had no `tabs` (seed one from
-// the stored url); terminal panes kept their single shell's cwd/shell/exited/
-// agent on the pane itself (migrated into a seeded tab, then stripped)
-function normalizePane(p: PaneState): PaneState {
-  if (p.type === 'browser') {
-    if (Array.isArray(p.tabs) && p.tabs.length > 0) return p
-    const tab: BrowserTab = { id: uid(), url: p.url, title: '' }
-    return { ...p, tabs: [tab], activeTabId: tab.id }
+// stateVersion<3 saves: panes carried a `type` ('terminal'/'browser'/'editor'
+// /'todo') and tabs carried no `kind`. Migrates to the type-less leaf model —
+// every pane is a stack of kind-tagged tabs. Returns null for panes to drop
+// (todo panes, tab-less strays); the caller removes their leaf.
+function normalizePane(
+  p: PaneState & {
+    type?: string
+    title?: string
+    url?: string
+    cwd?: string
+    shell?: string
+    exited?: boolean
+    agent?: string | null
   }
-  if (p.type === 'terminal') {
-    const tabs = Array.isArray(p.tabs) ? p.tabs : []
-    if (tabs.length === 0) {
-      const tab: TerminalTab = {
-        id: uid(),
-        cwd: p.cwd,
-        shell: p.shell,
-        exited: p.exited,
-        agent: p.agent ?? null
-      }
-      const np: TerminalPaneState = { ...p, tabs: [tab], activeTabId: tab.id }
-      delete np.cwd
-      delete np.shell
-      delete np.exited
-      delete np.agent
-      return np
-    }
-    // a stale/missing activeTabId would leave the pane showing nothing
-    return tabs.some((t) => t.id === p.activeTabId) ? p : { ...p, activeTabId: tabs[0].id }
+): PaneState | null {
+  const legacy = p.type
+  if (legacy === 'todo') return null
+  const kind: BlockKind = legacy === 'browser' ? 'web' : legacy === 'editor' ? 'file' : 'term'
+  let tabs = (Array.isArray(p.tabs) ? p.tabs : []).map(
+    (t) => ({ ...t, kind: t.kind ?? kind }) as PaneTab
+  )
+  if (tabs.length === 0) {
+    if (legacy === 'editor' || legacy === undefined) return null
+    const tab: PaneTab =
+      kind === 'web'
+        ? { kind: 'web', id: uid(), url: p.url || 'https://', title: '' }
+        : { kind: 'term', id: uid(), cwd: p.cwd, shell: p.shell, exited: p.exited, agent: p.agent }
+    tabs = [tab]
   }
-  return p
+  const activeTabId = tabs.some((t) => t.id === p.activeTabId) ? p.activeTabId : tabs[0].id
+  const np: Record<string, unknown> = { ...p, tabs, activeTabId }
+  delete np.type
+  delete np.title
+  delete np.url
+  delete np.cwd
+  delete np.shell
+  delete np.exited
+  delete np.agent
+  return np as unknown as PaneState
 }
 
 function normalizeWorkspace(w: Workspace): Workspace {
@@ -255,14 +291,13 @@ function normalizeWorkspace(w: Workspace): Workspace {
   let root = w.root
   const panes: Record<string, PaneState> = {}
   for (const [id, p] of Object.entries(w.panes)) {
-    // tab-less editors can't be produced anymore (closing the last tab closes
-    // the pane) — drop strays from older saves, leaf included
-    if (p.type === 'editor' && Array.isArray(p.tabs) && p.tabs.length === 0) {
+    const np = normalizePane(p)
+    if (!np) {
       if (root) root = removeLeaf(root, id)
       changed = true
       continue
     }
-    panes[id] = normalizePane(p)
+    panes[id] = np
     if (panes[id] !== p) changed = true
   }
   // a persisted focus on a minimized/detached/removed pane would be
@@ -277,21 +312,6 @@ function normalizeWorkspace(w: Workspace): Workspace {
     changed = true
   }
   return changed ? { ...w, panes, focusedPaneId, root } : w
-}
-
-// todos: order is only meaningful within a sibling group (same parentId)
-function todoSiblings(list: TodoItem[], parentId: string | undefined): TodoItem[] {
-  return list.filter((t) => t.parentId === parentId).sort((a, b) => a.order - b.order)
-}
-
-function isDescendantOf(list: TodoItem[], id: string, ancestorId: string): boolean {
-  let cur = list.find((t) => t.id === id)?.parentId
-  let guard = 0
-  while (cur && guard++ < 1000) {
-    if (cur === ancestorId) return true
-    cur = list.find((t) => t.id === cur)?.parentId
-  }
-  return false
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -309,7 +329,8 @@ const DEFAULT_SETTINGS: Settings = {
 
 export interface PersistedState {
   /** bump when persisted semantics change — v2 = resume records carry
-   *  env-stamped exact pane/tab attribution */
+   *  env-stamped exact pane/tab attribution; v3 = type-less panes hold
+   *  kind-tagged tabs (todo panes dropped) */
   stateVersion?: number
   projects: Project[]
   workspaces: Workspace[]
@@ -318,7 +339,6 @@ export interface PersistedState {
   sidebarOpen: boolean
   treeOverlayOpen: boolean
   bookmarks: Bookmark[]
-  todos: Record<string, TodoItem[]>
   /** harness sessionId → observed info (name set via session-rename) */
   agentSessions: Record<string, AgentSessionInfo>
   /** live agent sessions → offered for resume after a restart (see
@@ -352,8 +372,11 @@ interface AdeState extends PersistedState {
   closeWorkspace: (id: string) => void
   moveWorkspace: (from: number, to: number) => void
 
-  newPane: (type: PaneType, wsId?: string) => void
-  splitPane: (paneId: string, dir: 'row' | 'col', type: PaneType, wsId?: string) => void
+  /** stack a fresh block of `kind` into the target leaf (explicit > focused >
+      last visible); only creates a leaf when nothing visible exists */
+  newBlock: (kind: BlockKind, wsId?: string) => void
+  /** explicit split — only user gestures reach this */
+  splitPane: (paneId: string, dir: 'row' | 'col', kind: BlockKind, wsId?: string) => void
   closePane: (paneId: string, wsId?: string) => void
   minimizePane: (paneId: string, wsId?: string) => void
   restorePane: (paneId: string, wsId?: string) => void
@@ -384,32 +407,15 @@ interface AdeState extends PersistedState {
   cycleFocus: (dir: 1 | -1, wsId?: string) => void
   cyclePaneTab: (dir: 1 | -1, wsId?: string) => void
 
-  openFileInEditor: (path: string, name: string, wsId?: string, preview?: boolean) => void
-  // newTab appends a tab instead of navigating the active one — explicit
+  openFile: (path: string, name: string, wsId?: string, preview?: boolean, paneId?: string) => void
+  // newTab appends a tab instead of navigating the active web tab — explicit
   // opens (file tree) shouldn't destroy a page the user is on
-  openUrlInBrowser: (url: string, wsId?: string, newTab?: boolean) => void
+  openUrlInBrowser: (url: string, wsId?: string, newTab?: boolean, paneId?: string) => void
   // file-tree ops: keep open editor tabs pointing at real paths — a rename or
   // move remaps tab.path (incl. descendants of a renamed dir), a delete closes
   // the tab
   remapOpenFile: (oldPath: string, newPath: string) => void
   closeFilesUnder: (paths: string[]) => void
-
-  addTodo: (projectId: string, text?: string, parentId?: string) => string
-  updateTodo: (
-    projectId: string,
-    todoId: string,
-    patch: Partial<Pick<TodoItem, 'text' | 'status' | 'dependsOn'>>
-  ) => void
-  cycleTodo: (projectId: string, todoId: string) => void
-  removeTodo: (projectId: string, todoId: string) => void
-  indentTodo: (projectId: string, todoId: string) => void
-  outdentTodo: (projectId: string, todoId: string) => void
-  reorderTodo: (
-    projectId: string,
-    todoId: string,
-    targetId: string,
-    place: 'before' | 'after'
-  ) => void
 
   setSidebarOpen: (open: boolean) => void
   setSidebarRoot: (projectId: string, path: string) => void
@@ -458,13 +464,7 @@ export const useStore = create<AdeState>((set, get) => {
   // helper: resolve wsId (default: active)
   const wid = (wsId?: string): string | null => wsId ?? get().activeWorkspaceId
 
-  // new browser panes/tabs start on the configured home page (empty = blank)
-  const withHome = (p: PaneState): PaneState => {
-    const home = get().settings.homeUrl.trim()
-    if (p.type !== 'browser' || !home) return p
-    const bp = p as BrowserPaneState
-    return { ...bp, url: home, tabs: bp.tabs.map((t) => ({ ...t, url: home })) }
-  }
+  const home = (): string => get().settings.homeUrl.trim()
 
   return {
     projects: [],
@@ -474,7 +474,6 @@ export const useStore = create<AdeState>((set, get) => {
     sidebarOpen: false,
     treeOverlayOpen: false,
     bookmarks: [],
-    todos: {},
     agentSessions: {},
     resumeSessions: {},
     treeRoots: [],
@@ -499,7 +498,7 @@ export const useStore = create<AdeState>((set, get) => {
         for (const e of Object.entries(s.resumeSessions ?? {})) {
           const r = e[1]
           const pane = workspaces.find((w) => w.id === r.wsId)?.panes[r.paneId]
-          if (pane?.type !== 'terminal' || !pane.tabs.some((t) => t.id === r.tabId)) continue
+          if (!pane?.tabs.some((t) => t.id === r.tabId && t.kind === 'term')) continue
           const key = `${r.paneId}:${r.tabId}`
           const prev = byTab.get(key)
           if (!prev || r.ts > prev[1].ts) byTab.set(key, e)
@@ -513,7 +512,6 @@ export const useStore = create<AdeState>((set, get) => {
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
         sidebarOpen: s.sidebarOpen ?? false,
         bookmarks: s.bookmarks ?? [],
-        todos: s.todos ?? {},
         agentSessions: s.agentSessions ?? {},
         resumeSessions,
         treeRoots: s.treeRoots ?? [],
@@ -535,8 +533,6 @@ export const useStore = create<AdeState>((set, get) => {
 
     removeProject: (id) =>
       set((s) => {
-        const todos = { ...s.todos }
-        delete todos[id]
         const deadWs = new Set(s.workspaces.filter((w) => w.projectId === id).map((w) => w.id))
         const workspaces = s.workspaces.filter((w) => w.projectId !== id)
         const resumeSessions = Object.fromEntries(
@@ -550,7 +546,6 @@ export const useStore = create<AdeState>((set, get) => {
             ? (workspaces[0]?.id ?? null)
             : s.activeWorkspaceId,
           bookmarks: s.bookmarks.filter((b) => b.scope !== id),
-          todos,
           resumeSessions
         }
       }),
@@ -607,19 +602,34 @@ export const useStore = create<AdeState>((set, get) => {
         return { workspaces }
       }),
 
-    newPane: (type, wsIdArg) =>
+    // Opening content never splits the focused leaf: the block stacks into
+    // the target leaf as a tab (explicit > focused > last visible). A new
+    // leaf only appears when nothing visible exists.
+    newBlock: (kind, wsIdArg) =>
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
-        const pane = withHome(makePane(type))
-        return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
+        const ws = s.workspaces.find((w) => w.id === wsId)
+        if (!ws) return s
+        const target = stackTarget(ws)
+        if (!target) {
+          return {
+            workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, makePane(kind, home())))
+          }
+        }
+        const tab = makeTab(kind, home())
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) =>
+            pushTab(w, target, [...w.panes[target].tabs, tab], tab.id)
+          )
+        }
       }),
 
-    splitPane: (paneId, dir, type, wsIdArg) =>
+    splitPane: (paneId, dir, kind, wsIdArg) =>
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
-        const pane = withHome(makePane(type))
+        const pane = makePane(kind, home())
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const panes = { ...w.panes, [pane.id]: pane }
@@ -646,9 +656,7 @@ export const useStore = create<AdeState>((set, get) => {
       // a detached pane owns its window + pty sessions — the window's renderer
       // is already gone by close time, so kill its live sessions here
       if (pane?.detached) {
-        if (pane.type === 'terminal') {
-          for (const t of pane.tabs) if (t.pty) window.ade.pty.kill(t.pty)
-        }
+        for (const t of pane.tabs) if (t.kind === 'term' && t.pty) window.ade.pty.kill(t.pty)
         window.ade.win.closeDetached?.(wsId0, paneId)
       }
       set((s) => {
@@ -704,10 +712,7 @@ export const useStore = create<AdeState>((set, get) => {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const pane0 = w.panes[paneId]
             if (!pane0 || pane0.floating || pane0.detached) return w
-            const pane = withEditorTreeRoot(
-              pane0,
-              s.projects.find((x) => x.id === w.projectId)?.path
-            )
+            const pane = withTreeRoot(pane0, s.projects.find((x) => x.id === w.projectId)?.path)
             const floating = {
               x: 0.28,
               y: 0.18,
@@ -790,10 +795,7 @@ export const useStore = create<AdeState>((set, get) => {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const pane0 = w.panes[paneId]
             if (!pane0 || pane0.detached) return w
-            const pane = withEditorTreeRoot(
-              pane0,
-              s.projects.find((x) => x.id === w.projectId)?.path
-            )
+            const pane = withTreeRoot(pane0, s.projects.find((x) => x.id === w.projectId)?.path)
             const panes = { ...w.panes, [paneId]: { ...pane, detached: true } }
             const focusedPaneId =
               w.focusedPaneId === paneId
@@ -1025,125 +1027,97 @@ export const useStore = create<AdeState>((set, get) => {
         }
       }),
 
-    // Ctrl+Tab target: advance activeTabId inside the focused pane when it has
-    // internal tabs (browser/editor/terminal); todo panes are a no-op.
+    // Ctrl+Tab target: advance activeTabId inside the focused pane's stack.
     cyclePaneTab: (dir, wsIdArg) => {
       const wsId = wid(wsIdArg)
       if (!wsId) return
       const ws = get().workspaces.find((w) => w.id === wsId)
       const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
-      if (!p || !('tabs' in p) || p.tabs.length < 2) return
+      if (!p || p.tabs.length < 2) return
       const i = Math.max(
         0,
         p.tabs.findIndex((t) => t.id === p.activeTabId)
       )
       const next = p.tabs[(i + dir + p.tabs.length) % p.tabs.length]
-      // browser panes mirror the active tab's url on the pane itself
-      get().updatePane(
-        p.id,
-        'url' in next ? { activeTabId: next.id, url: next.url } : { activeTabId: next.id },
-        wsId
-      )
+      get().updatePane(p.id, { activeTabId: next.id }, wsId)
     },
 
-    openFileInEditor: (path, name, wsIdArg, preview) =>
+    // A file open stacks a file tab into the target leaf — never a split.
+    // VS Code preview semantics live per leaf: preview opens reuse the leaf's
+    // preview slot; an empty file block (Alt+E before picking a file) gets
+    // filled by the first real file.
+    openFile: (path, name, wsIdArg, preview, paneId) =>
       set((s) => {
         const wsId = wsIdArg ?? s.activeWorkspaceId
         if (!wsId) return s
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
 
-        const tab: EditorTab = { id: uid(), path, name, preview: preview || undefined }
-        const applyTab = (p: EditorPaneState): EditorPaneState => {
-          const existing = p.tabs.find((t) => t.path === path)
-          if (existing) {
-            // a permanent open on a preview tab pins it
-            const tabs =
-              existing.preview && !preview
-                ? p.tabs.map((t) => (t.id === existing.id ? { ...t, preview: undefined } : t))
-                : p.tabs
-            return { ...p, tabs, activeTabId: existing.id }
-          }
-          // a preview open reuses the pane's current preview slot
-          if (preview) {
-            const pi = p.tabs.findIndex((t) => t.preview)
-            if (pi >= 0)
-              return {
-                ...p,
-                tabs: p.tabs.map((t, i) => (i === pi ? tab : t)),
-                activeTabId: tab.id
-              }
-          }
-          return { ...p, tabs: [...p.tabs, tab], activeTabId: tab.id }
+        const tab: EditorTab = {
+          kind: 'file',
+          id: uid(),
+          path,
+          name,
+          preview: preview || undefined
+        }
+        const target = stackTarget(ws, paneId)
+        if (!target) {
+          const pane = makePane('file')
+          pane.tabs = [tab]
+          pane.activeTabId = tab.id
+          return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
         }
 
-        // prefer the focused editor pane, else first editor pane, else create
-        // one — minimized editors are skipped so files never open in a hidden
-        // pane (their dock chip stays untouched)
-        const panes = Object.values(ws.panes)
-        const target =
-          (ws.focusedPaneId &&
-            (ws.panes[ws.focusedPaneId] as EditorPaneState | undefined)?.type === 'editor' &&
-            !ws.panes[ws.focusedPaneId]?.minimized &&
-            ws.focusedPaneId) ||
-          panes.find((p) => p.type === 'editor' && !p.minimized)?.id
-
-        if (target) {
+        const p = ws.panes[target]
+        const existing = p.tabs.find((t): t is EditorTab => t.kind === 'file' && t.path === path)
+        if (existing) {
+          // a permanent open on a preview tab pins it
+          const tabs =
+            existing.preview && !preview
+              ? p.tabs.map((t) => (t.id === existing.id ? { ...t, preview: undefined } : t))
+              : p.tabs
           return {
-            workspaces: updWs(s.workspaces, wsId, (w) => ({
-              ...w,
-              panes: { ...w.panes, [target]: applyTab(w.panes[target] as EditorPaneState) },
-              focusedPaneId: target
-            }))
+            workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, existing.id))
           }
         }
-
-        const pane = makePane('editor') as EditorPaneState
-        pane.tabs = [tab]
-        pane.activeTabId = tab.id
-        return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
+        const emptyIdx = p.tabs.findIndex((t) => t.kind === 'file' && !t.path)
+        const pi = preview ? p.tabs.findIndex((t) => t.kind === 'file' && t.preview) : -1
+        const slot = emptyIdx >= 0 ? emptyIdx : pi
+        const tabs = slot >= 0 ? p.tabs.map((t, i) => (i === slot ? tab : t)) : [...p.tabs, tab]
+        return {
+          workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, tab.id))
+        }
       }),
 
-    // Navigate a browser pane in the workspace: focused browser pane, else the
-    // first browser pane, else a new one (split off the focused pane).
-    openUrlInBrowser: (url, wsIdArg, newTab) =>
+    // The target leaf's active web tab navigates (newTab appends a web block
+    // instead); nothing visible → a new leaf carrying the web block.
+    openUrlInBrowser: (url, wsIdArg, newTab, paneId) =>
       set((s) => {
         const wsId = wsIdArg ?? s.activeWorkspaceId
         if (!wsId) return s
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
 
-        const target =
-          (ws.focusedPaneId &&
-            ws.panes[ws.focusedPaneId]?.type === 'browser' &&
-            !ws.panes[ws.focusedPaneId]?.minimized &&
-            ws.focusedPaneId) ||
-          Object.values(ws.panes).find((p) => p.type === 'browser' && !p.minimized)?.id
-
-        if (target) {
-          const bp = ws.panes[target] as BrowserPaneState
-          const tab: BrowserTab = { id: uid(), url, title: '' }
-          const pane: BrowserPaneState = newTab
-            ? { ...bp, tabs: [...(bp.tabs ?? []), tab], activeTabId: tab.id, url }
-            : {
-                ...bp,
-                tabs: (bp.tabs ?? []).map((t) =>
-                  t.id === (bp.activeTabId ?? bp.tabs?.[0]?.id) ? { ...t, url } : t
-                ),
-                url
-              }
+        const target = stackTarget(ws, paneId)
+        const p = target ? ws.panes[target] : undefined
+        const active = p?.tabs.find((t) => t.id === p.activeTabId)
+        if (p && target && active?.kind === 'web' && !newTab) {
+          const tabs = p.tabs.map((t) => (t.id === active.id ? { ...t, url } : t))
           return {
-            workspaces: updWs(s.workspaces, wsId, (w) => ({
-              ...w,
-              panes: { ...w.panes, [target]: pane as PaneState },
-              focusedPaneId: target
-            }))
+            workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, active.id))
           }
         }
-
-        const pane = makePane('browser') as BrowserPaneState
-        pane.url = url
-        if (pane.tabs?.length) pane.tabs = pane.tabs.map((t) => ({ ...t, url }))
+        const tab: BrowserTab = { kind: 'web', id: uid(), url, title: '' }
+        if (p && target) {
+          return {
+            workspaces: updWs(s.workspaces, wsId, (w) =>
+              pushTab(w, target, [...p.tabs, tab], tab.id)
+            )
+          }
+        }
+        const pane = makePane('web')
+        pane.tabs = [tab]
+        pane.activeTabId = tab.id
         return { workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, pane)) }
       }),
 
@@ -1161,11 +1135,8 @@ export const useStore = create<AdeState>((set, get) => {
             let changed = false
             const panes: Record<string, PaneState> = {}
             for (const [id, p] of Object.entries(w.panes)) {
-              if (p.type !== 'editor') {
-                panes[id] = p
-                continue
-              }
               const tabs = p.tabs.map((t) => {
+                if (t.kind !== 'file') return t
                 const np = remap(t.path)
                 return np ? { ...t, path: np, name: base(np) } : t
               })
@@ -1190,7 +1161,7 @@ export const useStore = create<AdeState>((set, get) => {
       const dead = new Set<string>()
       for (const w of get().workspaces) {
         for (const p of Object.values(w.panes)) {
-          if (p.type === 'editor' && p.tabs.length && p.tabs.every((t) => under(t.path))) {
+          if (p.tabs.length && p.tabs.every((t) => t.kind === 'file' && under(t.path))) {
             dead.add(p.id)
             if (p.detached) window.ade.win.closeDetached?.(w.id, p.id)
           }
@@ -1203,11 +1174,7 @@ export const useStore = create<AdeState>((set, get) => {
           let changed = cur !== w
           const panes: Record<string, PaneState> = {}
           for (const [id, p] of Object.entries(cur.panes)) {
-            if (p.type !== 'editor') {
-              panes[id] = p
-              continue
-            }
-            const tabs = p.tabs.filter((t) => !under(t.path))
+            const tabs = p.tabs.filter((t) => t.kind !== 'file' || !under(t.path))
             if (tabs.length !== p.tabs.length) {
               const activeTabId =
                 p.activeTabId && tabs.some((t) => t.id === p.activeTabId)
@@ -1223,138 +1190,6 @@ export const useStore = create<AdeState>((set, get) => {
         })
       }))
     },
-
-    addTodo: (projectId, text = '', parentId) => {
-      const sibs = todoSiblings(get().todos[projectId] ?? [], parentId)
-      const item: TodoItem = {
-        id: uid(),
-        text,
-        status: 'todo',
-        parentId,
-        dependsOn: [],
-        createdAt: Date.now(),
-        order: sibs.length ? sibs.at(-1)!.order + 1 : 0
-      }
-      set((s) => ({ todos: { ...s.todos, [projectId]: [...(s.todos[projectId] ?? []), item] } }))
-      return item.id
-    },
-
-    updateTodo: (projectId, todoId, patch) =>
-      set((s) => ({
-        todos: {
-          ...s.todos,
-          [projectId]: (s.todos[projectId] ?? []).map((t) =>
-            t.id === todoId ? { ...t, ...patch } : t
-          )
-        }
-      })),
-
-    cycleTodo: (projectId, todoId) =>
-      set((s) => ({
-        todos: {
-          ...s.todos,
-          [projectId]: (s.todos[projectId] ?? []).map((t) =>
-            t.id === todoId
-              ? {
-                  ...t,
-                  status: t.status === 'todo' ? 'doing' : t.status === 'doing' ? 'done' : 'todo'
-                }
-              : t
-          )
-        }
-      })),
-
-    removeTodo: (projectId, todoId) =>
-      set((s) => {
-        const list = s.todos[projectId] ?? []
-        const dead = new Set<string>([todoId])
-        let grew = true
-        while (grew) {
-          grew = false
-          for (const t of list) {
-            if (t.parentId && dead.has(t.parentId) && !dead.has(t.id)) {
-              dead.add(t.id)
-              grew = true
-            }
-          }
-        }
-        return {
-          todos: {
-            ...s.todos,
-            [projectId]: list
-              .filter((t) => !dead.has(t.id))
-              .map((t) =>
-                t.dependsOn.some((d) => dead.has(d))
-                  ? { ...t, dependsOn: t.dependsOn.filter((d) => !dead.has(d)) }
-                  : t
-              )
-          }
-        }
-      }),
-
-    indentTodo: (projectId, todoId) =>
-      set((s) => {
-        const list = s.todos[projectId] ?? []
-        const item = list.find((t) => t.id === todoId)
-        if (!item) return s
-        const sibs = todoSiblings(list, item.parentId)
-        const prev = sibs[sibs.findIndex((t) => t.id === todoId) - 1]
-        if (!prev) return s
-        const children = todoSiblings(list, prev.id)
-        const order = children.length ? children.at(-1)!.order + 1 : 0
-        return {
-          todos: {
-            ...s.todos,
-            [projectId]: list.map((t) => (t.id === todoId ? { ...t, parentId: prev.id, order } : t))
-          }
-        }
-      }),
-
-    outdentTodo: (projectId, todoId) =>
-      set((s) => {
-        const list = s.todos[projectId] ?? []
-        const item = list.find((t) => t.id === todoId)
-        if (!item?.parentId) return s
-        const parent = list.find((t) => t.id === item.parentId)
-        return {
-          todos: {
-            ...s.todos,
-            [projectId]: list.map((t) =>
-              t.id === todoId
-                ? { ...t, parentId: parent?.parentId, order: (parent?.order ?? t.order) + 0.5 }
-                : t
-            )
-          }
-        }
-      }),
-
-    reorderTodo: (projectId, todoId, targetId, place) =>
-      set((s) => {
-        const list = s.todos[projectId] ?? []
-        const item = list.find((t) => t.id === todoId)
-        const target = list.find((t) => t.id === targetId)
-        if (!item || !target || item.id === target.id) return s
-        if (isDescendantOf(list, targetId, todoId)) return s
-        const parentId = target.parentId
-        const sibs = list
-          .filter((t) => t.parentId === parentId && t.id !== todoId)
-          .sort((a, b) => a.order - b.order)
-        const idx = sibs.findIndex((t) => t.id === targetId)
-        sibs.splice(place === 'after' ? idx + 1 : idx, 0, item)
-        const orderOf = new Map(sibs.map((t, i) => [t.id, i]))
-        return {
-          todos: {
-            ...s.todos,
-            [projectId]: list.map((t) =>
-              t.id === todoId
-                ? { ...t, parentId, order: orderOf.get(t.id)! }
-                : orderOf.has(t.id)
-                  ? { ...t, order: orderOf.get(t.id)! }
-                  : t
-            )
-          }
-        }
-      }),
 
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
 
@@ -1438,11 +1273,7 @@ export const useStore = create<AdeState>((set, get) => {
         // a ping whose recorded tab no longer exists degrades to pane-level —
         // otherwise a stale target can never be cleared by looking at it
         const tabGone = (n: AppNotification): boolean =>
-          n.tabId !== undefined &&
-          !!pane &&
-          'tabs' in pane &&
-          Array.isArray(pane.tabs) &&
-          !pane.tabs.some((t) => t.id === n.tabId)
+          n.tabId !== undefined && !!pane && !pane.tabs.some((t) => t.id === n.tabId)
         return {
           notifications: s.notifications.map((n) =>
             !n.read &&
@@ -1480,7 +1311,7 @@ export const useStore = create<AdeState>((set, get) => {
         // land on the tab that emitted the event, not just the pane
         if (n.tabId) {
           const p = get().workspaces.find((w) => w.id === n.workspaceId)?.panes[n.paneId]
-          if (p && 'tabs' in p && p.tabs.some((t) => t.id === n.tabId)) {
+          if (p && p.tabs.some((t) => t.id === n.tabId)) {
             get().updatePane(n.paneId, { activeTabId: n.tabId }, n.workspaceId)
           }
         }
@@ -1521,14 +1352,16 @@ export const useStore = create<AdeState>((set, get) => {
         if (info.wsId && info.paneId && info.tabId) {
           const ws = s.workspaces.find((w) => w.id === info.wsId)
           const pane = ws?.panes[info.paneId]
-          if (ws && pane && pane.type === 'terminal') {
+          if (ws && pane && pane.tabs.some((t) => t.id === info.tabId && t.kind === 'term')) {
             patch.workspaces = updWs(s.workspaces, ws.id, (w) => ({
               ...w,
               panes: {
                 ...w.panes,
                 [pane.id]: {
                   ...pane,
-                  tabs: pane.tabs.map((t) => (t.id === info.tabId ? { ...t, title } : t))
+                  tabs: pane.tabs.map((t) =>
+                    t.id === info.tabId && t.kind === 'term' ? { ...t, title } : t
+                  )
                 }
               }
             }))
@@ -1579,3 +1412,21 @@ export const useStore = create<AdeState>((set, get) => {
       })
   }
 })
+
+// pty events arrive keyed by session id (paneId:tabId:uuid) — route the state
+// write to the tab that owns the session, never to the pane as a whole
+export function patchTerminalTab(
+  wsId: string,
+  paneId: string,
+  tabId: string,
+  patch: Partial<TerminalTab>
+): void {
+  const st = useStore.getState()
+  const p = st.workspaces.find((x) => x.id === wsId)?.panes[paneId]
+  if (!p || !p.tabs.some((x) => x.id === tabId && x.kind === 'term')) return
+  st.updatePane(
+    paneId,
+    { tabs: p.tabs.map((x) => (x.id === tabId ? ({ ...x, ...patch } as typeof x) : x)) },
+    wsId
+  )
+}

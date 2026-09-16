@@ -235,7 +235,7 @@ export default function FileTree({
   const openFile = useCallback(
     (path: string, name: string, permanent = false): void => {
       if (onOpenFile) onOpenFile(path, name, permanent)
-      else useStore.getState().openFileInEditor(path, name, undefined, !permanent)
+      else useStore.getState().openFile(path, name, undefined, !permanent)
     },
     [onOpenFile]
   )

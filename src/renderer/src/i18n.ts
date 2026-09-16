@@ -9,13 +9,11 @@ const en = {
   terminal: 'terminal',
   browser: 'browser',
   editor: 'editor',
-  todos: 'todos',
 
   // top bar
   newTerminal: 'New terminal (Alt+T)',
   newBrowser: 'New browser (Alt+B)',
   newEditor: 'New editor (Alt+E)',
-  newTodo: 'New todo list (Alt+L)',
   settingsTooltip: 'Settings',
   toggleTheme: 'Toggle theme (Alt+M)',
   minimize: 'Minimize',
@@ -62,6 +60,7 @@ const en = {
   selectAll: 'Select all',
   clear: 'Clear',
   copyCwd: 'Copy Working Directory',
+  copyUrl: 'Copy URL',
 
   // editor pane
   openFileTooltip: 'Open file…',
@@ -90,19 +89,6 @@ const en = {
   pageFailed: 'page failed to load',
   pageCrashed: 'page crashed',
   retry: 'retry',
-
-  // todo list
-  todoCycle: 'todo → doing → done',
-  blockedBy: 'blocked by: {list}',
-  blocked: 'blocked',
-  indent: 'Indent',
-  outdent: 'Outdent',
-  dependencies: 'Dependencies',
-  noOtherTodos: 'no other todos',
-  unnamedTodo: '(empty)',
-  deleteTodo: 'Delete',
-  noTodosYet: 'no todos yet',
-  addTodoItem: 'add a todo…',
 
   // notification center
   notificationsTooltip: 'Notifications',
@@ -158,7 +144,6 @@ const en = {
   scNewTerminal: 'New terminal pane',
   scNewBrowser: 'New browser pane',
   scNewEditor: 'New editor pane',
-  scNewTodo: 'New todo pane',
   scSplitRight: 'Split pane right',
   scSplitDown: 'Split pane down',
   scClosePane: 'Close pane',
@@ -231,12 +216,10 @@ const ko: Record<TKey, string> = {
   terminal: '터미널',
   browser: '브라우저',
   editor: '에디터',
-  todos: '할 일',
 
   newTerminal: '새 터미널 (Alt+T)',
   newBrowser: '새 브라우저 (Alt+B)',
   newEditor: '새 에디터 (Alt+E)',
-  newTodo: '새 할 일 목록 (Alt+L)',
   settingsTooltip: '설정',
   toggleTheme: '테마 전환 (Alt+M)',
   minimize: '최소화',
@@ -280,6 +263,7 @@ const ko: Record<TKey, string> = {
   selectAll: '전체 선택',
   clear: '지우기',
   copyCwd: '작업 디렉터리 경로 복사',
+  copyUrl: 'URL 복사',
 
   openFileTooltip: '파일 열기…',
   noFileOpen: '열린 파일 없음',
@@ -306,18 +290,6 @@ const ko: Record<TKey, string> = {
   pageFailed: '페이지 로드 실패',
   pageCrashed: '페이지 충돌',
   retry: '다시 시도',
-
-  todoCycle: '할 일 → 진행 중 → 완료',
-  blockedBy: '차단됨: {list}',
-  blocked: '차단됨',
-  indent: '들여쓰기',
-  outdent: '내어쓰기',
-  dependencies: '의존성',
-  noOtherTodos: '다른 할 일 없음',
-  unnamedTodo: '(내용 없음)',
-  deleteTodo: '삭제',
-  noTodosYet: '아직 할 일 없음',
-  addTodoItem: '할 일 추가…',
 
   notificationsTooltip: '알림',
   notifications: '알림',
@@ -371,7 +343,6 @@ const ko: Record<TKey, string> = {
   scNewTerminal: '새 터미널 패널',
   scNewBrowser: '새 브라우저 패널',
   scNewEditor: '새 에디터 패널',
-  scNewTodo: '새 할 일 패널',
   scSplitRight: '패널 우측 분할',
   scSplitDown: '패널 하단 분할',
   scClosePane: '패널 닫기',

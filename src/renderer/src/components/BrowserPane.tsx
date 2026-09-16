@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ChevronDown, Globe, Plus, RotateCw, Star, X } from 'lucide-react'
-import type { Bookmark, BrowserPaneState, BrowserTab } from '../types'
+import { ArrowLeft, ArrowRight, Globe, Plus, RotateCw, Star, X } from 'lucide-react'
+import type { Bookmark, BrowserTab, PaneState } from '../types'
 import { useStore } from '../store'
 import { useT, translate } from '../i18n'
 import { applyShortcut, effectiveBindings } from '../shortcuts'
-import { isDetachedWin } from '../detached'
 import Tooltip from './Tooltip'
-import PaneFrame from './PaneFrame'
 
 function normalizeUrl(input: string): string {
   const v = input.trim()
@@ -34,10 +32,12 @@ interface TabNavMeta {
 const NO_META: TabNavMeta = { canBack: false, canFwd: false, loading: false }
 
 /** event handlers outlive props — always read the pane fresh from the store */
-function browserPane(wsId: string, paneId: string): BrowserPaneState | null {
-  const w = useStore.getState().workspaces.find((x) => x.id === wsId)
-  const p = w?.panes[paneId]
-  return p?.type === 'browser' ? p : null
+function paneAt(wsId: string, paneId: string): PaneState | undefined {
+  return useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
+}
+
+function webTabAt(wsId: string, paneId: string, tabId: string): BrowserTab | undefined {
+  return paneAt(wsId, paneId)?.tabs.find((t): t is BrowserTab => t.id === tabId && t.kind === 'web')
 }
 
 /** close dropdown on outside click / Escape (same pattern as ws-menu) */
@@ -68,330 +68,6 @@ function useDismiss(
       window.removeEventListener('keydown', onKey, true)
     }
   }, [open, ref, close])
-}
-
-/**
- * One <webview> per tab; inactive tabs stay mounted (visibility:hidden) so each
- * tab keeps its own history, scroll position and page state.
- *
- * Desired-url changes flow one way: store (tab.url) → effect → guarded loadURL.
- * loadURL throws before dom-ready, so syncUrl probes by simply trying the call:
- * on throw it marks the view not-ready and a bounded retry re-arms until it
- * succeeds. The probe matters because dom-ready can fire before our listeners
- * attach (StrictMode remount) — without it the tab would never become ready.
- */
-function BrowserTabView({
-  wsId,
-  paneId,
-  tab,
-  active,
-  report,
-  bind,
-  onFocusPane
-}: {
-  wsId: string
-  paneId: string
-  tab: BrowserTab
-  active: boolean
-  report: (tabId: string, m: TabNavMeta) => void
-  bind: (tabId: string, el: Electron.WebviewTag | null) => void
-  onFocusPane: () => void
-}): React.JSX.Element {
-  const t = useT()
-  const wvRef = useRef<Electron.WebviewTag | null>(null)
-  const retriesRef = useRef(0)
-  const retryTimerRef = useRef<number | undefined>(undefined)
-  const syncRef = useRef<() => void>(() => {})
-  const bindings = useStore((s) => s.settings.bindings)
-  const [error, setError] = useState<string | null>(null)
-  // src is frozen at mount — later navigations use loadURL only, so the
-  // webview never double-loads when tab.url changes
-  const [initialSrc] = useState(() => toLoad(tab.url))
-  // guest preload (app-shortcut key forwarding) — resolve before mounting the
-  // webview since `preload` is only read when the element attaches
-  const [preload, setPreload] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    window.ade.webview
-      .preloadPath()
-      .then((p) => {
-        if (live) setPreload(p)
-      })
-      .catch(() => setPreload(''))
-    return () => {
-      live = false
-    }
-  }, [])
-
-  const desiredUrl = useCallback((): string | null => {
-    const t = browserPane(wsId, paneId)?.tabs.find((x) => x.id === tab.id)
-    return t ? toLoad(t.url) : null
-  }, [wsId, paneId, tab.id])
-
-  const reportNav = useCallback((): void => {
-    const wv = wvRef.current
-    let m = NO_META
-    try {
-      if (wv) m = { canBack: wv.canGoBack(), canFwd: wv.canGoForward(), loading: wv.isLoading() }
-    } catch {
-      /* not attached yet */
-    }
-    report(tab.id, m)
-  }, [report, tab.id])
-
-  // stable binding — bind/unbind the element exactly on mount/unmount
-  const onFocusPaneRef = useRef(onFocusPane)
-  useEffect(() => {
-    onFocusPaneRef.current = onFocusPane
-  })
-  // the webview element itself lives in state so dependent effects (nav
-  // listeners, url sync) re-run when it attaches after the preload resolves
-  const [wvEl, setWvEl] = useState<Electron.WebviewTag | null>(null)
-  const attachWebview = useCallback(
-    (el: Electron.WebviewTag | null): void => {
-      wvRef.current = el
-      setWvEl(el)
-      // clicking inside the guest focuses the webview element — that's our
-      // only signal, so it also marks the pane focused
-      el?.addEventListener('focus', () => onFocusPaneRef.current())
-      // guest preload relays app-shortcut keydowns as ipc-message 'ade:key'
-      const onIpc = (e: Electron.IpcMessageEvent): void => {
-        if (e.channel === 'ade:key') applyShortcut(e.args[0])
-      }
-      el?.addEventListener('ipc-message', onIpc)
-      bind(tab.id, el)
-    },
-    [bind, tab.id]
-  )
-
-  // create the webview imperatively — `preload` must be set before the element
-  // attaches, and JSX can't express it (React drops unknown webview props)
-  const hostRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const host = hostRef.current
-    if (!host || preload === null) return
-    const el = document.createElement('webview') as Electron.WebviewTag
-    el.className = 'browser-view'
-    if (preload) el.setAttribute('preload', preload)
-    el.setAttribute('src', initialSrc)
-    host.appendChild(el)
-    attachWebview(el)
-    return () => {
-      attachWebview(null)
-      el.remove()
-    }
-  }, [preload, initialSrc, attachWebview])
-
-  useEffect(() => {
-    const wv = wvEl
-    if (!wv) return
-
-    // all loadURL calls funnel through syncUrl: they throw before dom-ready, so
-    // a bounded retry re-arms until the webview accepts calls. the initial probe
-    // matters because dom-ready can fire before our listeners attach (StrictMode
-    // remount) — without it the tab would never become ready.
-    const syncUrl = (): void => {
-      const target = desiredUrl()
-      if (!target) return
-      try {
-        if (wv.getURL() !== target) wv.loadURL(target).catch(() => {})
-        retriesRef.current = 0
-      } catch {
-        if (retryTimerRef.current === undefined && retriesRef.current < 60) {
-          retryTimerRef.current = window.setTimeout(() => {
-            retryTimerRef.current = undefined
-            retriesRef.current += 1
-            syncUrl()
-          }, 100)
-        }
-      }
-    }
-
-    const onNav = (e: Electron.DidNavigateEvent | Electron.DidNavigateInPageEvent): void => {
-      setError(null)
-      const st = useStore.getState()
-      const p = browserPane(wsId, paneId)
-      if (!p) return
-      const tabs = p.tabs.map((t) => (t.id === tab.id ? { ...t, url: e.url } : t))
-      // pane.url mirrors the active tab only
-      st.updatePane(paneId, p.activeTabId === tab.id ? { tabs, url: e.url } : { tabs }, wsId)
-      reportNav()
-    }
-    const onNavInPage = (e: Electron.DidNavigateInPageEvent): void => {
-      if (e.isMainFrame) onNav(e)
-    }
-    const onTitle = (e: Electron.PageTitleUpdatedEvent): void => {
-      if (!e.title) return
-      const st = useStore.getState()
-      const p = browserPane(wsId, paneId)
-      if (!p) return
-      const tabs = p.tabs.map((t) => (t.id === tab.id ? { ...t, title: e.title } : t))
-      st.updatePane(paneId, p.activeTabId === tab.id ? { tabs, title: e.title } : { tabs }, wsId)
-    }
-    const onFailLoad = (e: Electron.DidFailLoadEvent): void => {
-      // -3 = ERR_ABORTED (stopped/superseded load) — not a real failure
-      if (!e.isMainFrame || e.errorCode === -3) return
-      setError(`${e.errorDescription} (${e.errorCode})`)
-      reportNav()
-    }
-    const onStartLoading = (): void => {
-      setError(null)
-      reportNav()
-    }
-    const onGone = (): void =>
-      setError(translate(useStore.getState().settings.language, 'pageCrashed'))
-    const onNewWindow = (e: Event): void => {
-      window.ade.openExternal((e as unknown as { url: string }).url)
-    }
-
-    wv.addEventListener('dom-ready', syncUrl)
-    wv.addEventListener('dom-ready', reportNav)
-    wv.addEventListener('did-navigate', onNav)
-    wv.addEventListener('did-navigate-in-page', onNavInPage)
-    wv.addEventListener('page-title-updated', onTitle)
-    wv.addEventListener('did-start-loading', onStartLoading)
-    wv.addEventListener('did-stop-loading', reportNav)
-    wv.addEventListener('did-fail-load', onFailLoad)
-    wv.addEventListener('render-process-gone', onGone)
-    wv.addEventListener('new-window', onNewWindow as EventListener)
-    syncRef.current = syncUrl
-    // dom-ready may already have fired (StrictMode remount) — probe now
-    syncUrl()
-    reportNav()
-
-    // push the effective keybinding list so the guest preload forwards custom
-    // (non-Alt) combos too — re-runs when the user edits bindings
-    const pushBindings = (): void => {
-      try {
-        wv.send('ade:bindings', Object.values(effectiveBindings(useStore.getState().settings)))
-      } catch {
-        /* not dom-ready yet — the listener below covers the initial attach */
-      }
-    }
-    wv.addEventListener('dom-ready', pushBindings)
-    pushBindings()
-    return () => {
-      wv.removeEventListener('dom-ready', pushBindings)
-      syncRef.current = () => {}
-      if (retryTimerRef.current !== undefined) {
-        clearTimeout(retryTimerRef.current)
-        retryTimerRef.current = undefined
-      }
-      wv.removeEventListener('dom-ready', syncUrl)
-      wv.removeEventListener('dom-ready', reportNav)
-      wv.removeEventListener('did-navigate', onNav)
-      wv.removeEventListener('did-navigate-in-page', onNavInPage)
-      wv.removeEventListener('page-title-updated', onTitle)
-      wv.removeEventListener('did-start-loading', onStartLoading)
-      wv.removeEventListener('did-stop-loading', reportNav)
-      wv.removeEventListener('did-fail-load', onFailLoad)
-      wv.removeEventListener('render-process-gone', onGone)
-      wv.removeEventListener('new-window', onNewWindow as EventListener)
-    }
-  }, [wsId, paneId, tab.id, desiredUrl, reportNav, wvEl, bindings])
-
-  // desired url lives in the store — re-sync the webview when it changes
-  useEffect(() => {
-    syncRef.current()
-  }, [tab.url])
-
-  return (
-    <div className={`browser-tabview${active ? '' : ' off'}`} ref={hostRef}>
-      {error && (
-        <div className="browser-err">
-          <Globe size={20} />
-          <span className="err-title">{t('pageFailed')}</span>
-          <span className="err-detail">{error}</span>
-          <button
-            onClick={() => {
-              setError(null)
-              try {
-                wvRef.current?.reload()
-              } catch {
-                /* not attached yet */
-              }
-            }}
-          >
-            {t('retry')}
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TabMenu({
-  tabs,
-  activeTabId,
-  onActivate,
-  onClose,
-  onNew
-}: {
-  tabs: BrowserTab[]
-  activeTabId: string | null
-  onActivate: (tabId: string) => void
-  onClose: (tabId: string) => void
-  onNew: () => void
-}): React.JSX.Element {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const close = useCallback(() => setOpen(false), [])
-  useDismiss(open, ref, close)
-
-  return (
-    <div className="pd-wrap" ref={ref}>
-      <Tooltip label={t('tabs')}>
-        <button className={`pbtn pd-btn${open ? ' on' : ''}`} onClick={() => setOpen(!open)}>
-          <ChevronDown />
-          <span className="pd-count">{tabs.length}</span>
-        </button>
-      </Tooltip>
-      {open && (
-        <>
-          <div className="click-catcher" onMouseDown={close} />
-          <div className="pdrop">
-            {tabs.map((tab) => (
-              <div key={tab.id} className={`pdrop-row${tab.id === activeTabId ? ' active' : ''}`}>
-                <button
-                  className="pdrop-main"
-                  onClick={() => {
-                    onActivate(tab.id)
-                    close()
-                  }}
-                >
-                  <span className="pdrop-title">
-                    {tab.title || (tab.url === 'https://' ? t('newTab') : tab.url)}
-                  </span>
-                  <span className="pdrop-sub">{toInput(tab.url)}</span>
-                </button>
-                <button
-                  className="pdrop-x"
-                  aria-label="Close tab"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onClose(tab.id)
-                  }}
-                >
-                  <X size={11} />
-                </button>
-              </div>
-            ))}
-            <div className="pdrop-sep" />
-            <button
-              className="pdrop-action"
-              onClick={() => {
-                onNew()
-                close()
-              }}
-            >
-              <Plus size={11} /> {t('newTab')}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
 }
 
 function BookmarkMenu({
@@ -512,54 +188,244 @@ function BookmarkMenu({
   )
 }
 
-export default function BrowserPane({
-  pane,
-  wsId
+/**
+ * One <webview> per web block; inactive blocks stay mounted (the leaf hides
+ * them) so each keeps its own history, scroll position and page state. The
+ * floating omnibox header lives inside the content — the leaf's tab strip is
+ * where tabs switch.
+ *
+ * Desired-url changes flow one way: store (tab.url) → effect → guarded loadURL.
+ * loadURL throws before dom-ready, so syncUrl probes by simply trying the call:
+ * on throw it marks the view not-ready and a bounded retry re-arms until it
+ * succeeds. The probe matters because dom-ready can fire before our listeners
+ * attach (StrictMode remount) — without it the tab would never become ready.
+ */
+export function BrowserTabView({
+  wsId,
+  paneId,
+  tab,
+  onFocusPane
 }: {
-  pane: BrowserPaneState
   wsId: string
+  paneId: string
+  tab: BrowserTab
+  onFocusPane: () => void
 }): React.JSX.Element {
-  const updatePane = useStore((s) => s.updatePane)
-  const focusPane = useStore((s) => s.focusPane)
-  const homeUrl = useStore((s) => s.settings.homeUrl).trim()
   const t = useT()
+  const wvRef = useRef<Electron.WebviewTag | null>(null)
+  const retriesRef = useRef(0)
+  const retryTimerRef = useRef<number | undefined>(undefined)
+  const syncRef = useRef<() => void>(() => {})
+  const bindings = useStore((s) => s.settings.bindings)
+  const [error, setError] = useState<string | null>(null)
+  const [meta, setMeta] = useState<TabNavMeta>(NO_META)
+  // src is frozen at mount — later navigations use loadURL only, so the
+  // webview never double-loads when tab.url changes
+  const [initialSrc] = useState(() => toLoad(tab.url))
+  // guest preload (app-shortcut key forwarding) — resolve before mounting the
+  // webview since `preload` is only read when the element attaches
+  const [preload, setPreload] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    window.ade.webview
+      .preloadPath()
+      .then((p) => {
+        if (live) setPreload(p)
+      })
+      .catch(() => setPreload(''))
+    return () => {
+      live = false
+    }
+  }, [])
+
   const project = useStore((s) => {
     const w = s.workspaces.find((x) => x.id === wsId)
     return s.projects.find((p) => p.id === w?.projectId)
   })
 
-  const tabs = pane.tabs ?? []
-  const activeTab = tabs.find((t) => t.id === pane.activeTabId) ?? tabs[0] ?? null
-  const activeTabId = activeTab?.id ?? null
+  const desiredUrl = useCallback((): string | null => {
+    const t = webTabAt(wsId, paneId, tab.id)
+    return t ? toLoad(t.url) : null
+  }, [wsId, paneId, tab.id])
 
-  const wvMapRef = useRef(new Map<string, Electron.WebviewTag>())
-  const [meta, setMeta] = useState<Record<string, TabNavMeta>>({})
-  const [urlInput, setUrlInput] = useState(() => toInput(pane.url))
+  const reportNav = useCallback((): void => {
+    const wv = wvRef.current
+    let m = NO_META
+    try {
+      if (wv) m = { canBack: wv.canGoBack(), canFwd: wv.canGoForward(), loading: wv.isLoading() }
+    } catch {
+      /* not attached yet */
+    }
+    setMeta((prev) =>
+      prev.canBack === m.canBack && prev.canFwd === m.canFwd && prev.loading === m.loading
+        ? prev
+        : m
+    )
+  }, [])
 
-  // omnibox follows the active tab — adjust during render, not in an effect
-  const desiredInput = toInput(activeTab?.url ?? '')
+  // stable binding — bind/unbind the element exactly on mount/unmount
+  const onFocusPaneRef = useRef(onFocusPane)
+  useEffect(() => {
+    onFocusPaneRef.current = onFocusPane
+  })
+  // the webview element itself lives in state so dependent effects (nav
+  // listeners, url sync) re-run when it attaches after the preload resolves
+  const [wvEl, setWvEl] = useState<Electron.WebviewTag | null>(null)
+  const attachWebview = useCallback((el: Electron.WebviewTag | null): void => {
+    wvRef.current = el
+    setWvEl(el)
+    // clicking inside the guest focuses the webview element — that's our
+    // only signal, so it also marks the pane focused
+    el?.addEventListener('focus', () => onFocusPaneRef.current())
+    // guest preload relays app-shortcut keydowns as ipc-message 'ade:key'
+    const onIpc = (e: Electron.IpcMessageEvent): void => {
+      if (e.channel === 'ade:key') applyShortcut(e.args[0])
+    }
+    el?.addEventListener('ipc-message', onIpc)
+  }, [])
+
+  // create the webview imperatively — `preload` must be set before the element
+  // attaches, and JSX can't express it (React drops unknown webview props)
+  const hostRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || preload === null) return
+    const el = document.createElement('webview') as Electron.WebviewTag
+    el.className = 'browser-view'
+    if (preload) el.setAttribute('preload', preload)
+    el.setAttribute('src', initialSrc)
+    host.appendChild(el)
+    attachWebview(el)
+    return () => {
+      attachWebview(null)
+      el.remove()
+    }
+  }, [preload, initialSrc, attachWebview])
+
+  useEffect(() => {
+    const wv = wvEl
+    if (!wv) return
+
+    // all loadURL calls funnel through syncUrl: they throw before dom-ready, so
+    // a bounded retry re-arms until the webview accepts calls. the initial probe
+    // matters because dom-ready can fire before our listeners attach (StrictMode
+    // remount) — without it the tab would never become ready.
+    const syncUrl = (): void => {
+      const target = desiredUrl()
+      if (!target) return
+      try {
+        if (wv.getURL() !== target) wv.loadURL(target).catch(() => {})
+        retriesRef.current = 0
+      } catch {
+        if (retryTimerRef.current === undefined && retriesRef.current < 60) {
+          retryTimerRef.current = window.setTimeout(() => {
+            retryTimerRef.current = undefined
+            retriesRef.current += 1
+            syncUrl()
+          }, 100)
+        }
+      }
+    }
+
+    const onNav = (e: Electron.DidNavigateEvent | Electron.DidNavigateInPageEvent): void => {
+      setError(null)
+      const st = useStore.getState()
+      const p = paneAt(wsId, paneId)
+      if (!p) return
+      const tabs = p.tabs.map((t) => (t.id === tab.id ? { ...t, url: e.url } : t))
+      st.updatePane(paneId, { tabs }, wsId)
+      reportNav()
+    }
+    const onNavInPage = (e: Electron.DidNavigateInPageEvent): void => {
+      if (e.isMainFrame) onNav(e)
+    }
+    const onTitle = (e: Electron.PageTitleUpdatedEvent): void => {
+      if (!e.title) return
+      const st = useStore.getState()
+      const p = paneAt(wsId, paneId)
+      if (!p) return
+      const tabs = p.tabs.map((t) => (t.id === tab.id ? { ...t, title: e.title } : t))
+      st.updatePane(paneId, { tabs }, wsId)
+    }
+    const onFailLoad = (e: Electron.DidFailLoadEvent): void => {
+      // -3 = ERR_ABORTED (stopped/superseded load) — not a real failure
+      if (!e.isMainFrame || e.errorCode === -3) return
+      setError(`${e.errorDescription} (${e.errorCode})`)
+      reportNav()
+    }
+    const onStartLoading = (): void => {
+      setError(null)
+      reportNav()
+    }
+    const onGone = (): void =>
+      setError(translate(useStore.getState().settings.language, 'pageCrashed'))
+    const onNewWindow = (e: Event): void => {
+      window.ade.openExternal((e as unknown as { url: string }).url)
+    }
+
+    wv.addEventListener('dom-ready', syncUrl)
+    wv.addEventListener('dom-ready', reportNav)
+    wv.addEventListener('did-navigate', onNav)
+    wv.addEventListener('did-navigate-in-page', onNavInPage)
+    wv.addEventListener('page-title-updated', onTitle)
+    wv.addEventListener('did-start-loading', onStartLoading)
+    wv.addEventListener('did-stop-loading', reportNav)
+    wv.addEventListener('did-fail-load', onFailLoad)
+    wv.addEventListener('render-process-gone', onGone)
+    wv.addEventListener('new-window', onNewWindow as EventListener)
+    syncRef.current = syncUrl
+    // dom-ready may already have fired (StrictMode remount) — probe now
+    syncUrl()
+    reportNav()
+
+    // push the effective keybinding list so the guest preload forwards custom
+    // (non-Alt) combos too — re-runs when the user edits bindings
+    const pushBindings = (): void => {
+      try {
+        wv.send('ade:bindings', Object.values(effectiveBindings(useStore.getState().settings)))
+      } catch {
+        /* not dom-ready yet — the listener below covers the initial attach */
+      }
+    }
+    wv.addEventListener('dom-ready', pushBindings)
+    pushBindings()
+    return () => {
+      wv.removeEventListener('dom-ready', pushBindings)
+      syncRef.current = () => {}
+      if (retryTimerRef.current !== undefined) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = undefined
+      }
+      wv.removeEventListener('dom-ready', syncUrl)
+      wv.removeEventListener('dom-ready', reportNav)
+      wv.removeEventListener('did-navigate', onNav)
+      wv.removeEventListener('did-navigate-in-page', onNavInPage)
+      wv.removeEventListener('page-title-updated', onTitle)
+      wv.removeEventListener('did-start-loading', onStartLoading)
+      wv.removeEventListener('did-stop-loading', reportNav)
+      wv.removeEventListener('did-fail-load', onFailLoad)
+      wv.removeEventListener('render-process-gone', onGone)
+      wv.removeEventListener('new-window', onNewWindow as EventListener)
+    }
+  }, [wsId, paneId, tab.id, desiredUrl, reportNav, wvEl, bindings])
+
+  // desired url lives in the store — re-sync the webview when it changes
+  useEffect(() => {
+    syncRef.current()
+  }, [tab.url])
+
+  // ── floating header: nav + bookmarks + omnibox, per-block local state ──
+  const [urlInput, setUrlInput] = useState(() => toInput(tab.url))
+  // omnibox follows navigations written to the store — adjust during render
+  const desiredInput = toInput(tab.url)
   const [lastSynced, setLastSynced] = useState(desiredInput)
   if (desiredInput !== lastSynced) {
     setLastSynced(desiredInput)
     setUrlInput(desiredInput)
   }
 
-  const bind = useCallback((tabId: string, el: Electron.WebviewTag | null) => {
-    if (el) wvMapRef.current.set(tabId, el)
-    else wvMapRef.current.delete(tabId)
-  }, [])
-
-  const report = useCallback((tabId: string, m: TabNavMeta) => {
-    setMeta((prev) => {
-      const cur = prev[tabId]
-      if (cur && cur.canBack === m.canBack && cur.canFwd === m.canFwd && cur.loading === m.loading)
-        return prev
-      return { ...prev, [tabId]: m }
-    })
-  }, [])
-
   const withWv = (fn: (wv: Electron.WebviewTag) => void): void => {
-    const wv = activeTabId ? wvMapRef.current.get(activeTabId) : undefined
+    const wv = wvRef.current
     if (!wv) return
     try {
       fn(wv)
@@ -568,145 +434,108 @@ export default function BrowserPane({
     }
   }
 
-  // navigate a tab by writing its desired url to the store — the tab view's
-  // webview syncs from there (handles dom-ready timing on its own)
-  const openInTab = (tabId: string, url: string): void => {
-    const tab = tabs.find((t) => t.id === tabId)
-    if (!tab) return
+  // navigate by writing the desired url to the store — the webview syncs
+  // from there (handles dom-ready timing on its own)
+  const navigate = (url: string): void => {
     if (tab.url === url) {
-      if (tabId === activeTabId) withWv((wv) => wv.reload())
+      withWv((wv) => wv.reload())
       return
     }
-    const next = tabs.map((t) => (t.id === tabId ? { ...t, url } : t))
-    updatePane(pane.id, tabId === activeTabId ? { tabs: next, url } : { tabs: next }, wsId)
+    const p = paneAt(wsId, paneId)
+    if (!p) return
+    useStore
+      .getState()
+      .updatePane(paneId, { tabs: p.tabs.map((x) => (x.id === tab.id ? { ...x, url } : x)) }, wsId)
   }
 
   const go = (): void => {
     const url = normalizeUrl(urlInput)
     setUrlInput(url)
-    if (activeTabId) openInTab(activeTabId, url)
+    navigate(url)
   }
 
+  // a bookmark's "open in new tab" stacks a web block into this leaf
   const openBookmark = (url: string, newTab: boolean): void => {
-    if (newTab || !activeTabId) {
-      const t: BrowserTab = { id: crypto.randomUUID(), url, title: '' }
-      updatePane(pane.id, { tabs: [...tabs, t], activeTabId: t.id, url }, wsId)
-    } else {
-      openInTab(activeTabId, url)
-    }
-  }
-
-  const newTab = (): void => {
-    const t: BrowserTab = { id: crypto.randomUUID(), url: homeUrl || 'https://', title: '' }
-    updatePane(pane.id, { tabs: [...tabs, t], activeTabId: t.id, url: t.url }, wsId)
-  }
-
-  const activateTab = (tabId: string): void => {
-    const t = tabs.find((x) => x.id === tabId)
-    if (!t || tabId === activeTabId) return
-    updatePane(pane.id, { activeTabId: tabId, url: t.url }, wsId)
-  }
-
-  const closeTab = (tabId: string): void => {
-    const next = tabs.filter((t) => t.id !== tabId)
-    // closing the last tab closes the pane — in a detached window the record
-    // lives in the main store, so the close goes through pane:cmd (which also
-    // tears this window down via closeDetached)
-    if (next.length === 0) {
-      if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
-      else useStore.getState().closePane(pane.id, wsId)
+    if (!newTab) {
+      navigate(url)
       return
     }
-    if (tabId === activeTabId) {
-      const t = next[next.length - 1]
-      updatePane(pane.id, { tabs: next, activeTabId: t.id, url: t.url }, wsId)
-    } else {
-      updatePane(pane.id, { tabs: next }, wsId)
-    }
-    setMeta((prev) => {
-      const m = { ...prev }
-      delete m[tabId]
-      return m
-    })
+    const p = paneAt(wsId, paneId)
+    if (!p) return
+    const nt: BrowserTab = { kind: 'web', id: crypto.randomUUID(), url, title: '' }
+    useStore.getState().updatePane(paneId, { tabs: [...p.tabs, nt], activeTabId: nt.id }, wsId)
   }
 
-  const m = (activeTabId && meta[activeTabId]) || NO_META
-
   return (
-    <PaneFrame
-      pane={pane}
-      wsId={wsId}
-      icon={<Globe className="picon" />}
-      title={
-        <>
-          <TabMenu
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onActivate={activateTab}
-            onClose={closeTab}
-            onNew={newTab}
-          />
-          <BookmarkMenu
-            tab={activeTab}
-            projectId={project?.id}
-            projectName={project?.name}
-            onOpen={openBookmark}
-          />
-          <Tooltip label={t('back')}>
-            <button
-              className="pbtn"
-              disabled={!m.canBack}
-              onClick={() => withWv((wv) => wv.goBack())}
-            >
-              <ArrowLeft />
-            </button>
-          </Tooltip>
-          <Tooltip label={t('forward')}>
-            <button
-              className="pbtn"
-              disabled={!m.canFwd}
-              onClick={() => withWv((wv) => wv.goForward())}
-            >
-              <ArrowRight />
-            </button>
-          </Tooltip>
-          {m.loading ? (
-            <Tooltip label={t('stop')}>
-              <button className="pbtn" onClick={() => withWv((wv) => wv.stop())}>
-                <X />
-              </button>
-            </Tooltip>
-          ) : (
-            <Tooltip label={t('reload')}>
-              <button className="pbtn" onClick={() => withWv((wv) => wv.reload())}>
-                <RotateCw />
-              </button>
-            </Tooltip>
-          )}
-          <input
-            className="url-input"
-            value={urlInput}
-            placeholder={t('urlOrSearch')}
-            spellCheck={false}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && go()}
-            onPointerDown={(e) => e.stopPropagation()}
-          />
-        </>
-      }
-    >
-      {tabs.map((t) => (
-        <BrowserTabView
-          key={t.id}
-          wsId={wsId}
-          paneId={pane.id}
-          tab={t}
-          active={t.id === activeTabId}
-          report={report}
-          bind={bind}
-          onFocusPane={() => focusPane(pane.id, wsId)}
+    <div className="browser-tabview">
+      <div className="browser-body" ref={hostRef} />
+      <div className="web-head" onPointerDown={(e) => e.stopPropagation()}>
+        <BookmarkMenu
+          tab={tab}
+          projectId={project?.id}
+          projectName={project?.name}
+          onOpen={openBookmark}
         />
-      ))}
-    </PaneFrame>
+        <Tooltip label={t('back')}>
+          <button
+            className="pbtn"
+            disabled={!meta.canBack}
+            onClick={() => withWv((wv) => wv.goBack())}
+          >
+            <ArrowLeft />
+          </button>
+        </Tooltip>
+        <Tooltip label={t('forward')}>
+          <button
+            className="pbtn"
+            disabled={!meta.canFwd}
+            onClick={() => withWv((wv) => wv.goForward())}
+          >
+            <ArrowRight />
+          </button>
+        </Tooltip>
+        {meta.loading ? (
+          <Tooltip label={t('stop')}>
+            <button className="pbtn" onClick={() => withWv((wv) => wv.stop())}>
+              <X />
+            </button>
+          </Tooltip>
+        ) : (
+          <Tooltip label={t('reload')}>
+            <button className="pbtn" onClick={() => withWv((wv) => wv.reload())}>
+              <RotateCw />
+            </button>
+          </Tooltip>
+        )}
+        <input
+          className="url-input"
+          value={urlInput}
+          placeholder={t('urlOrSearch')}
+          spellCheck={false}
+          onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && go()}
+          onPointerDown={(e) => e.stopPropagation()}
+        />
+      </div>
+      {error && (
+        <div className="browser-err">
+          <Globe size={20} />
+          <span className="err-title">{t('pageFailed')}</span>
+          <span className="err-detail">{error}</span>
+          <button
+            onClick={() => {
+              setError(null)
+              try {
+                wvRef.current?.reload()
+              } catch {
+                /* not attached yet */
+              }
+            }}
+          >
+            {t('retry')}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

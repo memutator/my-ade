@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowDownToLine, Minus, Pin, PinOff, Square, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { paneLabel } from '../utils'
 import type { PaneState } from '../types'
 import { PaneFor } from './SplitView'
 import Tooltip from './Tooltip'
@@ -65,7 +66,7 @@ export default function DetachedApp({
   // report what this window is attending (on mount, focus gain, active-tab
   // change) so the main store clears pings aimed at this pane without
   // needing a notification click — our focus isn't observable from there
-  const attendedTabId = pane?.type === 'terminal' ? pane.activeTabId : undefined
+  const attendedTabId = pane?.activeTabId
   useEffect(() => {
     const report = (): void => {
       if (document.hasFocus())
@@ -109,7 +110,7 @@ export default function DetachedApp({
   return (
     <div className="app detached">
       <div className="detached-bar">
-        <span className="dt-title">{pane?.title ?? ''}</span>
+        <span className="dt-title">{pane ? paneLabel(pane, settings.language) : ''}</span>
         <div className="dt-actions">
           <Tooltip label={t(pinned ? 'unpinTop' : 'alwaysOnTop')}>
             <button className={`pbtn${pinned ? ' on' : ''}`} onClick={togglePin}>

@@ -46,12 +46,11 @@ moved between workspaces by dragging — see [Panes](panes.md#moving-panes).
 
 The workspace's project path follows it everywhere:
 
-- terminal panes spawn shells (and new terminal tabs) with `cwd` set to the
+- terminal blocks spawn shells (and new terminal tabs) with `cwd` set to the
   project path — see [Terminal](terminal.md)
-- the file tree (app-icon hover overlay, pinned sidebar, and the detached
-  editor sidebar) is rooted at the project path — see [Panes](panes.md)
-- todos and project-scoped bookmarks key off the project — see
-  [Todos](todos.md) and [Browser](browser.md)
+- the file tree (app-icon hover overlay, pinned sidebar, and the file block's
+  corner-fab overlay) is rooted at the project path — see [Panes](panes.md)
+- project-scoped bookmarks key off the project — see [Browser](browser.md)
 
 A project is registered once; creating another workspace for the same project
 just adds a second tab for it.

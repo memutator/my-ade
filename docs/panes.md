@@ -1,34 +1,48 @@
 # Panes
 
-A workspace is a binary split tree of **panes**. Four pane types exist:
+A workspace is a binary split tree of **leaves** (panes). A pane has no type
+of its own — it's a **stack of blocks** shown as tabs in its titlebar. Three
+block kinds exist, and they mix freely inside one stack:
 
-| Type | Keys | Contents |
+| Kind | Keys | Contents |
 | --- | --- | --- |
-| Terminal | `Alt+T` | xterm.js shells — see [Terminal](terminal.md) |
-| Browser | `Alt+B` | webview tabs — see [Browser](browser.md) |
-| Editor | `Alt+E` | file tabs — see [Editor](editor.md) |
-| Todo | `Alt+L` | project checklist — see [Todos](todos.md) |
+| Terminal (`term`) | `Alt+T` | xterm.js shells — see [Terminal](terminal.md) |
+| Browser (`web`) | `Alt+B` | webview pages — see [Browser](browser.md) |
+| Editor (`file`) | `Alt+E` | file buffers — see [Editor](editor.md) |
 
-Add panes with the topbar buttons or the shortcuts. A new pane splits the
-focused pane to the right (or fills the workspace when it's empty).
+**Opening content never splits the layout.** `Alt+T/B/E`, tree clicks,
+terminal file links, and `openUrlInBrowser` all stack a block into a leaf —
+the leaf that asked, else the focused one, else the last visible one. A new
+leaf only appears when nothing visible exists. Splits are created exclusively
+by explicit gestures: `Alt+D`/`Alt+S`, the `⋯` menu's split items, or dragging
+a pane to another pane's edge. Invariant: *the focused leaf is never
+implicitly split.*
+
+Closing a block's last tab closes the leaf.
 
 ## Titlebar
 
 Every pane has a titlebar:
 
-- **pane icon** (left) — press-and-hold then drag to move the pane
-- **title area** — terminal and editor panes show an internal tab strip here;
-  browser panes show their header controls (tab dropdown, bookmarks, nav,
-  omnibox); todo panes show a plain title
-- **type-specific buttons** — e.g. `+` new tab on terminals, open-file on
-  editors
+- **pane icon** (left) — shows the active block's kind glyph; press-and-hold
+  then drag to move the pane
+- **tab strip** — the shared `TabStrip` lists every block in the stack with a
+  kind icon, label, and status dot (exited shell, unsaved buffer, unread
+  notification). The `+` at the end of the strip stacks a new block of any
+  kind into this leaf. Double-click renames terminal blocks; file previews
+  pin on double-click. Right-click opens per-kind actions (rename / copy cwd
+  / restart shell for terminals, copy path / reveal for files, copy URL for
+  web) plus the shared close ops (close, close others, close to the right,
+  close all)
+- **block-specific buttons** — e.g. restart-shell on an exited terminal,
+  open-file on an editor block
 - **`⋯` actions menu** — opens on hover:
 
   | Item | Effect |
   | --- | --- |
   | Float pane / Dock pane | Toggle floating overlay (`Alt+F`); floating panes show *dock* instead |
   | Detach to window | Pop the pane into its own OS window |
-  | Split right / Split down | Split this pane with a new terminal (hidden while floating) |
+  | Split right / Split down | Split this leaf with a new terminal block (hidden while floating) |
   | Minimize | Collapse to a dock chip (`Alt+H`) |
   | Close | Close the pane (`Alt+W`) |
 
@@ -38,6 +52,11 @@ split/float/minimize ops live in the main window.
 The **focused pane** gets a 2px accent bar on the left of its titlebar. Click
 anywhere in a pane to focus it; `Alt+]` / `Alt+[` cycle focus, `Alt+←↑→↓`
 moves focus to the pane in that direction.
+
+Block-specific chrome lives *inside* the content, not the titlebar: a web
+block floats a translucent navigation header at the top of the page, and a
+file block gets a small corner fab that pops the directory-tree overlay on
+hover (~350 ms dwell). See [Browser](browser.md) and [Editor](editor.md).
 
 ## Resizing
 
@@ -80,8 +99,6 @@ and terminal sessions keep running through the move.
 
 The detached window's top bar (draggable anywhere) has:
 
-- **file-tree button** (editor panes only) — hover to peek the project tree as
-  an overlay, click to pin it as a sidebar; `Alt+X` / `Alt+O` work here too
 - **always-on-top pin** toggle
 - **reattach** — sends the pane back to its workspace slot
 - minimize / maximize / close — closing the window reattaches the pane rather
@@ -96,5 +113,5 @@ clicking it brings the window forward.
 — terminals keep running, webviews stay loaded — and show up as **dock chips
 on the right side of the title bar**, scoped to the active workspace. Clicking
 a chip restores the pane to its exact slot; the chip's `×` closes the pane for
-real. A terminal chip shows the running agent's icon or an exited dot, and its
-`shell · cwd` label.
+real. A chip shows the active block's icon and label — for a terminal block
+that's the running agent's icon or an exited dot plus `shell · cwd`.

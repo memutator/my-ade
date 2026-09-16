@@ -87,8 +87,8 @@ export function resumeCandidates(
   for (const rec of Object.values(st.resumeSessions)) {
     if (rec.wsId !== wsId) continue
     const pane = ws.panes[rec.paneId]
-    if (pane?.type !== 'terminal') continue
-    const tab = pane.tabs.find((t) => t.id === rec.tabId)
+    if (!pane) continue
+    const tab = pane.tabs.find((t): t is TerminalTab => t.id === rec.tabId && t.kind === 'term')
     if (!tab || tab.exited || !tab.pty || tab.agent) continue
     if (st.settings.providers[rec.provider] === false) continue
     const cmd = resumeCommand(rec.provider, rec.sessionId)
@@ -103,7 +103,12 @@ export function resumeCandidates(
   const paneOrder = new Map(visibleLeafIds(ws.root, ws.panes).map((id, i) => [id, i]))
   const tabIndex = (c: ResumeCandidate): number => {
     const p = ws.panes[c.rec.paneId]
-    return p?.type === 'terminal' ? p.tabs.findIndex((t) => t.id === c.rec.tabId) : 0
+    return p
+      ? Math.max(
+          0,
+          p.tabs.findIndex((t) => t.id === c.rec.tabId)
+        )
+      : 0
   }
   return [...byTab.values()].sort(
     (a, b) =>

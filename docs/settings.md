@@ -10,7 +10,7 @@ There is no save button. Every change lands in the store immediately and is
 persisted debounced (~400 ms) with the rest of the app state to
 `~/.config/ade/ade-state.json` (`$XDG_CONFIG_HOME/ade/ade-state.json` when
 `XDG_CONFIG_HOME` is set). The file holds projects, workspaces, layouts,
-bookmarks, todos, and settings — deleting it factory-resets everything.
+bookmarks, and settings — deleting it factory-resets everything.
 
 ## Appearance
 
@@ -27,7 +27,7 @@ bookmarks, todos, and settings — deleting it factory-resets everything.
 ## Browser
 
 - **Home page** (`homeUrl`, default empty) — start URL applied to newly created
-  browser panes and new tabs inside them. Existing tabs are untouched; empty
+  web blocks. Existing tabs are untouched; empty
   means a blank address bar.
 - **Bookmarks** — a manager, not an editor. Bookmarks are saved from a browser
   pane's star button (project or global scope); here they're listed grouped by

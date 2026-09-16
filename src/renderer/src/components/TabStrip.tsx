@@ -21,6 +21,8 @@ export interface TabItem {
   dotTip?: string
   /** VS Code-style preview tab — italic label until pinned */
   preview?: boolean
+  /** default true — set false on blocks that can't be renamed (web/file) */
+  renameable?: boolean
 }
 
 export interface TabStripHandle {
@@ -199,7 +201,7 @@ export default function TabStrip({
     (): TabStripHandle => ({
       startRename: (id) => {
         const tab = tabs.find((x) => x.id === id)
-        if (!tab || !onRename) return
+        if (!tab || !onRename || tab.renameable === false) return
         setEditingId(id)
         setEditValue(tab.label)
       }
@@ -253,7 +255,7 @@ export default function TabStrip({
               }}
               onDoubleClick={() => {
                 onDoubleClick?.(tab.id)
-                if (!onRename) return
+                if (!onRename || tab.renameable === false) return
                 setEditingId(tab.id)
                 setEditValue(tab.label)
               }}
