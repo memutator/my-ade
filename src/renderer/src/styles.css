@@ -2373,6 +2373,11 @@ html[data-theme='light'] .ctab.active {
   opacity: 0.55;
 }
 
+/* so does the tab being dragged out of a leaf's strip */
+.ctab.drag-src {
+  opacity: 0.45;
+}
+
 body.pane-dragging,
 body.pane-dragging * {
   cursor: grabbing !important;
@@ -2442,6 +2447,11 @@ body.pane-dragging webview {
 .drop-indicator.edge-bottom {
   background: var(--accent-soft);
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* tab reorder: a thin accent line marks the insertion gap in the strip */
+.drop-indicator.insert {
+  background: var(--accent);
+  border-radius: 1px;
 }
 
 /* workspace tab hovered as a drop target */

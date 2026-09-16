@@ -4,6 +4,7 @@ import type { BlockKind, EditorTab, PaneState, PaneTab, TerminalTab } from '../t
 import { useStore, patchTerminalTab } from '../store'
 import { useT } from '../i18n'
 import { isDetachedWin } from '../detached'
+import { startTabDrag } from '../paneDnd'
 import { blockLabel, blockSub } from '../utils'
 import { useFileIcon } from '../fileIcons'
 import AgentIcon from './AgentIcon'
@@ -367,6 +368,20 @@ export default function LeafPane({
               onClose={closeTab}
               onRename={renameTab}
               onReorder={reorderTabs}
+              onTabDrag={({ e, tab, index, tabEl, stripEl, onArm }) =>
+                startTabDrag(e, {
+                  wsId,
+                  paneId: pane.id,
+                  tabId: tab.id,
+                  fromIndex: index,
+                  title: tab.label,
+                  iconEl: tabEl,
+                  tabEl,
+                  stripEl,
+                  onReorder: reorderTabs,
+                  onArm
+                })
+              }
               onContextMenu={(id, e) => setCtx({ x: e.clientX, y: e.clientY, tabId: id })}
               onDoubleClick={(id) => {
                 const tab = tabs.find((x) => x.id === id)

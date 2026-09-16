@@ -79,6 +79,25 @@ chip follows the pointer and a highlight shows the drop target:
 Drops work across workspaces: dropping onto (or hovering through) another
 workspace's tab moves the pane there.
 
+## Moving tabs
+
+The same press-and-hold gesture works on any tab in a leaf's strip — the drag
+arms after ~0.2s and a ghost chip follows the pointer:
+
+- **inside the strip** — reorder; a thin accent line marks the insertion gap
+- **center of another pane (or anywhere on its tab strip)** — stack the tab
+  into that leaf and raise it
+- **edge of a pane** — split that pane; the tab lands in a fresh leaf on the
+  new half (works on the source pane itself — splitting a tab off)
+- **workspace tab / empty workspace background** — move the tab to a new leaf
+  in that workspace; hovering a workspace tab ~0.4s mid-drag activates it
+- **Esc** — cancel
+
+A pane emptied by the move closes (its own last-tab-closes rule). Terminal
+tabs keep their live shells through any move — the pty belongs to the tab
+record, not the pane. In a detached window tab drags are reorder-only — the
+window shows a single pane, so there's nothing else to drop on.
+
 ## Floating panes
 
 `⋯` → *Float pane* or `Alt+F` lifts the pane out of the tree into a free-moving

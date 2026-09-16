@@ -83,6 +83,17 @@ function resolveTarget(
   provider?: string,
   at?: { paneId?: string; tabId?: string }
 ): Target {
+  // the stamped tabId is the durable key — a tab drag moves the tab to a new
+  // pane/workspace while the agent's env keeps stamping the OLD paneId, so
+  // find the tab wherever it lives before trusting the pane stamp
+  if (at?.tabId) {
+    for (const w of st.workspaces) {
+      for (const p of Object.values(w.panes)) {
+        const tab = p.tabs.find((t): t is TerminalTab => t.id === at.tabId && t.kind === 'term')
+        if (tab) return { ws: w, paneId: p.id, tabId: tab.id, tab }
+      }
+    }
+  }
   if (at?.paneId) {
     for (const w of st.workspaces) {
       const p = w.panes[at.paneId]

@@ -127,6 +127,10 @@ async function boot(tag, opts = {}) {
       )
     return r.result?.value
   }
+  // real input pipeline — hold-drag exercises paneDnd.ts (pointer events,
+  // elementFromPoint, drop indicators), not just store actions
+  const input = (type, x, y, opts = {}) =>
+    send('Input.dispatchMouseEvent', { type, x, y, ...opts })
   // wait for the renderer + hydration
   const deadline = Date.now() + 20000
   for (;;) {
@@ -210,7 +214,7 @@ async function boot(tag, opts = {}) {
       await sleep(250)
     }
   }
-  return { cfg, child, ev, waitFor, quit, term, type, dump, focusState, decisions, decisionFor }
+  return { cfg, child, ev, input, waitFor, quit, term, type, dump, focusState, decisions, decisionFor }
 }
 
 // ---------- helpers shared by scenarios ----------
@@ -250,6 +254,44 @@ const ptyForTab = (h, tabId) =>
     })()`,
     `pty for tab ${tabId}`
   )
+
+// ---------- tab drag & drop ----------
+
+// element center in viewport coords — selectors are evaluated in the page
+const center = (sel) => `(() => {
+  const el = document.querySelector(${sel})
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+})()`
+
+// hold-press a tab (HOLD_MS=180 arms the engine), walk to the target, release
+const dragTab = async (h, tabId, toExpr) => {
+  const from = await h.ev(center(`'.pane-tabs .ctab[data-tab-id="${tabId}"]'`))
+  if (!from) throw new Error(`tab ${tabId} not found in a leaf strip`)
+  const to = await h.ev(toExpr)
+  if (!to) throw new Error('drop target not found')
+  await h.input('mousePressed', from.x, from.y, { button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(300) // arm
+  const steps = 8
+  for (let i = 1; i <= steps; i++) {
+    await h.input(
+      'mouseMoved',
+      from.x + ((to.x - from.x) * i) / steps,
+      from.y + ((to.y - from.y) * i) / steps,
+      { button: 'left', buttons: 1 }
+    )
+    await sleep(25)
+  }
+  await h.input('mouseReleased', to.x, to.y, { button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(350)
+}
+
+const paneTabIds = (h, wsId, paneId) =>
+  h.ev(`(() => {
+    const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    return w?.panes[${JSON.stringify(paneId)}]?.tabs.map((t) => t.id) ?? null
+  })()`)
 
 // ---------- scenarios ----------
 
@@ -533,6 +575,117 @@ async function scBrowserFile() {
   await h.quit()
 }
 
+async function scTabDnd() {
+  console.log('\n■ tabdnd — hold-drag a tab: reorder, split, stack, cross-workspace')
+  const h = await boot('tabdnd')
+  const { wsId } = await mkws(h)
+  const t1 = await h.term()
+  const paneA = t1.paneId
+  const tabB = await addTermTab(h, wsId, paneA)
+  const tabC = await addTermTab(h, wsId, paneA)
+  const ptyB = await ptyForTab(h, tabB)
+  const ptyC = await ptyForTab(h, tabC)
+
+  // 1) reorder: drag tab A past tab C → [B, C, A]
+  await dragTab(h, t1.tabId, center(`'.pane-tabs .tstrip'`))
+  // the strip's right edge lands past every midpoint → gap index = end.
+  // aim just left of the '+' add-control instead (safer than the wrap edge)
+  let ids = await paneTabIds(h, wsId, paneA)
+  // if the first attempt didn't move it (timing), try the explicit position
+  if (ids?.[0] === t1.tabId) {
+    await dragTab(h, t1.tabId, `(() => {
+      const el = document.querySelector('.pane-tabs .tab-add')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left - 2, y: r.top + r.height / 2 }
+    })()`)
+    ids = await paneTabIds(h, wsId, paneA)
+  }
+  ok(
+    ids?.join() === [tabB, tabC, t1.tabId].join(),
+    `in-strip drag reordered tabs (got ${ids})`
+  )
+
+  // 2) split: drag tab B onto the right edge of its own pane → new leaf
+  await dragTab(
+    h,
+    tabB,
+    `(() => {
+      const el = document.querySelector('.pane[data-pane-id="${paneA}"]')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.right - 4, y: r.top + r.height / 2 }
+    })()`
+  )
+  const split = await h.ev(`(() => {
+    const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    const panes = Object.values(w.panes)
+    const host = panes.find((p) => p.tabs.some((t) => t.id === ${JSON.stringify(tabB)}))
+    return { leaves: panes.length, host: host?.id, srcTabs: w.panes[${JSON.stringify(paneA)}]?.tabs.length }
+  })()`)
+  ok(
+    split.leaves === 2 && split.host && split.host !== paneA && split.srcTabs === 2,
+    `edge drop split a tab into a new leaf (${JSON.stringify(split)})`
+  )
+
+  // 3) stack: drag tab B's tab back onto the source pane's strip → rejoin
+  await dragTab(h, tabB, center(`'.pane[data-pane-id="${paneA}"] .tstrip'`))
+  const restacked = await h.ev(`(() => {
+    const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    const p = w.panes[${JSON.stringify(paneA)}]
+    return { panes: Object.keys(w.panes).length, tabs: p?.tabs.map((t) => t.id), active: p?.activeTabId }
+  })()`)
+  ok(
+    restacked.panes === 1 && restacked.tabs?.join() === [tabC, t1.tabId, tabB].join() &&
+      restacked.active === tabB,
+    `strip drop restacked the tab (${JSON.stringify(restacked)})`
+  )
+
+  // 4) cross-workspace: drag tab C onto ws2's workspace tab → new leaf there
+  const ws2 = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    s.createWorkspace(s.projects[0].id)
+    return s.workspaces.at(-1).id
+  })()`)
+  await h.ev(`window.__ade.getState().activateWorkspace(${JSON.stringify(wsId)})`)
+  await dragTab(h, tabC, center(`'.ws-strip .ctab[data-tab-id="${ws2}"]'`))
+  const moved = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    const w2 = s.workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
+    const host = Object.values(w2.panes).find((p) =>
+      p.tabs.some((t) => t.id === ${JSON.stringify(tabC)}))
+    const w1 = s.workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    return {
+      active: s.activeWorkspaceId,
+      inWs2: !!host,
+      w1Tabs: w1.panes[${JSON.stringify(paneA)}]?.tabs.map((t) => t.id)
+    }
+  })()`)
+  ok(
+    moved.active === ws2 && moved.inWs2 && moved.w1Tabs?.join() === [t1.tabId, tabB].join(),
+    `ws-tab drop moved the tab to a new leaf in ws2 (${JSON.stringify(moved)})`
+  )
+
+  // 5) moved terminals keep their live pty sessions — no respawn
+  const ptys = await h.ev(`(() => {
+    const s = window.__ade.getState()
+    const find = (id) => {
+      for (const w of s.workspaces)
+        for (const p of Object.values(w.panes)) {
+          const t = p.tabs.find((x) => x.id === id)
+          if (t) return t.pty
+        }
+      return null
+    }
+    return { b: find(${JSON.stringify(tabB)}), c: find(${JSON.stringify(tabC)}) }
+  })()`)
+  ok(
+    ptys.b === ptyB && ptys.c === ptyC,
+    `moved tabs kept their pty sessions (b:${ptys.b === ptyB} c:${ptys.c === ptyC})`
+  )
+  await h.quit()
+}
+
 // ---------- runner ----------
 
 const ALL = {
@@ -541,7 +694,8 @@ const ALL = {
   attention: scAttention,
   adopt: scAdopt,
   projectrm: scProjectRm,
-  browserfile: scBrowserFile
+  browserfile: scBrowserFile,
+  tabdnd: scTabDnd
 }
 const picked = process.argv.slice(2).filter((s) => s in ALL)
 const list = picked.length ? picked : Object.keys(ALL)

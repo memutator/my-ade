@@ -401,6 +401,16 @@ interface AdeState extends PersistedState {
     targetPaneId: string | null,
     edge?: 'left' | 'right' | 'top' | 'bottom' | null
   ) => void
+  /** tab drag & drop — pull one tab out of its leaf: stack onto targetPaneId
+      (no edge), split it (edge), or append a fresh leaf to toWsId (null) */
+  moveTab: (
+    fromWsId: string,
+    fromPaneId: string,
+    tabId: string,
+    toWsId: string,
+    targetPaneId: string | null,
+    edge?: 'left' | 'right' | 'top' | 'bottom' | null
+  ) => void
   setRatio: (splitId: string, ratio: number, wsId?: string) => void
   updatePane: (paneId: string, patch: Partial<PaneState>, wsId?: string) => void
   focusPane: (paneId: string, wsId?: string) => void
@@ -931,6 +941,87 @@ export const useStore = create<AdeState>((set, get) => {
           activeWorkspaceId: toWsId,
           workspaces: s.workspaces.map((w) =>
             w.id === fromWsId ? strip(w) : w.id === toWsId ? graft(w) : w
+          )
+        }
+      }),
+
+    // Tab drag & drop. targetPaneId + edge → split that leaf, the tab lands in
+    // a fresh pane on the new half (target may be the source leaf itself —
+    // splitting a tab off). targetPaneId without edge → stack onto that leaf
+    // and raise the tab. targetPaneId null → a new leaf appended to toWsId.
+    // A source pane emptied by the move dies — the tab record (and with it a
+    // term tab's live pty) already moved, so nothing is killed.
+    moveTab: (fromWsId, fromPaneId, tabId, toWsId, targetPaneId, edge) =>
+      set((s) => {
+        const from = s.workspaces.find((w) => w.id === fromWsId)
+        const to = s.workspaces.find((w) => w.id === toWsId)
+        const src = from?.panes[fromPaneId]
+        const tab = src?.tabs.find((t) => t.id === tabId)
+        if (!from || !to || !src || !tab) return s
+        if (targetPaneId === fromPaneId && !edge) return s // drop on own center = noop
+        if (targetPaneId && !to.panes[targetPaneId]) return s
+
+        const remaining = src.tabs.filter((t) => t.id !== tabId)
+        // unreachable from the UI (a detached pane isn't a drag source), but
+        // an emptied detached pane must also lose its window
+        if (!remaining.length && src.detached) window.ade.win.closeDetached?.(fromWsId, fromPaneId)
+
+        const stripSrc = (w: Workspace): Workspace => {
+          if (!remaining.length) return removePaneFromWs(w, fromPaneId)
+          const activeTabId =
+            src.activeTabId && remaining.some((t) => t.id === src.activeTabId)
+              ? src.activeTabId
+              : remaining.at(-1)!.id
+          return {
+            ...w,
+            panes: { ...w.panes, [fromPaneId]: { ...src, tabs: remaining, activeTabId } }
+          }
+        }
+
+        // fresh leaf for the split/append cases — id minted once so the two
+        // workspace updates below graft the same pane
+        const pane: PaneState = { id: uid(), tabs: [tab], activeTabId: tab.id }
+        const graft = (w: Workspace): Workspace => {
+          if (targetPaneId && !edge) {
+            const target = w.panes[targetPaneId]
+            return pushTab(w, targetPaneId, [...target.tabs, tab], tab.id)
+          }
+          const panes = { ...w.panes, [pane.id]: pane }
+          const root = insertAt(w.root, panes, pane.id, targetPaneId, edge ?? null)
+          return { ...w, panes, root, focusedPaneId: pane.id }
+        }
+
+        // a moved tab takes its attribution with it — hook events keep
+        // stamping the OLD paneId via env, so retarget the records attention
+        // routing and session resume read
+        const land = targetPaneId && !edge ? targetPaneId : pane.id
+        const retarget = <T extends { wsId?: string; paneId?: string; tabId?: string }>(
+          m: Record<string, T>
+        ): Record<string, T> => {
+          const next: Record<string, T> = {}
+          for (const [k, v] of Object.entries(m))
+            next[k] = v.tabId === tabId ? { ...v, wsId: toWsId, paneId: land } : v
+          return next
+        }
+        const notifications = s.notifications.map((n) =>
+          n.tabId === tabId ? { ...n, workspaceId: toWsId, paneId: land } : n
+        )
+
+        if (fromWsId === toWsId) {
+          return {
+            notifications,
+            agentSessions: retarget(s.agentSessions),
+            resumeSessions: retarget(s.resumeSessions),
+            workspaces: updWs(s.workspaces, toWsId, (w) => graft(stripSrc(w)))
+          }
+        }
+        return {
+          activeWorkspaceId: toWsId,
+          notifications,
+          agentSessions: retarget(s.agentSessions),
+          resumeSessions: retarget(s.resumeSessions),
+          workspaces: s.workspaces.map((w) =>
+            w.id === fromWsId ? stripSrc(w) : w.id === toWsId ? graft(w) : w
           )
         }
       }),

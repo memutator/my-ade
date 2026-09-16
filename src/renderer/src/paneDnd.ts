@@ -1,24 +1,59 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { DropEdge } from './types'
 import { useStore } from './store'
+import { isDetachedWin } from './detached'
 
 export type { DropEdge }
 
 type DropTarget =
   | { kind: 'pane'; wsId: string; paneId: string; edge: DropEdge | null }
   | { kind: 'ws'; wsId: string }
+  /** tab drags only: pointer still inside the source strip — the gesture is
+      a reorder, `index` is the gap it would insert at (0..n) */
+  | { kind: 'insert'; index: number }
+
+interface DragSpec {
+  /** label shown in the ghost chip */
+  title: string
+  /** element whose icon is cloned into the ghost (pane grip / tab) */
+  iconEl: HTMLElement | null
+  /** the element being dragged (dimmed while dragging) */
+  srcEl: HTMLElement | null
+  /** pane the payload came out of — a drop back on it is adjusted by mode */
+  selfPaneId: string
+  /** tab drags: edge drop on the source pane = split self; center = nothing.
+      Pane drags: any drop on self cancels (existing behavior). */
+  selfEdgeOk: boolean
+  /** tab drags only: the source .tstrip — inside it the gesture reorders */
+  stripEl?: HTMLElement | null
+  /** fired when the hold elapses and the drag arms — lets callers suppress
+      the click that a held press would still emit on release */
+  onArm?: () => void
+  commit: (t: DropTarget) => void
+}
 
 export interface PaneDragInfo {
   paneId: string
   wsId: string
-  /** label shown in the ghost chip */
   title: string
-  /** grip element — its .picon child is cloned into the ghost */
   iconEl: HTMLElement | null
-  /** the .pane being dragged (dimmed while dragging) */
   paneEl: HTMLElement | null
-  /** fired when the hold elapses and the drag arms — lets callers suppress
-      the click that a held press would still emit on release */
+  onArm?: () => void
+}
+
+export interface TabDragInfo {
+  wsId: string
+  paneId: string
+  tabId: string
+  /** index of the tab inside its strip — mapped through the insert gap on drop */
+  fromIndex: number
+  title: string
+  iconEl: HTMLElement | null
+  /** the dragged .ctab (dimmed while dragging) */
+  tabEl: HTMLElement | null
+  /** the .tstrip the tab lives in */
+  stripEl: HTMLElement | null
+  onReorder: (from: number, to: number) => void
   onArm?: () => void
 }
 
@@ -29,7 +64,7 @@ const TAB_HOVER_MS = 400 // hovering a workspace tab this long activates it
 
 let dragging = false
 
-// Which quarter of the pane rect is the pointer in? Center → null (swap).
+// Which quarter of the pane rect is the pointer in? Center → null (swap/stack).
 function edgeAt(r: DOMRect, x: number, y: number): DropEdge | null {
   const rx = (x - r.left) / r.width
   const ry = (y - r.top) / r.height
@@ -42,16 +77,16 @@ function edgeAt(r: DOMRect, x: number, y: number): DropEdge | null {
 }
 
 /**
- * Pointer-based pane drag & drop (NOT HTML5 DnD — dragstart can't cross
- * <webview> and gives no control over the ghost). Call from the titlebar
- * grip's onPointerDown; installs window-level pointermove/pointerup/keydown
- * listeners until the gesture ends or is cancelled.
+ * Pointer-based drag & drop engine (NOT HTML5 DnD — dragstart can't cross
+ * <webview> and gives no control over the ghost). Arms after a press-and-hold,
+ * installs window-level pointermove/pointerup/keydown listeners until the
+ * gesture ends or is cancelled.
  *
  * Once armed, `body.pane-dragging` disables pointer-events on every <webview>
  * (they swallow all mouse events otherwise) so hit-testing via
  * document.elementFromPoint keeps working.
  */
-export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
+function startDrag(e: ReactPointerEvent, spec: DragSpec): void {
   if (e.button !== 0 || e.isPrimary === false || dragging) return
   dragging = true
 
@@ -87,6 +122,28 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
     if (ghost) ghost.style.transform = `translate(${x + 12}px, ${y + 14}px)`
   }
 
+  // inside the source strip a tab drag is a reorder — resolve the insertion
+  // gap under the pointer (index among tabs, by midpoint)
+  const insertAt = (x: number): { target: DropTarget; gapX: number } | null => {
+    const strip = spec.stripEl
+    if (!strip) return null
+    const tabs = Array.from(strip.querySelectorAll<HTMLElement>('.ctab'))
+    if (!tabs.length) return null
+    let idx = tabs.length
+    for (let i = 0; i < tabs.length; i++) {
+      const r = tabs[i].getBoundingClientRect()
+      if (x < r.left + r.width / 2) {
+        idx = i
+        break
+      }
+    }
+    const gapX =
+      idx >= tabs.length
+        ? tabs[tabs.length - 1].getBoundingClientRect().right
+        : tabs[idx].getBoundingClientRect().left
+    return { target: { kind: 'insert', index: idx }, gapX }
+  }
+
   // Recompute the drop target under the pointer and update highlights.
   const updateTarget = (x: number, y: number): void => {
     const hit = document.elementFromPoint(x, y)
@@ -95,50 +152,71 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
     let rect: { left: number; top: number; width: number; height: number } | null = null
     let indClass = ''
 
-    const tab = hit?.closest('.ws-strip .ctab') ?? null
-    if (tab instanceof HTMLElement && tab.dataset.tabId) {
-      target = { kind: 'ws', wsId: tab.dataset.tabId }
-      tabEl = tab
+    // reorder mode: pointer still inside the source strip bounds
+    const sr = spec.stripEl?.getBoundingClientRect()
+    const inStrip = sr && x >= sr.left && x <= sr.right && y >= sr.top - 4 && y <= sr.bottom + 4
+
+    if (inStrip) {
+      const ins = insertAt(x)
+      if (ins) {
+        target = ins.target
+        rect = { left: ins.gapX - 1, top: sr.top + 3, width: 2, height: sr.height - 6 }
+        indClass = 'insert'
+      }
     } else {
-      const hitPane = hit?.closest('.pane') ?? null
-      // a floating pane is not a drop target (it isn't in the layout tree) —
-      // the gesture falls through to the workspace behind it, which appends
-      const paneEl = hitPane?.closest('.float-pane') ? null : hitPane
-      if (paneEl instanceof HTMLElement) {
-        const pid = paneEl.dataset.paneId
-        const wid = paneEl.dataset.wsId
-        // releasing back onto the dragged pane itself = cancel, not a drop
-        if (pid && wid && pid !== info.paneId) {
-          const r = paneEl.getBoundingClientRect()
-          const edge = edgeAt(r, x, y)
-          target = { kind: 'pane', wsId: wid, paneId: pid, edge }
-          rect = { left: r.left, top: r.top, width: r.width, height: r.height }
-          if (edge === 'left') {
-            rect.width = r.width / 2
-            indClass = 'edge-left'
-          } else if (edge === 'right') {
-            rect.left = r.left + r.width / 2
-            rect.width = r.width / 2
-            indClass = 'edge-right'
-          } else if (edge === 'top') {
-            rect.height = r.height / 2
-            indClass = 'edge-top'
-          } else if (edge === 'bottom') {
-            rect.top = r.top + r.height / 2
-            rect.height = r.height / 2
-            indClass = 'edge-bottom'
-          } else {
-            indClass = 'swap'
-          }
-        }
+      const tab = hit?.closest('.ws-strip .ctab') ?? null
+      if (tab instanceof HTMLElement && tab.dataset.tabId) {
+        target = { kind: 'ws', wsId: tab.dataset.tabId }
+        tabEl = tab
       } else {
-        // workspace background / empty state → append to that workspace
-        const host = hit?.closest('.ws-host:not([hidden])') ?? null
-        if (host instanceof HTMLElement && host.dataset.wsId) {
-          target = { kind: 'ws', wsId: host.dataset.wsId }
-          const r = host.getBoundingClientRect()
-          rect = { left: r.left, top: r.top, width: r.width, height: r.height }
-          indClass = 'ws'
+        const hitPane = hit?.closest('.pane') ?? null
+        // a floating pane is not a drop target (it isn't in the layout tree) —
+        // the gesture falls through to the workspace behind it, which appends
+        const paneEl = hitPane?.closest('.float-pane') ? null : hitPane
+        if (paneEl instanceof HTMLElement) {
+          const pid = paneEl.dataset.paneId
+          const wid = paneEl.dataset.wsId
+          if (pid && wid) {
+            const isSelf = pid === spec.selfPaneId
+            // tab drags: another leaf's tab strip is stack territory — the
+            // drop joins those tabs, it doesn't split at the top edge (the
+            // source strip never gets here — inStrip claimed it as reorder)
+            const overStrip = !!spec.stripEl && !isSelf && !!hit?.closest('.tstrip')
+            const edge = overStrip ? null : edgeAt(paneEl.getBoundingClientRect(), x, y)
+            // self: pane drags cancel outright; tab drags accept an edge
+            // (split own leaf) but ignore the center (already home)
+            if (!isSelf || (spec.selfEdgeOk && edge)) {
+              const r = paneEl.getBoundingClientRect()
+              target = { kind: 'pane', wsId: wid, paneId: pid, edge }
+              rect = { left: r.left, top: r.top, width: r.width, height: r.height }
+              if (edge === 'left') {
+                rect.width = r.width / 2
+                indClass = 'edge-left'
+              } else if (edge === 'right') {
+                rect.left = r.left + r.width / 2
+                rect.width = r.width / 2
+                indClass = 'edge-right'
+              } else if (edge === 'top') {
+                rect.height = r.height / 2
+                indClass = 'edge-top'
+              } else if (edge === 'bottom') {
+                rect.top = r.top + r.height / 2
+                rect.height = r.height / 2
+                indClass = 'edge-bottom'
+              } else {
+                indClass = 'swap'
+              }
+            }
+          }
+        } else {
+          // workspace background / empty state → append to that workspace
+          const host = hit?.closest('.ws-host:not([hidden])') ?? null
+          if (host instanceof HTMLElement && host.dataset.wsId) {
+            target = { kind: 'ws', wsId: host.dataset.wsId }
+            const r = host.getBoundingClientRect()
+            rect = { left: r.left, top: r.top, width: r.width, height: r.height }
+            indClass = 'ws'
+          }
         }
       }
     }
@@ -176,20 +254,21 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
 
   const arm = (): void => {
     armed = true
-    info.onArm?.()
+    spec.onArm?.()
     document.body.classList.add('pane-dragging')
-    info.paneEl?.classList.add('drag-src')
+    spec.srcEl?.classList.add('drag-src')
     // a dragged float must also become hit-transparent (its overlay wrapper
     // sits above the tree) so drops land on the panes behind it
-    info.paneEl?.closest('.float-pane')?.classList.add('drag-src')
+    spec.srcEl?.closest('.float-pane')?.classList.add('drag-src')
 
     ghost = document.createElement('div')
     ghost.className = 'drag-ghost'
-    const icon = info.iconEl?.querySelector('.picon') ?? info.iconEl
+    const icon =
+      spec.iconEl?.querySelector('.picon, .tab-kico, .ticon-img, .agent-icon, svg') ?? spec.iconEl
     if (icon) ghost.appendChild(icon.cloneNode(true))
     const label = document.createElement('span')
     label.className = 'drag-ghost-title'
-    label.textContent = info.title
+    label.textContent = spec.title
     ghost.appendChild(label)
     document.body.appendChild(ghost)
 
@@ -215,22 +294,15 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
     window.removeEventListener('keydown', onKey, true)
     window.removeEventListener('blur', onCancel)
     document.body.classList.remove('pane-dragging')
-    info.paneEl?.classList.remove('drag-src')
-    info.paneEl?.closest('.float-pane')?.classList.remove('drag-src')
+    spec.srcEl?.classList.remove('drag-src')
+    spec.srcEl?.closest('.float-pane')?.classList.remove('drag-src')
     curTabEl?.classList.remove('drop-target')
     ghost?.remove()
     indicator?.remove()
   }
 
   const commit = (): void => {
-    const t = curTarget
-    if (!t) return
-    const st = useStore.getState()
-    if (t.kind === 'ws') {
-      st.movePane(info.paneId, info.wsId, t.wsId, null, null)
-    } else {
-      st.movePane(info.paneId, info.wsId, t.wsId, t.paneId, t.edge)
-    }
+    if (curTarget) spec.commit(curTarget)
   }
 
   const onMove = (ev: PointerEvent): void => {
@@ -279,4 +351,62 @@ export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
   window.addEventListener('lostpointercapture', onCancel, true)
   window.addEventListener('keydown', onKey, true)
   window.addEventListener('blur', onCancel)
+}
+
+/** Pane drag (the titlebar grip): center drop swaps panes, edge drop splits,
+    workspace tab / background drops move the pane across workspaces. */
+export function startPaneDrag(e: ReactPointerEvent, info: PaneDragInfo): void {
+  startDrag(e, {
+    title: info.title,
+    iconEl: info.iconEl,
+    srcEl: info.paneEl,
+    selfPaneId: info.paneId,
+    selfEdgeOk: false,
+    onArm: info.onArm,
+    commit: (t) => {
+      const st = useStore.getState()
+      if (t.kind === 'insert') return
+      st.movePane(
+        info.paneId,
+        info.wsId,
+        t.wsId,
+        t.kind === 'pane' ? t.paneId : null,
+        t.kind === 'pane' ? t.edge : null
+      )
+    }
+  })
+}
+
+/** Tab drag (a .ctab in a leaf's strip): inside the strip it reorders; on
+    another leaf it stacks, on a leaf edge it splits, on a workspace tab or
+    empty workspace area it becomes a new leaf there. */
+export function startTabDrag(e: ReactPointerEvent, info: TabDragInfo): void {
+  startDrag(e, {
+    title: info.title,
+    iconEl: info.iconEl,
+    srcEl: info.tabEl,
+    selfPaneId: info.paneId,
+    // a detached window shows only its own pane — edge-on-self would graft a
+    // leaf into a workspace the user can't see, so drags are reorder-only
+    selfEdgeOk: !isDetachedWin,
+    stripEl: info.stripEl,
+    onArm: info.onArm,
+    commit: (t) => {
+      if (t.kind === 'insert') {
+        // gap index → final position after the tab leaves its slot
+        const to = t.index > info.fromIndex ? t.index - 1 : t.index
+        if (to !== info.fromIndex) info.onReorder(info.fromIndex, to)
+        return
+      }
+      const st = useStore.getState()
+      st.moveTab(
+        info.wsId,
+        info.paneId,
+        info.tabId,
+        t.wsId,
+        t.kind === 'pane' ? t.paneId : null,
+        t.kind === 'pane' ? t.edge : null
+      )
+    }
+  })
 }

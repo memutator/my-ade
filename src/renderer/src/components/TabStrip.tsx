@@ -30,6 +30,22 @@ export interface TabStripHandle {
   startRename: (id: string) => void
 }
 
+/** handed to the pointer-DnD engine — see paneDnd.ts. When onTabDrag is set
+    it replaces the strip's built-in HTML5 reorder entirely (the engine's
+    insert mode covers in-strip reorder and adds cross-pane moves). */
+export interface TabDragArgs {
+  e: React.PointerEvent<HTMLDivElement>
+  tab: TabItem
+  index: number
+  /** the dragged .ctab (dimmed + ghost icon source) */
+  tabEl: HTMLElement
+  /** the strip the tab lives in */
+  stripEl: HTMLElement | null
+  /** wire to the engine's onArm — a held press must not leave a click that
+      re-activates the tab on release */
+  onArm: () => void
+}
+
 export default function TabStrip({
   tabs,
   activeId,
@@ -37,6 +53,7 @@ export default function TabStrip({
   onClose,
   onRename,
   onReorder,
+  onTabDrag,
   onContextMenu,
   onDoubleClick,
   addControl,
@@ -48,6 +65,9 @@ export default function TabStrip({
   onClose?: (id: string) => void
   onRename?: (id: string, name: string) => void
   onReorder?: (from: number, to: number) => void
+  /** pointer-based full drag (reorder + split + cross-workspace) — takes over
+      the press-and-hold gesture from the HTML5 reorder path */
+  onTabDrag?: (a: TabDragArgs) => void
   onContextMenu?: (id: string, e: React.MouseEvent) => void
   /** fires alongside rename-on-double-click — editor uses it to pin previews */
   onDoubleClick?: (id: string) => void
@@ -63,6 +83,9 @@ export default function TabStrip({
   // every move while the button is held, so hold-then-drag still works.
   const [armedTab, setArmedTab] = useState<string | null>(null)
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // the pointer-DnD engine arms on hold; the release still emits a click on
+  // the capturing tab — swallow it once
+  const suppressClick = useRef(false)
   const stripRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
@@ -228,9 +251,23 @@ export default function TabStrip({
             <div
               className={`ctab${tab.id === activeId ? ' active' : ''}${armedTab === tab.id ? ' drag-armed' : ''}${tab.preview ? ' preview' : ''}`}
               data-tab-id={tab.id}
-              draggable={!!onReorder && editingId !== tab.id && armedTab === tab.id}
+              draggable={!!onReorder && !onTabDrag && editingId !== tab.id && armedTab === tab.id}
               onPointerDown={(e) => {
                 if (e.button !== 0 || (e.target as HTMLElement).closest('button, input')) return
+                if (onTabDrag) {
+                  suppressClick.current = false
+                  onTabDrag({
+                    e,
+                    tab,
+                    index: i,
+                    tabEl: e.currentTarget,
+                    stripEl: stripRef.current,
+                    onArm: () => {
+                      suppressClick.current = true
+                    }
+                  })
+                  return
+                }
                 armDrag(tab.id)
               }}
               onPointerUp={disarmDrag}
@@ -245,7 +282,13 @@ export default function TabStrip({
                   onReorder(dragIdx.current, i)
                 dragIdx.current = -1
               }}
-              onClick={() => onActivate(tab.id)}
+              onClick={() => {
+                if (suppressClick.current) {
+                  suppressClick.current = false
+                  return
+                }
+                onActivate(tab.id)
+              }}
               onContextMenu={(e) => {
                 if (!onContextMenu) return
                 e.preventDefault()

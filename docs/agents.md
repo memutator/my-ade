@@ -219,7 +219,10 @@ Two tools live under `tools/` (both plain Node, lint-ignored):
   `projectrm` (project removal drops its workspaces/resume records, kills
   their agents, fixes `activeWorkspaceId`, leaves the directory on disk),
   `browserfile` (`openUrlInBrowser` opens a `file://` url — encoded names
-  survive — and `newTab` appends rather than replacing). Harness
+  survive — and `newTab` appends rather than replacing), `tabdnd` (real
+  `Input.dispatchMouseEvent` hold-drags on a leaf tab: in-strip reorder,
+  self-edge split, restack onto another leaf's strip, cross-workspace move,
+  pty sessions preserved). Harness
   diversity is covered by replaying captured `hook-raw.log` payloads rather
   than simulating CLIs — the normalizer accepts canonical event names
   idempotently so tools can emit `needs-input`/`turn-complete` directly.

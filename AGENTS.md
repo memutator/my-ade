@@ -227,15 +227,19 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
 | Ctrl+Alt+→ / Ctrl+Alt+←       | next / previous workspace (wraps)                                                                                                                                  |
 | Ctrl+Tab / Ctrl+Shift+Tab     | next / previous tab inside the focused pane                                                                                                                        |
 | hold pane icon + drag         | move pane — center drop swaps, edge drop splits; drop on a workspace tab (or hover it \~0.4s mid-drag to switch workspaces) to move across workspaces; Esc cancels |
+| hold tab + drag               | move tab — inside the strip reorders; center/strip drop on another pane stacks; edge drop splits (own pane too); workspace-tab drop moves it to a new leaf there    |
 
 ## Gotchas
 
 - `webview.loadURL` throws before `dom-ready`; `BrowserPane`'s `syncUrl` retries
   on a bounded timer.
-- Pane drag & drop (`paneDnd.ts`) is pointer-event based, not HTML5 DnD — a
-  `<webview>` swallows all mouse events, so an armed drag sets
+- Pane/tab drag & drop (`paneDnd.ts`) is pointer-event based, not HTML5 DnD —
+  a `<webview>` swallows all mouse events, so an armed drag sets
   `body.pane-dragging` which forces `pointer-events: none` on every webview,
-  keeping `elementFromPoint` hit-testing and window pointermove/up alive.
+  keeping `elementFromPoint` hit-testing and window pointermove/up alive. One
+  engine serves both: pane drags come from the titlebar grip, tab drags from a
+  `.ctab` press — inside the source strip a tab drag resolves to an `insert`
+  reorder target instead of a pane/ws drop.
 - A focused `<webview>` also keeps its keydowns — `resources/webview-preload.cjs`
   runs inside every guest (`preload` attr) and relays Alt+\* / Ctrl+Tab via
   `ipc-message` → `ade:key` to `applyShortcut` in `shortcuts.ts` — the same
