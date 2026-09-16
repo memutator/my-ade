@@ -65,6 +65,10 @@ const detachedWins = new Map<string, BrowserWindow>()
 const pendingPanes = new Map<string, unknown>()
 const winKeyByWebContents = new Map<number, string>()
 
+// the renderer vets every main-window close (live-terminal confirm); set once
+// the user confirms so the close actually lands
+let quitConfirmed = false
+
 function createDetachedWindow(key: string): void {
   if (detachedWins.get(key)?.isDestroyed() === false) {
     detachedWins.get(key)?.focus()
@@ -169,6 +173,17 @@ function createWindow(): void {
     if (st.maximized) mainWindow?.maximize()
     mainWindow?.show()
   })
+  // closing the main window = quitting the app — let the renderer veto with
+  // an in-app confirm while live terminals would be killed. A crashed/hung
+  // renderer can't veto (it would never answer), and ADE_TEST bypasses so
+  // e2e can quit with live agents on purpose
+  mainWindow.on('close', (e) => {
+    if (testMode || quitConfirmed) return
+    const wc = mainWindow?.webContents
+    if (!wc || wc.isDestroyed() || wc.isCrashed()) return
+    e.preventDefault()
+    wc.send('win:close-request')
+  })
   mainWindow.on('closed', () => (mainWindow = null))
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -267,6 +282,12 @@ function registerWindowIpc(): void {
     win.isMaximized() ? win.unmaximize() : win.maximize()
   })
   ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  // renderer confirmed the quit (or nothing was running) — close for real,
+  // taking any detached windows down with it
+  ipcMain.on('win:force-close', () => {
+    quitConfirmed = true
+    app.quit()
+  })
   ipcMain.on('win:alwaysOnTop', (e, flag: boolean) => {
     BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(!!flag)
   })

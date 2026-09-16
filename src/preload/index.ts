@@ -253,6 +253,14 @@ const ade = {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     maximize: (): void => ipcRenderer.send('win:maximize'),
     close: (): void => ipcRenderer.send('win:close'),
+    // main-window close was requested — the renderer decides (shows the
+    // live-terminal confirm, or calls forceClose when nothing is running)
+    onCloseRequest: (cb: () => void): (() => void) => {
+      const handler = (): void => cb()
+      ipcRenderer.on('win:close-request', handler)
+      return () => ipcRenderer.removeListener('win:close-request', handler)
+    },
+    forceClose: (): void => ipcRenderer.send('win:force-close'),
     // detached pane windows (main window: detach/focus/close; detached
     // window: reattach = close itself, main gets `pane:reattach`)
     detach: (wsId: string, paneId: string, pane?: unknown): void =>

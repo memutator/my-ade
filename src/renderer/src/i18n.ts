@@ -106,6 +106,12 @@ const en = {
   resumeAll: 'Resume all ({n})',
   resumeLater: 'Later',
 
+  // quit confirm
+  quitTitle: 'Quit ADE?',
+  quitHint: '{n} terminal session(s) are still running — quitting kills them all.',
+  quitCancel: 'Cancel',
+  quitConfirm: 'Quit',
+
   // settings modal
   settings: 'settings',
   appearance: 'appearance',
@@ -305,6 +311,11 @@ const ko: Record<TKey, string> = {
     '{name} — ADE 종료 시 실행 중이던 에이전트 세션 {n}개가 있습니다. 해당 탭에서 이어서 복구할까요?',
   resumeAll: '모두 복구 ({n})',
   resumeLater: '나중에',
+
+  quitTitle: 'ADE를 종료할까요?',
+  quitHint: '실행 중인 터미널 세션 {n}개가 있습니다. 종료하면 모두 죽습니다.',
+  quitCancel: '취소',
+  quitConfirm: '종료',
 
   settings: '설정',
   appearance: '모양',

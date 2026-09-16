@@ -19,6 +19,7 @@ import EmptyState from './components/EmptyState'
 import Sidebar from './components/Sidebar'
 import SettingsPage from './components/SettingsPage'
 import ResumePrompt from './components/ResumePrompt'
+import QuitConfirm from './components/QuitConfirm'
 import Toasts from './components/Toasts'
 
 function WorkspaceEmpty({ wsId }: { wsId: string }): React.JSX.Element {
@@ -276,6 +277,7 @@ export default function App(): React.JSX.Element {
       </div>
       <SettingsPage />
       <ResumePrompt />
+      <QuitConfirm />
       <Toasts />
     </div>
   )
