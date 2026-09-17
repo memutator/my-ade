@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import type { UsageResult, WidgetKind, WidgetTab } from '../types'
+import type { UsageResult, WidgetTab } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { agentLabel, agentProviders } from '../agents'
@@ -169,37 +169,24 @@ export default function WidgetTabView({
   paneId: string
   tab: WidgetTab
 }): React.JSX.Element {
-  const t = useT()
-  // widget kind + provider selection ride the tab record — persisted like
-  // every other tab field
-  const patchTab = (patch: Partial<WidgetTab>): void => {
+  // the widget kind is fixed at creation (the + menu's widget submenu) —
+  // the only mutable field is the usage widget's provider selection, which
+  // rides the tab record so it persists like every other tab field
+  const onProvider = (provider: string): void => {
     const st = useStore.getState()
     const p = st.workspaces.find((w) => w.id === wsId)?.panes[paneId]
     if (!p) return
     st.updatePane(
       paneId,
-      { tabs: p.tabs.map((x) => (x.id === tab.id ? ({ ...x, ...patch } as typeof x) : x)) },
+      { tabs: p.tabs.map((x) => (x.id === tab.id ? ({ ...x, provider } as typeof x) : x)) },
       wsId
     )
   }
 
   return (
     <div className="widget">
-      <div className="widget-head">
-        <Select
-          value={tab.widget}
-          options={(
-            [
-              ['agents', t('widgetAgents')],
-              ['usage', t('widgetUsage')]
-            ] as [WidgetKind, string][]
-          ).map(([value, label]) => ({ value, label }))}
-          onChange={(v) => patchTab({ widget: v as WidgetKind })}
-          className="widget-kind"
-        />
-      </div>
       {tab.widget === 'usage' ? (
-        <UsageBody provider={tab.provider} onProvider={(p) => patchTab({ provider: p })} />
+        <UsageBody provider={tab.provider} onProvider={onProvider} />
       ) : (
         <AgentsPanel wsId={wsId} />
       )}

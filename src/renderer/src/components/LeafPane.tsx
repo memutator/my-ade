@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
+  ChevronRight,
   Code2,
   FolderOpen,
   FolderTree,
   Gauge,
   Globe,
   Plus,
+  Puzzle,
   RotateCw,
   TerminalSquare
 } from 'lucide-react'
@@ -28,7 +30,7 @@ import WidgetTabView from './WidgetView'
 import FileView from './FileView'
 import FileTree from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
-import { CtxMenu, Dropdown, Popup, type CtxItem } from './Menu'
+import { CtxMenu, Dropdown, Popup, Submenu, type CtxItem } from './Menu'
 
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1) || p
 
@@ -437,14 +439,25 @@ export default function LeafPane({
                     {t('editor')}
                   </button>
                   <div className="pact-sep" />
-                  <button className="pact-item" onClick={() => addTab('widget', 'agents')}>
-                    <Bot />
-                    {t('widgetAgents')}
-                  </button>
-                  <button className="pact-item" onClick={() => addTab('widget', 'usage')}>
-                    <Gauge />
-                    {t('widgetUsage')}
-                  </button>
+                  <Submenu
+                    panelClassName="pact-card"
+                    trigger={
+                      <button className="pact-item">
+                        <Puzzle />
+                        {t('widget')}
+                        <ChevronRight className="pact-sub" />
+                      </button>
+                    }
+                  >
+                    <button className="pact-item" onClick={() => addTab('widget', 'agents')}>
+                      <Bot />
+                      {t('widgetAgents')}
+                    </button>
+                    <button className="pact-item" onClick={() => addTab('widget', 'usage')}>
+                      <Gauge />
+                      {t('widgetUsage')}
+                    </button>
+                  </Submenu>
                 </Dropdown>
               }
             />

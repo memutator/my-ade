@@ -102,6 +102,7 @@ const en = {
 
   // widgets + sidebar agents section
   agents: 'agents',
+  widget: 'widget',
   widgetAgents: 'agents',
   widgetUsage: 'usage',
   noAgents: 'no agents running',
@@ -319,6 +320,7 @@ const ko: Record<TKey, string> = {
   wsUnread: '읽지 않은 알림',
 
   agents: '에이전트',
+  widget: '위젯',
   widgetAgents: '에이전트',
   widgetUsage: '사용량',
   noAgents: '실행 중인 에이전트 없음',

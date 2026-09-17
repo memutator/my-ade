@@ -203,6 +203,69 @@ export function Dropdown({
   )
 }
 
+/* a second-level flyout inside a parent popup menu — the trigger row sits in
+   the parent's list, the panel opens at the row's right edge on hover (or on
+   click, for click-favoring users; the trigger's own click is absorbed so it
+   can't hit the parent's closeOnClick). The panel portals into the parent
+   card via PopupHost, so it counts as 'inside' for the parent's outside-close
+   and the same 140ms leave-delay bridges the trigger→flyout gap. */
+export function Submenu({
+  trigger,
+  panelClassName,
+  children
+}: {
+  trigger: ReactNode
+  panelClassName?: string
+  children: ReactNode
+}): React.JSX.Element {
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const ref = useRef<HTMLSpanElement>(null)
+  const closeT = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openNow = (): void => {
+    if (closeT.current) clearTimeout(closeT.current)
+    closeT.current = null
+    setRect(ref.current?.getBoundingClientRect() ?? null)
+  }
+  const close = (): void => {
+    if (closeT.current) clearTimeout(closeT.current)
+    closeT.current = null
+    setRect(null)
+  }
+  const closeSoon = (): void => {
+    if (closeT.current) clearTimeout(closeT.current)
+    closeT.current = setTimeout(close, 140)
+  }
+
+  return (
+    <span
+      ref={ref}
+      style={{ display: 'block' }}
+      onMouseEnter={openNow}
+      onMouseLeave={closeSoon}
+      onClick={(e) => {
+        e.stopPropagation()
+        openNow()
+      }}
+    >
+      {trigger}
+      {rect && (
+        <Popup
+          pos={{ left: rect.right - 2, top: rect.top - 4 }}
+          onClose={close}
+          insideRef={ref}
+          closeOnClick
+          className={panelClassName}
+          onMouseEnter={openNow}
+          onMouseLeave={closeSoon}
+        >
+          {children}
+        </Popup>
+      )}
+    </span>
+  )
+}
+
 export type CtxItem =
   | { sep: true }
   | {

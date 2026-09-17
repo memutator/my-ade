@@ -3176,17 +3176,9 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   flex-direction: column;
   min-height: 0;
 }
-.widget-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.widget-head .sel {
-  height: 22px;
-  font-size: 11.5px;
+.pact-sub {
+  margin-left: auto;
+  opacity: 0.5;
 }
 .sel-agent {
   display: inline-flex;
