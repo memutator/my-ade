@@ -102,6 +102,8 @@ const en = {
 
   // widgets + sidebar agents section
   agents: 'agents',
+  paneN: 'pane {n}',
+  renamePane: 'Rename pane',
   widget: 'widget',
   widgetAgents: 'agents',
   widgetUsage: 'usage',
@@ -320,6 +322,8 @@ const ko: Record<TKey, string> = {
   wsUnread: '읽지 않은 알림',
 
   agents: '에이전트',
+  paneN: '패널 {n}',
+  renamePane: '패널 이름 바꾸기',
   widget: '위젯',
   widgetAgents: '에이전트',
   widgetUsage: '사용량',

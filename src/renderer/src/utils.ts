@@ -70,9 +70,17 @@ export function statusForTab(
   return news ? 'news' : undefined
 }
 
-// a leaf's identity is its active block — used by the drag ghost, dock chips
-// and the detached window's title bar
+// a leaf's content description: its user-set name, else the active block —
+// used by the drag ghost, dock chips and the detached window's title bar
 export function paneLabel(pane: PaneState, lang: Language): string {
+  if (pane.name) return pane.name
   const t = pane.tabs.find((x) => x.id === pane.activeTabId) ?? pane.tabs[0]
   return t ? blockLabel(t, lang) : ''
+}
+
+// a leaf's identity where content doesn't answer 'which pane' (the agents
+// panel's group headers): the user-set name, else the stable creation-order
+// number — never the volatile active-tab label
+export function paneTitle(pane: PaneState, lang: Language): string {
+  return pane.name ?? translate(lang, 'paneN', { n: String(pane.num ?? 0) })
 }

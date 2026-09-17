@@ -74,6 +74,13 @@ export interface PaneState {
   id: string
   tabs: PaneTab[]
   activeTabId?: string
+  /** user-set pane name (⋯ menu / double-click the titlebar chip) — wins over
+   *  the derived label everywhere a pane needs an identity */
+  name?: string
+  /** stable creation-order number within the workspace — the fallback
+   *  identity ('pane N'); layout position shifts with splits so it can't
+   *  come from the tree */
+  num?: number
   /**
    * Minimized panes keep their leaf in the layout tree but render hidden
    * (mounted, so terminals/webviews keep running). A chip in the workspace's

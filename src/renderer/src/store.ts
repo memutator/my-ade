@@ -84,6 +84,7 @@ function insertAt(
 // exists — programmatic opens stack into a leaf instead of splitting).
 // Focus moves to the new pane.
 function insertPane(w: Workspace, pane: PaneState): Workspace {
+  pane.num ??= nextPaneNum(w)
   const panes = { ...w.panes, [pane.id]: pane }
   const vis = visibleLeafIds(w.root, w.panes)
   const target =
@@ -124,6 +125,7 @@ function soleLeafSplit(w: Workspace, target: string | undefined, tab: PaneTab): 
   const pane = makePane('term')
   pane.tabs = [tab]
   pane.activeTabId = tab.id
+  pane.num = nextPaneNum(w)
   const panes = { ...w.panes, [pane.id]: pane }
   return {
     ...w,
@@ -230,6 +232,15 @@ function maxFloatZ(w: Workspace): number {
   return z
 }
 
+// A pane's display number is creation order within the workspace — stable
+// across splits/moves (layout position isn't identity). Not necessarily
+// contiguous: closed panes leave gaps rather than renumbering survivors.
+function nextPaneNum(w: Workspace): number {
+  let n = 0
+  for (const p of Object.values(w.panes)) n = Math.max(n, p.num ?? 0)
+  return n + 1
+}
+
 // The sibling subtree of paneId's leaf — its nearest neighbor in the layout.
 function siblingOf(node: LayoutNode | null, paneId: string): LayoutNode | null {
   if (!node || node.kind === 'leaf') return null
@@ -329,6 +340,17 @@ function normalizeWorkspace(w: Workspace): Workspace {
     }
     panes[id] = np
     if (panes[id] !== p) changed = true
+  }
+  // panes persisted before `num` existed get creation-order numbers now —
+  // layout order first, floats/detached stragglers after
+  let lastNum = 0
+  for (const p of Object.values(panes)) lastNum = Math.max(lastNum, p.num ?? 0)
+  for (const id of [...leafPaneIds(root), ...Object.keys(panes)]) {
+    const p = panes[id]
+    if (p && p.num === undefined) {
+      panes[id] = { ...p, num: ++lastNum }
+      changed = true
+    }
   }
   // a persisted focus on a minimized/detached/removed pane would be
   // invisible — snap it back to the first visible leaf (or a float)
@@ -692,6 +714,7 @@ export const useStore = create<AdeState>((set, get) => {
         const pane = makePane(kind, home())
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => {
+            pane.num ??= nextPaneNum(w)
             const panes = { ...w.panes, [pane.id]: pane }
             const vis = visibleLeafIds(w.root, w.panes)
             // a minimized pane can't be split — retarget the last visible leaf
@@ -1036,6 +1059,7 @@ export const useStore = create<AdeState>((set, get) => {
             const target = w.panes[targetPaneId]
             return pushTab(w, targetPaneId, [...target.tabs, tab], tab.id)
           }
+          pane.num ??= nextPaneNum(w)
           const panes = { ...w.panes, [pane.id]: pane }
           const root = insertAt(w.root, panes, pane.id, targetPaneId, edge ?? null)
           return { ...w, panes, root, focusedPaneId: pane.id }

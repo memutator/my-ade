@@ -1,4 +1,4 @@
-import { Code2, Globe, TerminalSquare, X } from 'lucide-react'
+import { Code2, Globe, Puzzle, TerminalSquare, X } from 'lucide-react'
 import type { PaneState, PaneTab } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
@@ -11,7 +11,7 @@ function activeTab(p: PaneState): PaneTab | undefined {
   return p.tabs.find((t) => t.id === p.activeTabId) ?? p.tabs[0]
 }
 
-const KIND_ICONS = { term: TerminalSquare, web: Globe, file: Code2 } as const
+const KIND_ICONS = { term: TerminalSquare, web: Globe, file: Code2, widget: Puzzle } as const
 
 // Minimized/detached pane chips in the title bar (right side), scoped to the
 // active workspace. Minimized panes stay mounted (hidden) — clicking a chip
@@ -37,13 +37,15 @@ export default function PaneDock(): React.JSX.Element | null {
         // running agent → provider icon; exited shell → status dot
         const agent = tab?.kind === 'term' ? (tab.agent ?? undefined) : undefined
         const exited = tab?.kind === 'term' ? tab.exited : undefined
-        // a term block shows its live `shell · cwd`; others the block label
+        // a user-set pane name wins; else a term block shows its live
+        // `shell · cwd`, others the block label
         const title =
-          tab?.kind === 'term' && tab.cwd
+          p.name ??
+          (tab?.kind === 'term' && tab.cwd
             ? `${tab.shell ?? 'sh'} · ${shortPath(tab.cwd)}`
             : tab
               ? blockLabel(tab, language)
-              : ''
+              : '')
         return (
           <Tooltip key={p.id} label={t(p.detached ? 'focusDetached' : 'restorePane')}>
             <div

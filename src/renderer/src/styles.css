@@ -334,6 +334,39 @@ body {
   color: var(--text);
 }
 
+/* user-set pane name — a quiet pill between the grip and the tab strip;
+   double-click (or ⋯ → rename pane) swaps it for the input */
+.pane-name {
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  line-height: 16px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: var(--hover);
+  color: var(--text-dim);
+  user-select: none;
+}
+.pane-name:hover {
+  color: var(--text);
+}
+.pane-name-input {
+  flex-shrink: 0;
+  width: 110px;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--bg-pane);
+  color: var(--text);
+  font-size: 10.5px;
+  font-family: inherit;
+  outline: none;
+}
+
 .pane-titlebar .actions {
   margin-left: auto;
   display: flex;
@@ -3115,6 +3148,8 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-dim);
 }
 .ag-flag {
   width: 11px;
@@ -3127,8 +3162,7 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 24px;
-  padding: 0 6px;
+  padding: 3px 6px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -3142,9 +3176,23 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   background: var(--hover);
   color: var(--text);
 }
-.ag-name {
+.ag-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.ag-sub {
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

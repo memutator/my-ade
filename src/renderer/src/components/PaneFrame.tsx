@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import {
   Columns2,
   Minus,
@@ -8,6 +8,7 @@ import {
   PictureInPicture2,
   Rows2,
   SquareArrowOutUpRight,
+  Tag,
   X
 } from 'lucide-react'
 import type { PaneState } from '../types'
@@ -44,9 +45,18 @@ export default function PaneFrame({
   })
   const { focusPane, splitPane, closePane, minimizePane, floatPane, dockPane, detachPane } =
     useStore()
+  const updatePane = useStore((s) => s.updatePane)
   const gripRef = useRef<HTMLSpanElement>(null)
   const floatCtx = useFloatCtx()
   const t = useT()
+  // pane rename: ⋯ menu or double-clicking the titlebar chip turns it into an
+  // input; an empty commit clears the name back to the 'pane N' fallback
+  const [editingName, setEditingName] = useState(false)
+  const commitName = (v: string): void => {
+    setEditingName(false)
+    const name = v.trim()
+    if (name !== (pane.name ?? '')) updatePane(pane.id, { name: name || undefined }, wsId)
+  }
 
   const floating = !!pane.floating
   // inside a detached window, pane-tree ops don't apply — closing routes back
@@ -78,6 +88,30 @@ export default function PaneFrame({
             {icon}
           </span>
         </Tooltip>
+        {editingName ? (
+          <input
+            className="pane-name-input"
+            autoFocus
+            defaultValue={pane.name ?? ''}
+            placeholder={t('paneN', { n: String(pane.num ?? 0) })}
+            onBlur={(e) => commitName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitName(e.currentTarget.value)
+              else if (e.key === 'Escape') setEditingName(false)
+            }}
+          />
+        ) : (
+          pane.name && (
+            <span
+              className="pane-name"
+              data-nodrag
+              title={t('renamePane')}
+              onDoubleClick={() => setEditingName(true)}
+            >
+              {pane.name}
+            </span>
+          )
+        )}
         {title}
         <div className="actions">
           {extraActions}
@@ -95,6 +129,11 @@ export default function PaneFrame({
           ) : (
             /* all pane ops live behind one ⋯ so the tab strip keeps the room */
             <PactMenu label={t('paneMenu')}>
+              <button className="pact-item" onClick={() => setEditingName(true)}>
+                <Tag />
+                {t('renamePane')}
+              </button>
+              <div className="pact-sep" />
               <button
                 className="pact-item"
                 onClick={() => (floating ? dockPane(pane.id, wsId) : floatPane(pane.id, wsId))}

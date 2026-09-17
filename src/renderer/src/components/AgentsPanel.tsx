@@ -1,7 +1,7 @@
 import { Minus, PictureInPicture2, SquareArrowOutUpRight } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
-import { paneLabel } from '../utils'
+import { paneTitle } from '../utils'
 import { useAgentGroups, type AgentGroup, type AgentRow } from '../agentGroups'
 import AgentIcon from './AgentIcon'
 import Tooltip from './Tooltip'
@@ -35,7 +35,7 @@ export default function AgentsPanel({ wsId }: { wsId: string }): React.JSX.Eleme
       {groups.map((g) => (
         <div key={g.pane.id} className="ag-group">
           <div className="ag-pane">
-            <span className="ag-pane-name">{paneLabel(g.pane, language)}</span>
+            <span className="ag-pane-name">{paneTitle(g.pane, language)}</span>
             {!!g.pane.minimized && (
               <Tooltip label={t('minimizePane')}>
                 <Minus className="ag-flag" />
@@ -60,7 +60,10 @@ export default function AgentsPanel({ wsId }: { wsId: string }): React.JSX.Eleme
               title={r.sub ? `${r.label} — ${r.sub}` : r.label}
             >
               <AgentIcon id={r.tab.agent ?? ''} size={13} />
-              <span className="ag-name">{r.label}</span>
+              <span className="ag-text">
+                <span className="ag-name">{r.label}</span>
+                {r.sub && <span className="ag-sub">{r.sub}</span>}
+              </span>
               {r.status && <span className={`ctab-st ${r.status}`} />}
             </button>
           ))}
