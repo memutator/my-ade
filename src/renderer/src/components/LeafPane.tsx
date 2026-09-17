@@ -356,7 +356,7 @@ export default function LeafPane({
       <PaneFrame
         pane={pane}
         wsId={wsId}
-        icon={activeTab ? <BlockIcon tab={activeTab} /> : <TerminalSquare className="picon" />}
+        icon={<span className="picon" />}
         dragTitle={activeTab ? blockLabel(activeTab, language) : ''}
         title={
           <div className="pane-tabs">
@@ -389,6 +389,8 @@ export default function LeafPane({
               }}
               addControl={
                 <Dropdown
+                  align="end"
+                  panelClassName="pact-card"
                   trigger={
                     <Tooltip label={t('newTab')}>
                       <button className="pbtn tab-add">
