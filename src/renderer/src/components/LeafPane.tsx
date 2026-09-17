@@ -6,6 +6,7 @@ import { useT } from '../i18n'
 import { isDetachedWin } from '../detached'
 import { startTabDrag } from '../paneDnd'
 import { blockLabel, blockSub } from '../utils'
+import { agentLabel } from '../agents'
 import { useFileIcon } from '../fileIcons'
 import AgentIcon from './AgentIcon'
 import Tooltip from './Tooltip'
@@ -329,8 +330,9 @@ export default function LeafPane({
   }
 
   // unread notifications badge the exact block — the workspace strip only
-  // points at the workspace level. needs-input/error unreads color the
-  // close-slot status dot instead of the generic accent dot
+  // points at the workspace level. One dot lives in the close slot: an
+  // unanswered ask outranks a past failure, both outrank the live working
+  // pulse, and all of them outrank generic news (unread / dirty / exited)
   const unread = notifications.filter((n) => !n.read && n.tabId)
   const unreadTabs = new Set(unread.map((n) => n.tabId as string))
   const kindTabs = (kind: 'needs-input' | 'error'): Set<string> =>
@@ -338,36 +340,40 @@ export default function LeafPane({
   const inputTabs = kindTabs('needs-input')
   const errorTabs = kindTabs('error')
   const items: TabItem[] = tabs.map((tab) => {
-    // status precedence: an unanswered ask outranks a past failure, and both
-    // outrank the live working pulse
-    const status: TabItem['status'] =
-      tab.kind !== 'term'
-        ? undefined
-        : inputTabs.has(tab.id)
-          ? 'input'
-          : errorTabs.has(tab.id)
-            ? 'error'
-            : tab.working
-              ? 'working'
-              : undefined
-    const covered = status === 'input' || status === 'error'
+    const news =
+      tab.kind === 'term'
+        ? tab.exited || unreadTabs.has(tab.id)
+        : tab.kind === 'file'
+          ? tab.dirty || unreadTabs.has(tab.id)
+          : unreadTabs.has(tab.id)
+    const status: TabItem['status'] = inputTabs.has(tab.id)
+      ? 'input'
+      : errorTabs.has(tab.id)
+        ? 'error'
+        : tab.kind === 'term' && tab.working
+          ? 'working'
+          : news
+            ? 'news'
+            : undefined
+    const agentName = tab.kind === 'term' ? agentLabel(tab.agent ?? '') : ''
+    const dotTip =
+      status === 'input'
+        ? t('agentNeedsInput', { agent: agentName })
+        : status === 'error'
+          ? t('agentError', { agent: agentName })
+          : status === 'news'
+            ? tab.kind === 'term' && tab.exited
+              ? t('shellExited')
+              : tab.kind === 'file' && tab.dirty
+                ? t('unsavedChanges')
+                : t('wsUnread')
+            : undefined
     return {
       id: tab.id,
       label: blockLabel(tab, language),
       sub: blockSub(tab),
       icon: <BlockIcon tab={tab} />,
-      dirty:
-        tab.kind === 'term'
-          ? tab.exited || (unreadTabs.has(tab.id) && !covered)
-          : tab.kind === 'file'
-            ? tab.dirty || unreadTabs.has(tab.id)
-            : unreadTabs.has(tab.id),
-      dotTip:
-        tab.kind === 'term' && tab.exited
-          ? t('shellExited')
-          : unreadTabs.has(tab.id) && !covered
-            ? t('wsUnread')
-            : undefined,
+      dotTip,
       preview: tab.kind === 'file' ? tab.preview : undefined,
       renameable: tab.kind === 'term',
       status

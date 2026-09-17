@@ -199,7 +199,7 @@ export default function WorkspaceStrip(): React.JSX.Element {
     id: w.id,
     label: w.name,
     sub: projectName(w.projectId),
-    dirty: unreadWs.has(w.id),
+    status: unreadWs.has(w.id) ? 'news' : undefined,
     dotTip: t('wsUnread')
   }))
 

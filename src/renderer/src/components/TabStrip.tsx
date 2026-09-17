@@ -8,7 +8,6 @@ import {
   type Ref
 } from 'react'
 import { X } from 'lucide-react'
-import { useT } from '../i18n'
 import Tooltip from './Tooltip'
 
 export interface TabItem {
@@ -16,12 +15,13 @@ export interface TabItem {
   label: string
   sub?: string
   icon?: ReactNode
-  dirty?: boolean
-  /** tooltip for the dirty/status dot (default: unsaved-changes text) */
+  /** status dot in the close slot — the tab's only dot. 'news' is the generic
+   *  accent dot (unread / file-dirty / exited shell); working = pulsing
+   *  green, input = amber, error = red. Hovering the tab swaps it back to
+   *  the plain close X. */
+  status?: 'working' | 'input' | 'error' | 'news'
+  /** tooltip for the status dot — becomes the close button's title */
   dotTip?: string
-  /** agent live status — replaces the close X with a signal dot until hover
-   *  (working = pulsing accent, input = amber, error = red) */
-  status?: 'working' | 'input' | 'error'
   /** VS Code-style preview tab — italic label until pinned */
   preview?: boolean
   /** default true — set false on blocks that can't be renamed (web/file) */
@@ -92,7 +92,6 @@ export default function TabStrip({
   const stripRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
-  const t = useT()
 
   // the active tab is never allowed to scroll out of view — activating a tab
   // (click, Ctrl+Tab, Alt+N, notification jump) scrolls it back into frame
@@ -323,15 +322,11 @@ export default function TabStrip({
               ) : (
                 <span className="ctab-label">{tab.label}</span>
               )}
-              {tab.dirty && (
-                <Tooltip label={tab.dotTip ?? t('unsavedChanges')}>
-                  <span className="ctab-dot" />
-                </Tooltip>
-              )}
               {onClose && (
                 <button
                   className="ctab-close"
                   data-st={tab.status}
+                  title={tab.status ? tab.dotTip : undefined}
                   onClick={(e) => {
                     e.stopPropagation()
                     onClose(tab.id)

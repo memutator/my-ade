@@ -1808,14 +1808,6 @@ html[data-theme='light'] .ctab.active {
   font-style: italic;
 }
 
-.ctab-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
 .ctab-rename {
   flex: 1;
   min-width: 0;
@@ -1852,10 +1844,11 @@ html[data-theme='light'] .ctab.active {
   color: var(--text);
 }
 
-/* agent status in the close slot: a signal dot stands in for the X while the
-   state is live (working pulse / amber ask / red error). It's visible even on
-   inactive unhovered tabs — the whole point — and hovering the tab swaps it
-   back to the X so the tab stays closable */
+/* the close slot is the tab's only status dot: 'news' is the generic accent
+   dot (unread / file-dirty / exited shell, VS Code-style), 'working' a
+   pulsing green, 'input' amber, 'error' red. It's visible even on inactive
+   unhovered tabs — the whole point — and hovering the tab swaps it back to
+   the X so the tab stays closable */
 .ctab-close .ctab-st {
   display: none;
 }
@@ -1878,7 +1871,7 @@ html[data-theme='light'] .ctab.active {
   display: block;
 }
 /* working breathes green — deliberately not --accent so a live turn reads
-   differently from a finished one (the generic unread dot stays accent) */
+   differently from a finished one (news dot) */
 .ctab-st.working {
   background: #9ece6a;
   animation: ctab-working 2.4s ease-in-out infinite;
@@ -1895,6 +1888,9 @@ html[data-theme='light'] .ctab.active {
     opacity: 1;
     box-shadow: 0 0 6px 1px rgba(158, 206, 106, 0.5);
   }
+}
+.ctab-st.news {
+  background: var(--accent);
 }
 .ctab-st.input {
   background: #e5c07b;
