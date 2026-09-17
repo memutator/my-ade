@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { GitBranchPlus, Plus, Trash2 } from 'lucide-react'
-import type { Project } from '../types'
+import { GitBranchPlus, Plus, Trash2, X } from 'lucide-react'
+import type { Project, Workspace } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import Tooltip from './Tooltip'
@@ -187,7 +187,22 @@ export default function WorkspaceStrip(): React.JSX.Element {
   const notifications = useStore((s) => s.notifications)
   const { activateWorkspace, closeWorkspace, renameWorkspace, moveWorkspace } = useStore()
   const [wtProject, setWtProject] = useState<Project | null>(null)
+  // workspace close guard: live agent processes die with the workspace, so a
+  // stray X click can't take a running turn down silently
+  const [confirmClose, setConfirmClose] = useState<string | null>(null)
   const t = useT()
+
+  const agentCount = (w: Workspace): number =>
+    Object.values(w.panes).reduce(
+      (n, p) => n + p.tabs.filter((x) => x.kind === 'term' && x.agent).length,
+      0
+    )
+  const onCloseWs = (id: string): void => {
+    const w = workspaces.find((x) => x.id === id)
+    if (w && agentCount(w) > 0) setConfirmClose(id)
+    else closeWorkspace(id)
+  }
+  const closingWs = confirmClose ? workspaces.find((w) => w.id === confirmClose) : undefined
 
   const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? '?'
 
@@ -209,12 +224,46 @@ export default function WorkspaceStrip(): React.JSX.Element {
         tabs={tabs}
         activeId={activeId}
         onActivate={activateWorkspace}
-        onClose={closeWorkspace}
+        onClose={onCloseWs}
         onRename={renameWorkspace}
         onReorder={moveWorkspace}
         addControl={<AddWorkspaceButton onWorktree={setWtProject} />}
       />
       {wtProject && <WorktreeModal project={wtProject} onClose={() => setWtProject(null)} />}
+      {closingWs && (
+        <div className="modal-overlay" onClick={() => setConfirmClose(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span className="resume-title">
+                <X size={14} />
+                {t('wsCloseTitle')}
+              </span>
+              <button className="pbtn" onClick={() => setConfirmClose(null)}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="resume-hint">
+                {t('wsCloseHint', { n: String(agentCount(closingWs)) })}
+              </div>
+              <div className="resume-actions">
+                <button className="sbtn" onClick={() => setConfirmClose(null)}>
+                  {t('quitCancel')}
+                </button>
+                <button
+                  className="sbtn accent"
+                  onClick={() => {
+                    closeWorkspace(closingWs.id)
+                    setConfirmClose(null)
+                  }}
+                >
+                  {t('wsCloseConfirm')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

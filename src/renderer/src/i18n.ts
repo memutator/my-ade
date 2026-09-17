@@ -112,6 +112,11 @@ const en = {
   quitCancel: 'Cancel',
   quitConfirm: 'Quit',
 
+  // workspace close guard — live agent processes die with the workspace
+  wsCloseTitle: 'Close workspace?',
+  wsCloseHint: '{n} agent process(es) are still running — closing kills them.',
+  wsCloseConfirm: 'Close workspace',
+
   // settings modal
   settings: 'settings',
   appearance: 'appearance',
@@ -316,6 +321,10 @@ const ko: Record<TKey, string> = {
   quitHint: '실행 중인 터미널 세션 {n}개가 있습니다. 종료하면 모두 죽습니다.',
   quitCancel: '취소',
   quitConfirm: '종료',
+
+  wsCloseTitle: '워크스페이스를 닫을까요?',
+  wsCloseHint: '실행 중인 에이전트 프로세스가 {n}개 있습니다. 닫으면 모두 죽습니다.',
+  wsCloseConfirm: '워크스페이스 닫기',
 
   settings: '설정',
   appearance: '모양',
