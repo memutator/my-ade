@@ -330,7 +330,7 @@ export function TerminalTabView({
     const clearWorking = (): void => {
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = null
-      patchTerminalTab(wsId, paneId, tabId, { working: false })
+      patchTerminalTab(wsId, paneId, tabId, { working: false, workingSince: undefined })
     }
     const noteOutput = (): void => {
       if (!lastAgentRef.current) return
@@ -355,12 +355,16 @@ export function TerminalTabView({
           return
         }
         if (now - burstStartAt.current < 900) return // blip, not a turn
-        patchTerminalTab(wsId, paneId, tabId, { working: true })
+        patchTerminalTab(wsId, paneId, tabId, { working: true, workingSince: now })
       }
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = setTimeout(() => {
         workingTimer.current = null
-        patchTerminalTab(wsId, paneId, tabId, { working: false })
+        patchTerminalTab(wsId, paneId, tabId, {
+          working: false,
+          workingSince: undefined,
+          turnEndedAt: Date.now()
+        })
       }, 1600)
     }
 
@@ -384,6 +388,8 @@ export function TerminalTabView({
           exited: false,
           agent: null,
           working: false,
+          workingSince: undefined,
+          turnEndedAt: undefined,
           pty: id
         })
       } else if (e.t === 'attached') {

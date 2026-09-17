@@ -290,8 +290,13 @@ function setWorking(t: Target, on: boolean): void {
     t.paneId,
     t.tabId,
     on
-      ? { working: true, quietUntil: undefined }
-      : { working: false, quietUntil: Date.now() + QUIET_MS }
+      ? { working: true, workingSince: Date.now(), quietUntil: undefined }
+      : {
+          working: false,
+          workingSince: undefined,
+          turnEndedAt: Date.now(),
+          quietUntil: Date.now() + QUIET_MS
+        }
   )
 }
 

@@ -303,6 +303,7 @@ function normalizePane(
     // light a dead agent's tab until its shell respawned
     if (nt.kind === 'term') {
       delete (nt as TerminalTab).working
+      delete (nt as TerminalTab).workingSince
       delete (nt as TerminalTab).quietUntil
     }
     return nt
@@ -404,6 +405,9 @@ export interface PersistedState {
   /** sidebar agents section — collapsed flag + fraction of sidebar height */
   sideAgentsCollapsed: boolean
   sideAgentsFrac: number
+  /** agents list scope — 'ws' shows the active workspace's sessions,
+   *  'all' groups every workspace's */
+  agentsScope: 'ws' | 'all'
 }
 
 interface AdeState extends PersistedState {
@@ -487,6 +491,7 @@ interface AdeState extends PersistedState {
   setSidebarRoot: (projectId: string, path: string) => void
   setSideAgentsCollapsed: (collapsed: boolean) => void
   setSideAgentsFrac: (frac: number) => void
+  setAgentsScope: (scope: 'ws' | 'all') => void
   pushTreeRoot: (path: string) => void
   setTreeOverlayOpen: (open: boolean) => void
   setNotifOpen: (open: boolean) => void
@@ -548,6 +553,7 @@ export const useStore = create<AdeState>((set, get) => {
     sidebarRoots: {},
     sideAgentsCollapsed: false,
     sideAgentsFrac: 0.38,
+    agentsScope: 'ws',
     notifications: [],
     toasts: [],
     notifOpen: false,
@@ -590,7 +596,8 @@ export const useStore = create<AdeState>((set, get) => {
         sideAgentsFrac:
           typeof s.sideAgentsFrac === 'number'
             ? Math.min(0.8, Math.max(0.12, s.sideAgentsFrac))
-            : 0.38
+            : 0.38,
+        agentsScope: s.agentsScope === 'all' ? 'all' : 'ws'
       })
     },
 
@@ -1379,6 +1386,8 @@ export const useStore = create<AdeState>((set, get) => {
     setSideAgentsCollapsed: (collapsed) => set({ sideAgentsCollapsed: collapsed }),
 
     setSideAgentsFrac: (frac) => set({ sideAgentsFrac: Math.min(0.8, Math.max(0.12, frac)) }),
+
+    setAgentsScope: (scope) => set({ agentsScope: scope }),
 
     // file-tree root MRU — every root picker feeds this so the dropdown can
     // offer recently-opened dirs first (cap keeps it tidy)

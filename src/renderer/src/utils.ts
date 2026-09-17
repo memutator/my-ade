@@ -84,3 +84,25 @@ export function paneLabel(pane: PaneState, lang: Language): string {
 export function paneTitle(pane: PaneState, lang: Language): string {
   return pane.name ?? translate(lang, 'paneN', { n: String(pane.num ?? 0) })
 }
+
+/* elapsed time — the agents list's running timer ("1h 2m 3s", "1m 23s") */
+export function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h) return `${h}h ${m}m ${sec}s`
+  if (m) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+/* coarse age for the '… ago' label ("12s", "5m", "2h", "3d") */
+export function fmtAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 48) return `${h}h`
+  return `${Math.floor(h / 24)}d`
+}

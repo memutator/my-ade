@@ -108,6 +108,9 @@ const en = {
   widgetAgents: 'agents',
   widgetUsage: 'usage',
   noAgents: 'no agents running',
+  agentsWs: 'this workspace',
+  agentsAll: 'all',
+  ago: '{t} ago',
   usageUnsupported: 'no usage data for {agent}',
 
   // session resume
@@ -328,6 +331,9 @@ const ko: Record<TKey, string> = {
   widgetAgents: '에이전트',
   widgetUsage: '사용량',
   noAgents: '실행 중인 에이전트 없음',
+  agentsWs: '이 워크스페이스',
+  agentsAll: '전체',
+  ago: '{t} 전',
   usageUnsupported: '{agent} 사용량 정보 없음',
 
   resumeTitle: '에이전트 세션 복구',

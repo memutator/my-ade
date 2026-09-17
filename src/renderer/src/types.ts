@@ -30,6 +30,11 @@ export interface TerminalTab {
    *  shell (hook turn-start/end events refine it); renders as the pulsing
    *  status dot in the tab's close-button slot */
   working?: boolean
+  /** set when `working` last lit — drives the agents list's elapsed timer */
+  workingSince?: number
+  /** last time a turn ended (hook clear or the output-silence timeout) —
+   *  drives the agents list's '… ago' label for idle sessions */
+  turnEndedAt?: number
   /** output can't light `working` until this time — set when an authoritative
    *  event just declared the turn over (hook clear, fresh agent detect) so the
    *  post-turn prompt redraw / startup banner doesn't relight the pulse */

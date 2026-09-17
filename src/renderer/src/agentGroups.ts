@@ -17,6 +17,7 @@ export interface AgentRow {
 }
 
 export interface AgentGroup {
+  ws: Workspace
   pane: PaneState
   rows: AgentRow[]
 }
@@ -63,18 +64,30 @@ function buildGroups(
         label: sessionName(sessions, ws.id, tab.id) ?? tab.title ?? agentLabel(tab.agent ?? ''),
         sub: tab.cwd ? shortPath(tab.cwd) : undefined
       }))
-    if (rows.length) groups.push({ pane, rows })
+    if (rows.length) groups.push({ ws, pane, rows })
   }
   return groups
 }
 
-/** grouped agent rows for a workspace — recomputed only when its inputs
- *  actually change (slice refs are stable across unrelated store updates) */
+/** grouped agent rows — the active workspace's when scope is 'ws', every
+ *  workspace's (tagged per group) when scope is 'all'; recomputed only when
+ *  its inputs actually change (slice refs are stable across unrelated
+ *  store updates) */
 export function useAgentGroups(wsId: string | undefined): AgentGroup[] {
-  const ws = useStore((s) => s.workspaces.find((w) => w.id === wsId))
+  const workspaces = useStore((s) => s.workspaces)
+  const scope = useStore((s) => s.agentsScope)
   const notifications = useStore((s) => s.notifications)
   const sessions = useStore((s) => s.agentSessions)
-  return useMemo(() => buildGroups(ws, notifications, sessions), [ws, notifications, sessions])
+  return useMemo(() => {
+    if (scope === 'all') {
+      return workspaces.flatMap((w) => buildGroups(w, notifications, sessions))
+    }
+    return buildGroups(
+      workspaces.find((w) => w.id === wsId),
+      notifications,
+      sessions
+    )
+  }, [workspaces, wsId, scope, notifications, sessions])
 }
 
 /** worst row status across the groups — drives the section header's dot */

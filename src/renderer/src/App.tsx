@@ -101,7 +101,8 @@ export default function App(): React.JSX.Element {
       treeRoots: s.treeRoots,
       sidebarRoots: s.sidebarRoots,
       sideAgentsCollapsed: s.sideAgentsCollapsed,
-      sideAgentsFrac: s.sideAgentsFrac
+      sideAgentsFrac: s.sideAgentsFrac,
+      agentsScope: s.agentsScope
     })
     const flush = (): void => {
       window.ade.state.saveNow?.(snapshot(useStore.getState()))
