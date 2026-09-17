@@ -82,7 +82,14 @@ splittable pane layout scoped to a project directory.
 ## Commands
 
 - `npm run dev` — start dev (sets `ELECTRON_DISABLE_SANDBOX=1`; required because
-  `chrome-sandbox` lacks setuid root on this machine)
+  `chrome-sandbox` lacks setuid root on this machine). Dev runs an isolated
+  profile: `userData` → `appData/ade-dev` (state file, window state, icon
+  cache, webview sessions) and `ADE_CONFIG_DIR` → `~/.config/ade-dev` (event
+  channel, hook script copy, decision log) — it never touches the installed
+  app's live data. Agents spawned in dev terminals inherit `ADE_CONFIG_DIR`
+  so their hook events route into the dev channel; harness hook installs
+  still target the user's real configs (hooks are global by nature).
+  `ADE_TEST` (e2e) opts out — it isolates via `XDG_CONFIG_HOME` instead.
 - `npm install` fails at the `electron-builder install-app-deps` postinstall
   (node-gyp rebuild needs make, which isn't installed) — deps still install fine;
   ignore it or use `--ignore-scripts`.

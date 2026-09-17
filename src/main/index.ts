@@ -30,8 +30,20 @@ import { windowStateFor, trackWindowState } from './windowState'
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
 // productName is the display name (ADE); userData stays on the legacy
-// lowercase dir so existing state/icon caches don't orphan on the rename
-app.setPath('userData', join(app.getPath('appData'), 'ade'))
+// lowercase dir so existing state/icon caches don't orphan on the rename.
+// Dev runs get a fully isolated profile — own userData (state file, window
+// geometry, webview sessions, icon cache) AND own ADE_CONFIG_DIR (event
+// channel, hook script copy, decision log) — so `npm run dev` never fights
+// the installed app over live session state. Hook scripts resolve
+// ADE_CONFIG_DIR from the spawned agent's env, so dev-terminal agents emit
+// into the dev channel while the user's real harness configs stay shared.
+// ADE_TEST (e2e) keeps the stock layout — its isolation is XDG_CONFIG_HOME.
+const devProfile = is.dev && !process.env.ADE_TEST
+app.setPath('userData', join(app.getPath('appData'), devProfile ? 'ade-dev' : 'ade'))
+if (devProfile && !process.env.ADE_CONFIG_DIR) {
+  const cfgBase = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
+  process.env.ADE_CONFIG_DIR = join(cfgBase, 'ade-dev')
+}
 
 // Per-run session tag: pty-host inherits it, every spawned shell and agent
 // CLI carries it, and hook scripts stamp it onto each event. The tailer drops
@@ -523,7 +535,7 @@ async function pushAgentConfig(): Promise<void> {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.ade.app')
+  electronApp.setAppUserModelId(devProfile ? 'com.ade.app.dev' : 'com.ade.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

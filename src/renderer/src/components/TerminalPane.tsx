@@ -213,13 +213,17 @@ export function TerminalTabView({
   const lastAgentRef = useRef<string | null>(null)
   // `working` (tab close-slot pulse): output while an agent owns the shell ≈
   // a turn in flight — agent TUIs stream/spin while working and go silent at
-  // their prompt. Store writes happen on transitions only; ~1.6 s of silence
-  // ends it. Hook events (attention.ts) refine the same flag.
-  const workingRef = useRef(false)
+  // their prompt. ~1.6 s of silence ends it. Hook events (attention.ts)
+  // refine the same flag.
   const workingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // attach replays the scrollback tail as `data` — that burst is history,
   // not a working turn, so activity is ignored briefly after (re)attach
   const replayUntil = useRef(0)
+  // keystroke echo suppression: typing at the agent's prompt redraws it,
+  // which is output but NOT work — output within ~0.8 s of an input never
+  // lights the flag (it still refreshes an already-lit one, so typing
+  // mid-turn doesn't flicker the light out)
+  const lastInputAt = useRef(0)
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
@@ -320,26 +324,30 @@ export function TerminalTabView({
     const clearWorking = (): void => {
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = null
-      if (workingRef.current) {
-        workingRef.current = false
-        patchTerminalTab(wsId, paneId, tabId, { working: false })
-      }
+      patchTerminalTab(wsId, paneId, tabId, { working: false })
     }
     const noteOutput = (): void => {
-      if (!lastAgentRef.current || Date.now() < replayUntil.current) return
-      if (!workingRef.current) {
-        workingRef.current = true
-        patchTerminalTab(wsId, paneId, tabId, { working: true })
-      }
+      if (!lastAgentRef.current) return
+      const now = Date.now()
+      if (now < replayUntil.current) return
+      // the store is the single source — attention.ts can clear the flag on
+      // hook events, so read it instead of mirroring locally
+      const working = paneAt(wsId, paneId)?.tabs.some(
+        (x) => x.id === tabId && x.kind === 'term' && x.working
+      )
+      if (now - lastInputAt.current < 800 && !working) return // echo, not a turn
+      if (!working) patchTerminalTab(wsId, paneId, tabId, { working: true })
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = setTimeout(() => {
-        workingRef.current = false
         workingTimer.current = null
         patchTerminalTab(wsId, paneId, tabId, { working: false })
       }, 1600)
     }
 
-    const offData = term.onData((d) => window.ade.pty.write(id, d))
+    const offData = term.onData((d) => {
+      lastInputAt.current = Date.now()
+      window.ade.pty.write(id, d)
+    })
     const offEvent = window.ade.pty.onEvent((e) => {
       if (e.id !== id) return
       if (e.t === 'data' && e.d) {

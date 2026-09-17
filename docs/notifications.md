@@ -99,7 +99,7 @@ stays closable.
 
 | status    | source                                                              |
 | --------- | ------------------------------------------------------------------- |
-| `working` | `tab.working` — output activity while an agent owns the shell (agent TUIs stream/spin mid-turn, silent at the prompt; ~1.6 s of silence ends it). Hook `turn-start` sets it immediately and `turn-complete`/`needs-input`/`error`/`turn-cancelled`/`session-end`/`idle` clear it — the same flag, so hooked providers get exact edges and unhooked ones still get the signal. Attach-replay output is ignored (~400 ms) so a remount doesn't flash |
+| `working` | `tab.working` — green breathing pulse; output activity while an agent owns the shell (agent TUIs stream/spin mid-turn, silent at the prompt; ~1.6 s of silence ends it). Output within ~0.8 s of a keystroke is prompt echo — it can refresh a lit flag but never lights one, so typing at the prompt isn't "work". Hook `turn-start` sets it immediately and `turn-complete`/`needs-input`/`error`/`turn-cancelled`/`session-end`/`idle` clear it — the same flag, so hooked providers get exact edges and unhooked ones still get the signal. Attach-replay output is ignored (~400 ms) so a remount doesn't flash |
 | `input`   | unread `needs-input` notification for that tab (`kind`)             |
 | `error`   | unread `error` notification for that tab                            |
 

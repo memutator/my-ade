@@ -1877,21 +1877,23 @@ html[data-theme='light'] .ctab.active {
 .ctab:hover .ctab-close[data-st] .ctab-x {
   display: block;
 }
+/* working breathes green — deliberately not --accent so a live turn reads
+   differently from a finished one (the generic unread dot stays accent) */
 .ctab-st.working {
-  background: var(--accent);
-  animation: ctab-working 1.3s ease-in-out infinite;
+  background: #9ece6a;
+  animation: ctab-working 2.4s ease-in-out infinite;
 }
 @keyframes ctab-working {
   0%,
   100% {
-    transform: scale(0.6);
-    opacity: 0.45;
+    transform: scale(0.7);
+    opacity: 0.5;
     box-shadow: 0 0 0 0 transparent;
   }
   50% {
     transform: scale(1);
     opacity: 1;
-    box-shadow: 0 0 6px 1px var(--accent);
+    box-shadow: 0 0 6px 1px rgba(158, 206, 106, 0.5);
   }
 }
 .ctab-st.input {
