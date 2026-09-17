@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { Code2, FolderOpen, FolderTree, Globe, Plus, RotateCw, TerminalSquare } from 'lucide-react'
-import type { BlockKind, EditorTab, PaneState, PaneTab, TerminalTab } from '../types'
+import {
+  Bot,
+  Code2,
+  FolderOpen,
+  FolderTree,
+  Gauge,
+  Globe,
+  Plus,
+  RotateCw,
+  TerminalSquare
+} from 'lucide-react'
+import type { BlockKind, EditorTab, PaneState, PaneTab, TerminalTab, WidgetKind } from '../types'
 import { useStore, patchTerminalTab } from '../store'
 import { useT } from '../i18n'
 import { isDetachedWin } from '../detached'
 import { startTabDrag } from '../paneDnd'
-import { blockLabel, blockSub } from '../utils'
+import { blockLabel, blockSub, statusForTab } from '../utils'
 import { agentLabel } from '../agents'
 import { useFileIcon } from '../fileIcons'
 import AgentIcon from './AgentIcon'
@@ -14,6 +24,7 @@ import PaneFrame from './PaneFrame'
 import TabStrip, { type TabItem, type TabStripHandle } from './TabStrip'
 import { TerminalTabView } from './TerminalPane'
 import { BrowserTabView } from './BrowserPane'
+import WidgetTabView from './WidgetView'
 import FileView from './FileView'
 import FileTree from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
@@ -27,6 +38,8 @@ function BlockIcon({ tab }: { tab: PaneTab }): React.JSX.Element {
   if (tab.kind === 'term' && tab.agent) return <AgentIcon id={tab.agent} size={13} />
   if (tab.kind === 'web') return <Globe className="tab-kico" />
   if (tab.kind === 'file') return <FileGlyph name={tab.name || 'file'} />
+  if (tab.kind === 'widget')
+    return tab.widget === 'usage' ? <Gauge className="tab-kico" /> : <Bot className="tab-kico" />
   return <TerminalSquare className="tab-kico" />
 }
 
@@ -190,13 +203,15 @@ export default function LeafPane({
   }
   // the strip's + adds a block to THIS leaf — the pane's own UI is an
   // explicit target, not a global open
-  const addTab = (kind: BlockKind): void => {
+  const addTab = (kind: BlockKind, widget?: WidgetKind): void => {
     const tab: PaneTab =
       kind === 'term'
         ? { kind, id: crypto.randomUUID() }
         : kind === 'web'
           ? { kind, id: crypto.randomUUID(), url: home || 'https://', title: '' }
-          : { kind, id: crypto.randomUUID(), path: '', name: '' }
+          : kind === 'widget'
+            ? { kind, id: crypto.randomUUID(), widget: widget ?? 'agents' }
+            : { kind, id: crypto.randomUUID(), path: '', name: '' }
     updatePane(pane.id, { tabs: [...tabs, tab], activeTabId: tab.id }, wsId)
   }
 
@@ -302,7 +317,7 @@ export default function LeafPane({
         disabled: !tab.url || tab.url === 'https://',
         act: () => void window.ade.clipboard.write(tab.url)
       })
-    } else {
+    } else if (tab.kind === 'file') {
       if (tab.preview) head.push({ label: t('keepOpen'), act: () => keepTab(tab.id) })
       if (tab.path)
         head.push(
@@ -332,29 +347,10 @@ export default function LeafPane({
   // unread notifications badge the exact block — the workspace strip only
   // points at the workspace level. One dot lives in the close slot: an
   // unanswered ask outranks a past failure, both outrank the live working
-  // pulse, and all of them outrank generic news (unread / dirty / exited)
-  const unread = notifications.filter((n) => !n.read && n.tabId)
-  const unreadTabs = new Set(unread.map((n) => n.tabId as string))
-  const kindTabs = (kind: 'needs-input' | 'error'): Set<string> =>
-    new Set(unread.filter((n) => n.kind === kind).map((n) => n.tabId as string))
-  const inputTabs = kindTabs('needs-input')
-  const errorTabs = kindTabs('error')
+  // pulse, and all of them outrank generic news (unread / dirty / exited) —
+  // the shared precedence lives in statusForTab (utils.ts)
   const items: TabItem[] = tabs.map((tab) => {
-    const news =
-      tab.kind === 'term'
-        ? tab.exited || unreadTabs.has(tab.id)
-        : tab.kind === 'file'
-          ? tab.dirty || unreadTabs.has(tab.id)
-          : unreadTabs.has(tab.id)
-    const status: TabItem['status'] = inputTabs.has(tab.id)
-      ? 'input'
-      : errorTabs.has(tab.id)
-        ? 'error'
-        : tab.kind === 'term' && tab.working
-          ? 'working'
-          : news
-            ? 'news'
-            : undefined
+    const status = statusForTab(tab, notifications)
     const agentName = tab.kind === 'term' ? agentLabel(tab.agent ?? '') : ''
     const dotTip =
       status === 'input'
@@ -440,6 +436,15 @@ export default function LeafPane({
                     <Code2 />
                     {t('editor')}
                   </button>
+                  <div className="pact-sep" />
+                  <button className="pact-item" onClick={() => addTab('widget', 'agents')}>
+                    <Bot />
+                    {t('widgetAgents')}
+                  </button>
+                  <button className="pact-item" onClick={() => addTab('widget', 'usage')}>
+                    <Gauge />
+                    {t('widgetUsage')}
+                  </button>
                 </Dropdown>
               }
             />
@@ -468,7 +473,13 @@ export default function LeafPane({
           <div
             key={tab.id}
             className={
-              tab.kind === 'term' ? 'term-tab' : tab.kind === 'file' ? 'editor-file' : 'web-tab'
+              tab.kind === 'term'
+                ? 'term-tab'
+                : tab.kind === 'file'
+                  ? 'editor-file'
+                  : tab.kind === 'widget'
+                    ? 'widget-tab'
+                    : 'web-tab'
             }
             hidden={tab.id !== activeTabId}
           >
@@ -490,6 +501,8 @@ export default function LeafPane({
                 tab={tab}
                 onFocusPane={() => useStore.getState().focusPane(pane.id, wsId)}
               />
+            ) : tab.kind === 'widget' ? (
+              <WidgetTabView wsId={wsId} paneId={pane.id} tab={tab} />
             ) : tab.path ? (
               <FileView
                 path={tab.path}

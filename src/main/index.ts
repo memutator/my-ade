@@ -25,6 +25,7 @@ import { registerFileWatchIpc } from './filewatch'
 import { registerFsOpsIpc } from './fsops'
 import { registerDirWatchIpc } from './dirwatch'
 import { registerWorktreeIpc } from './worktree'
+import { registerUsageIpc } from './usage'
 import { windowStateFor, trackWindowState } from './windowState'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
@@ -568,6 +569,7 @@ app.whenReady().then(() => {
   registerNotifyIpc()
   registerAgentIpc()
   registerHookIpc()
+  registerUsageIpc()
   createWindow()
   startPtyHost()
   startEventIngest(() => mainWindow)

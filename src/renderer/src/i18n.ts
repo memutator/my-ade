@@ -100,6 +100,13 @@ const en = {
   agentError: '{agent} error',
   wsUnread: 'unread notifications',
 
+  // widgets + sidebar agents section
+  agents: 'agents',
+  widgetAgents: 'agents',
+  widgetUsage: 'usage',
+  noAgents: 'no agents running',
+  usageUnsupported: 'no usage data for {agent}',
+
   // session resume
   resumeTitle: 'Resume agent sessions',
   resumeHint: '{name} had {n} agent session(s) running when ADE closed. Reopen them in their tabs?',
@@ -305,6 +312,12 @@ const ko: Record<TKey, string> = {
   agentNeedsInput: '{agent} 입력 필요',
   agentError: '{agent} 오류',
   wsUnread: '읽지 않은 알림',
+
+  agents: '에이전트',
+  widgetAgents: '에이전트',
+  widgetUsage: '사용량',
+  noAgents: '실행 중인 에이전트 없음',
+  usageUnsupported: '{agent} 사용량 정보 없음',
 
   resumeTitle: '에이전트 세션 복구',
   resumeHint:

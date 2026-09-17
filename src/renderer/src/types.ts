@@ -1,5 +1,9 @@
 /** content kinds a leaf can stack — a "pane" has no type of its own */
-export type BlockKind = 'term' | 'web' | 'file'
+export type BlockKind = 'term' | 'web' | 'file' | 'widget'
+
+/** built-in widget blocks — 'agents' mirrors the sidebar's per-pane session
+ *  list into a tab, 'usage' is a per-harness rate-limit dashboard */
+export type WidgetKind = 'agents' | 'usage'
 
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
@@ -51,8 +55,16 @@ export interface EditorTab {
   preview?: boolean
 }
 
+export interface WidgetTab {
+  kind: 'widget'
+  id: string
+  widget: WidgetKind
+  /** usage widget: the provider whose limits are on screen */
+  provider?: string
+}
+
 /** one tab inside a leaf — the block */
-export type PaneTab = TerminalTab | BrowserTab | EditorTab
+export type PaneTab = TerminalTab | BrowserTab | EditorTab | WidgetTab
 
 export interface PaneState {
   id: string
@@ -211,6 +223,31 @@ export interface AgentSessionInfo {
   paneId?: string
   tabId?: string
   ts?: number
+}
+
+/** one usage window/bucket on a provider's rate-limit dashboard */
+export interface UsageWindow {
+  id: string
+  label: string
+  /** % of the window already consumed (0–100); undefined = unlimited/none */
+  usedPct?: number
+  /** epoch ms when the window resets */
+  resetAt?: number
+  /** free-form note — 'unlimited', 'x/y remaining', … */
+  detail?: string
+}
+
+/** normalized result of a provider usage probe (src/main/usage.ts) */
+export interface UsageResult {
+  ok: boolean
+  provider: string
+  /** plan tier when the provider reports one ('pro', 'plus', …) */
+  plan?: string
+  windows: UsageWindow[]
+  /** extra account facts worth a line (credit balance, reset credits) */
+  extra?: string
+  error?: string
+  fetchedAt: number
 }
 
 export interface AgentHookStatus {

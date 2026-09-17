@@ -15,12 +15,13 @@ import type {
   Settings,
   TerminalTab,
   ToastItem,
+  WidgetKind,
   Workspace
 } from './types'
 
 const uid = (): string => crypto.randomUUID()
 
-function makeTab(kind: BlockKind, home = ''): PaneTab {
+function makeTab(kind: BlockKind, home = '', widget?: WidgetKind): PaneTab {
   switch (kind) {
     case 'term':
       return { kind, id: uid() }
@@ -28,11 +29,13 @@ function makeTab(kind: BlockKind, home = ''): PaneTab {
       return { kind, id: uid(), url: home || 'https://', title: '' }
     case 'file':
       return { kind, id: uid(), path: '', name: '' }
+    case 'widget':
+      return { kind, id: uid(), widget: widget ?? 'agents' }
   }
 }
 
-function makePane(kind: BlockKind, home = ''): PaneState {
-  const tab = makeTab(kind, home)
+function makePane(kind: BlockKind, home = '', widget?: WidgetKind): PaneState {
+  const tab = makeTab(kind, home, widget)
   return { id: uid(), tabs: [tab], activeTabId: tab.id }
 }
 
@@ -353,6 +356,9 @@ export interface PersistedState {
   /** per-project sidebar tree root overrides — sidebar trees can point
    *  somewhere other than the project dir */
   sidebarRoots: Record<string, string>
+  /** sidebar agents section — collapsed flag + fraction of sidebar height */
+  sideAgentsCollapsed: boolean
+  sideAgentsFrac: number
 }
 
 interface AdeState extends PersistedState {
@@ -377,8 +383,9 @@ interface AdeState extends PersistedState {
   moveWorkspace: (from: number, to: number) => void
 
   /** stack a fresh block of `kind` into the target leaf (explicit > focused >
-      last visible); only creates a leaf when nothing visible exists */
-  newBlock: (kind: BlockKind, wsId?: string) => void
+      last visible); only creates a leaf when nothing visible exists. `widget`
+      picks the WidgetKind when kind === 'widget' */
+  newBlock: (kind: BlockKind, wsId?: string, widget?: WidgetKind) => void
   /** explicit split — only user gestures reach this */
   splitPane: (paneId: string, dir: 'row' | 'col', kind: BlockKind, wsId?: string) => void
   closePane: (paneId: string, wsId?: string) => void
@@ -433,6 +440,8 @@ interface AdeState extends PersistedState {
 
   setSidebarOpen: (open: boolean) => void
   setSidebarRoot: (projectId: string, path: string) => void
+  setSideAgentsCollapsed: (collapsed: boolean) => void
+  setSideAgentsFrac: (frac: number) => void
   pushTreeRoot: (path: string) => void
   setTreeOverlayOpen: (open: boolean) => void
   setNotifOpen: (open: boolean) => void
@@ -492,6 +501,8 @@ export const useStore = create<AdeState>((set, get) => {
     resumeSessions: {},
     treeRoots: [],
     sidebarRoots: {},
+    sideAgentsCollapsed: false,
+    sideAgentsFrac: 0.38,
     notifications: [],
     toasts: [],
     notifOpen: false,
@@ -529,7 +540,12 @@ export const useStore = create<AdeState>((set, get) => {
         agentSessions: s.agentSessions ?? {},
         resumeSessions,
         treeRoots: s.treeRoots ?? [],
-        sidebarRoots: s.sidebarRoots ?? {}
+        sidebarRoots: s.sidebarRoots ?? {},
+        sideAgentsCollapsed: s.sideAgentsCollapsed ?? false,
+        sideAgentsFrac:
+          typeof s.sideAgentsFrac === 'number'
+            ? Math.min(0.8, Math.max(0.12, s.sideAgentsFrac))
+            : 0.38
       })
     },
 
@@ -619,7 +635,7 @@ export const useStore = create<AdeState>((set, get) => {
     // Opening content never splits the focused leaf: the block stacks into
     // the target leaf as a tab (explicit > focused > last visible). A new
     // leaf only appears when nothing visible exists.
-    newBlock: (kind, wsIdArg) =>
+    newBlock: (kind, wsIdArg, widget) =>
       set((s) => {
         const wsId = wid(wsIdArg)
         if (!wsId) return s
@@ -628,10 +644,12 @@ export const useStore = create<AdeState>((set, get) => {
         const target = stackTarget(ws)
         if (!target) {
           return {
-            workspaces: updWs(s.workspaces, wsId, (w) => insertPane(w, makePane(kind, home())))
+            workspaces: updWs(s.workspaces, wsId, (w) =>
+              insertPane(w, makePane(kind, home(), widget))
+            )
           }
         }
-        const tab = makeTab(kind, home())
+        const tab = makeTab(kind, home(), widget)
         return {
           workspaces: updWs(s.workspaces, wsId, (w) =>
             pushTab(w, target, [...w.panes[target].tabs, tab], tab.id)
@@ -1292,6 +1310,10 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => ({
         sidebarRoots: { ...s.sidebarRoots, [projectId]: path }
       })),
+
+    setSideAgentsCollapsed: (collapsed) => set({ sideAgentsCollapsed: collapsed }),
+
+    setSideAgentsFrac: (frac) => set({ sideAgentsFrac: Math.min(0.8, Math.max(0.12, frac)) }),
 
     // file-tree root MRU — every root picker feeds this so the dropdown can
     // offer recently-opened dirs first (cap keeps it tidy)
