@@ -90,6 +90,26 @@ ping whose recorded pane or tab no longer exists degrades to the coarsest
 live level (pane gone → workspace-level, tab gone → pane-level) so a stale
 target can't badge a workspace forever.
 
+## Tab status dots
+
+A terminal tab's close slot doubles as a live agent status light (`TabItem.status`
+→ `.ctab-st` inside `.ctab-close`): the signal dot stands in for the X — even on
+inactive, unhovered tabs — and hovering the tab swaps back to the X so the tab
+stays closable.
+
+| status    | source                                                              |
+| --------- | ------------------------------------------------------------------- |
+| `working` | `tab.working` — output activity while an agent owns the shell (agent TUIs stream/spin mid-turn, silent at the prompt; ~1.6 s of silence ends it). Hook `turn-start` sets it immediately and `turn-complete`/`needs-input`/`error`/`turn-cancelled`/`session-end`/`idle` clear it — the same flag, so hooked providers get exact edges and unhooked ones still get the signal. Attach-replay output is ignored (~400 ms) so a remount doesn't flash |
+| `input`   | unread `needs-input` notification for that tab (`kind`)             |
+| `error`   | unread `error` notification for that tab                            |
+
+Precedence: `input` > `error` > `working`. The unread-driven dots ride the
+notification lifecycle, so read-on-view (`sweepAttended` / detached `attended`
+relays / `settleInput`) returns the slot to the plain X — seeing the tab is the
+acknowledgement. A colored status dot also covers the tab's generic unread dot
+(otherwise a needs-input ping would badge twice). `working` is a live flag, not
+a ping — it never survives hydration.
+
 ## Coalescing
 
 Three layers, each closer to the user:

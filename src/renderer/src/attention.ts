@@ -9,7 +9,7 @@
 // (silent, pre-read record), ambient = app focused but target off-screen
 // (unread badge, no OS banner), away = hosting window unfocused (unread + OS).
 
-import { useStore, visibleLeafIds } from './store'
+import { useStore, visibleLeafIds, patchTerminalTab } from './store'
 import { agentLabel } from './agents'
 import { resumeSupported } from './resume'
 import { translate } from './i18n'
@@ -253,6 +253,24 @@ function settleFor(
   })
 }
 
+// the tab's `working` flag (close-slot pulse): a turn-start sets it,
+// anything that ends or pauses the turn drops it. 'other' deliberately
+// doesn't — sub-session churn demoted to 'other' isn't the user's turn
+// ending. Output activity in TerminalPane is the no-hooks fallback.
+const WORKING_CLEAR = new Set([
+  'turn-complete',
+  'needs-input',
+  'error',
+  'turn-cancelled',
+  'session-end',
+  'idle'
+])
+
+function setWorking(t: Target, on: boolean): void {
+  if (!t.ws || !t.paneId || !t.tabId) return
+  patchTerminalTab(t.ws.id, t.paneId, t.tabId, { working: on })
+}
+
 function titleFor(language: Language, provider: string, kind: string): string {
   return translate(
     language,
@@ -296,7 +314,7 @@ async function deliver(
         body,
         session,
         agent: ev.provider,
-        kind: ev.event === 'needs-input' ? 'needs-input' : undefined,
+        kind: ev.event === 'needs-input' || ev.event === 'error' ? ev.event : undefined,
         sessionId: ev.sessionId,
         read: action === 'silent'
       })
@@ -435,6 +453,10 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     }
   }
   settleFor(st, ev, t)
+  // live turn state rides the same resolution — runs for tracking-only
+  // events too (turn-start itself never notifies)
+  if (ev.event === 'turn-start') setWorking(t, true)
+  else if (WORKING_CLEAR.has(ev.event)) setWorking(t, false)
   if (!NOTIFY_EVENTS.has(ev.event)) {
     logDecision(ev, t, 'drop', 'tracking', 'hook')
     return
@@ -461,8 +483,10 @@ export function reportProcessIdle(
   const tab = pane?.tabs.find((t): t is TerminalTab => t.id === tabId && t.kind === 'term')
   const t: Target = { ws, paneId, tabId: tab ? tabId : undefined, tab }
   const ev = { provider, event: 'turn-complete', cwd: tab?.cwd }
-  // the agent process is gone — a pending prompt died with it
+  // the agent process is gone — a pending prompt died with it, and nothing
+  // is working anymore
   settleFor(st, ev, t)
+  setWorking(t, false)
   if (hookInstalled[provider]) {
     logDecision(ev, t, 'drop', 'hook-owned provider', 'pty-idle')
     return

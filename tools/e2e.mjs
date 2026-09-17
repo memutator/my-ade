@@ -8,7 +8,8 @@
 //
 //   node tools/e2e.mjs [scenario...]        (default: all)
 //
-// Scenarios: orphans · resume · attention
+// Scenarios: orphans · resume · attention · status · adopt · projectrm ·
+//            browserfile · tabdnd
 //
 // The test app window pops up on the real desktop — focus-dependent checks
 // (attended vs ambient) assume it keeps focus for the few seconds it runs.
@@ -686,12 +687,89 @@ async function scTabDnd() {
   await h.quit()
 }
 
+async function scStatus() {
+  console.log('\n■ status — close-slot agent dots: working pulse / input amber / error red')
+  const h = await boot('status', { focus: 'focused' })
+  const { wsId: ws1 } = await mkws(h)
+  const t1 = await h.term()
+  await h.type(t1.pty, `${FAKE} --session-id s-st\n`)
+  await sleep(1500)
+
+  // data-st on the tab's close button = the rendered status (null → plain X)
+  const stOf = (tabId) => `(() => {
+    const b = document.querySelector('.pane-tabs .ctab[data-tab-id="${tabId}"] .ctab-close')
+    return b ? (b.dataset.st ?? null) : 'NO-BUTTON'
+  })()`
+  const tabWorking = (tabId) => `(() => {
+    for (const w of window.__ade.getState().workspaces)
+      for (const p of Object.values(w.panes)) {
+        const t = p.tabs.find((x) => x.id === ${JSON.stringify(tabId)})
+        if (t) return t.working === true
+      }
+    return null
+  })()`
+
+  // turn-start → working flag + the pulsing dot on the emitting tab
+  await h.type(t1.pty, 'u')
+  await h.waitFor(tabWorking(t1.tabId), 'working flag after turn-start')
+  await h.waitFor(`${stOf(t1.tabId)} === 'working'`, 'working dot renders')
+  ok(true, 'turn-start lit the working pulse on the emitting tab')
+
+  // turn-complete drops it — back to the plain X
+  await h.type(t1.pty, 'c')
+  await h.waitFor(`${tabWorking(t1.tabId)} === false`, 'working cleared after turn-complete')
+  const afterDone = await h.ev(stOf(t1.tabId))
+  ok(afterDone !== 'working', `close slot left working state (got ${afterDone})`)
+
+  // needs-input on an off-screen workspace tab → unread → amber dot.
+  // (attended would still badge but read-on-view sweeps it instantly, so the
+  // stable observable case is ambient)
+  const ws2 = await h.ev(`(() => {
+    let s = window.__ade.getState()
+    s.createWorkspace(s.projects[0].id)
+    s = window.__ade.getState()
+    const w = s.workspaces.at(-1)
+    s.newBlock('term', w.id)
+    s.activateWorkspace(${JSON.stringify(ws1)})
+    return w.id
+  })()`)
+  const t2 = await h.waitFor(
+    `(() => {
+      const w = window.__ade.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
+      const p = Object.values(w.panes).find((p) => p.tabs.some((t) => t.kind === 'term'))
+      const t = p?.tabs?.find((t) => t.kind === 'term')
+      return t?.pty ? { paneId: p.id, tabId: t.id, pty: t.pty } : null
+    })()`,
+    'ws2 terminal'
+  )
+  await h.type(t2.pty, `${FAKE} --session-id s-st2\n`)
+  await sleep(1500)
+  await h.type(t2.pty, 'n')
+  await h.waitFor(`${stOf(t2.tabId)} === 'input'`, 'amber dot for pending needs-input')
+  ok(true, 'unread needs-input shows the input dot')
+
+  // turn-complete settles the ask, then error → red dot
+  await h.type(t2.pty, 'c')
+  await h.type(t2.pty, 'e')
+  await h.waitFor(`${stOf(t2.tabId)} === 'error'`, 'red dot for unread error')
+  ok(true, 'unread error shows the error dot')
+
+  // checking it (read-on-view) returns the close slot to the plain X — the
+  // working flag also falls once the fake goes quiet (~1.6 s silence)
+  await h.ev(`document.hasFocus = () => true`)
+  await h.ev(`window.__ade.getState().activateWorkspace(${JSON.stringify(ws2)})`)
+  await h.waitFor(`${stOf(t2.tabId)} === null`, 'status cleared after attending', 10000)
+  ok(true, 'seen state restores the plain close X')
+  await h.quit()
+}
+
 // ---------- runner ----------
 
 const ALL = {
   orphans: scOrphans,
   resume: scResume,
   attention: scAttention,
+  status: scStatus,
   adopt: scAdopt,
   projectrm: scProjectRm,
   browserfile: scBrowserFile,

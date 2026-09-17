@@ -215,7 +215,9 @@ Two tools live under `tools/` (both plain Node, lint-ignored):
   [name…]`): `orphans` (quit kills agent processes), `resume` (two sessions,
   one pane, distinct tabs → reboot → both offered and re-injected into their
   own tabs), `attention` (attended/ambient/away verdicts, ambient toast,
-  read-on-view), `adopt` (previous-run orphan events re-register),
+  read-on-view), `status` (close-slot agent dots: working pulse on turn-start,
+  amber/red for unread needs-input/error, cleared by read-on-view),
+  `adopt` (previous-run orphan events re-register),
   `projectrm` (project removal drops its workspaces/resume records, kills
   their agents, fixes `activeWorkspaceId`, leaves the directory on disk),
   `browserfile` (`openUrlInBrowser` opens a `file://` url — encoded names

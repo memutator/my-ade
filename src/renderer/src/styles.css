@@ -1852,6 +1852,55 @@ html[data-theme='light'] .ctab.active {
   color: var(--text);
 }
 
+/* agent status in the close slot: a signal dot stands in for the X while the
+   state is live (working pulse / amber ask / red error). It's visible even on
+   inactive unhovered tabs — the whole point — and hovering the tab swaps it
+   back to the X so the tab stays closable */
+.ctab-close .ctab-st {
+  display: none;
+}
+.ctab-close[data-st] {
+  opacity: 1;
+}
+.ctab-close[data-st] .ctab-x {
+  display: none;
+}
+.ctab-close[data-st] .ctab-st {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ctab:hover .ctab-close[data-st] .ctab-st {
+  display: none;
+}
+.ctab:hover .ctab-close[data-st] .ctab-x {
+  display: block;
+}
+.ctab-st.working {
+  background: var(--accent);
+  animation: ctab-working 1.3s ease-in-out infinite;
+}
+@keyframes ctab-working {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 6px 1px var(--accent);
+  }
+}
+.ctab-st.input {
+  background: #e5c07b;
+}
+.ctab-st.error {
+  background: #e5534b;
+}
+
 /* workspace add button + project menu */
 .ws-add {
   position: relative;

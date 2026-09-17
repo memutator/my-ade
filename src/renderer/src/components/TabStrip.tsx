@@ -19,6 +19,9 @@ export interface TabItem {
   dirty?: boolean
   /** tooltip for the dirty/status dot (default: unsaved-changes text) */
   dotTip?: string
+  /** agent live status — replaces the close X with a signal dot until hover
+   *  (working = pulsing accent, input = amber, error = red) */
+  status?: 'working' | 'input' | 'error'
   /** VS Code-style preview tab — italic label until pinned */
   preview?: boolean
   /** default true — set false on blocks that can't be renamed (web/file) */
@@ -328,12 +331,14 @@ export default function TabStrip({
               {onClose && (
                 <button
                   className="ctab-close"
+                  data-st={tab.status}
                   onClick={(e) => {
                     e.stopPropagation()
                     onClose(tab.id)
                   }}
                 >
-                  <X size={11} />
+                  {tab.status && <span className={`ctab-st ${tab.status}`} />}
+                  <X size={11} className="ctab-x" />
                 </button>
               )}
             </div>

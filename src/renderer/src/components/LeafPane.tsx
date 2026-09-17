@@ -329,28 +329,50 @@ export default function LeafPane({
   }
 
   // unread notifications badge the exact block — the workspace strip only
-  // points at the workspace level
-  const unreadTabs = new Set(notifications.filter((n) => !n.read && n.tabId).map((n) => n.tabId))
-  const items: TabItem[] = tabs.map((tab) => ({
-    id: tab.id,
-    label: blockLabel(tab, language),
-    sub: blockSub(tab),
-    icon: <BlockIcon tab={tab} />,
-    dirty:
-      tab.kind === 'term'
-        ? tab.exited || unreadTabs.has(tab.id)
-        : tab.kind === 'file'
-          ? tab.dirty || unreadTabs.has(tab.id)
-          : unreadTabs.has(tab.id),
-    dotTip:
-      tab.kind === 'term' && tab.exited
-        ? t('shellExited')
-        : unreadTabs.has(tab.id)
-          ? t('wsUnread')
-          : undefined,
-    preview: tab.kind === 'file' ? tab.preview : undefined,
-    renameable: tab.kind === 'term'
-  }))
+  // points at the workspace level. needs-input/error unreads color the
+  // close-slot status dot instead of the generic accent dot
+  const unread = notifications.filter((n) => !n.read && n.tabId)
+  const unreadTabs = new Set(unread.map((n) => n.tabId as string))
+  const kindTabs = (kind: 'needs-input' | 'error'): Set<string> =>
+    new Set(unread.filter((n) => n.kind === kind).map((n) => n.tabId as string))
+  const inputTabs = kindTabs('needs-input')
+  const errorTabs = kindTabs('error')
+  const items: TabItem[] = tabs.map((tab) => {
+    // status precedence: an unanswered ask outranks a past failure, and both
+    // outrank the live working pulse
+    const status: TabItem['status'] =
+      tab.kind !== 'term'
+        ? undefined
+        : inputTabs.has(tab.id)
+          ? 'input'
+          : errorTabs.has(tab.id)
+            ? 'error'
+            : tab.working
+              ? 'working'
+              : undefined
+    const covered = status === 'input' || status === 'error'
+    return {
+      id: tab.id,
+      label: blockLabel(tab, language),
+      sub: blockSub(tab),
+      icon: <BlockIcon tab={tab} />,
+      dirty:
+        tab.kind === 'term'
+          ? tab.exited || (unreadTabs.has(tab.id) && !covered)
+          : tab.kind === 'file'
+            ? tab.dirty || unreadTabs.has(tab.id)
+            : unreadTabs.has(tab.id),
+      dotTip:
+        tab.kind === 'term' && tab.exited
+          ? t('shellExited')
+          : unreadTabs.has(tab.id) && !covered
+            ? t('wsUnread')
+            : undefined,
+      preview: tab.kind === 'file' ? tab.preview : undefined,
+      renameable: tab.kind === 'term',
+      status
+    }
+  })
 
   return (
     <>

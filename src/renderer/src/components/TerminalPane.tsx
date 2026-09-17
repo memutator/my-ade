@@ -211,6 +211,15 @@ export function TerminalTabView({
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const lastAgentRef = useRef<string | null>(null)
+  // `working` (tab close-slot pulse): output while an agent owns the shell ≈
+  // a turn in flight — agent TUIs stream/spin while working and go silent at
+  // their prompt. Store writes happen on transitions only; ~1.6 s of silence
+  // ends it. Hook events (attention.ts) refine the same flag.
+  const workingRef = useRef(false)
+  const workingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // attach replays the scrollback tail as `data` — that burst is history,
+  // not a working turn, so activity is ignored briefly after (re)attach
+  const replayUntil = useRef(0)
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
@@ -308,37 +317,77 @@ export function TerminalTabView({
     })
     const raf = requestAnimationFrame(refit)
 
+    const clearWorking = (): void => {
+      if (workingTimer.current) clearTimeout(workingTimer.current)
+      workingTimer.current = null
+      if (workingRef.current) {
+        workingRef.current = false
+        patchTerminalTab(wsId, paneId, tabId, { working: false })
+      }
+    }
+    const noteOutput = (): void => {
+      if (!lastAgentRef.current || Date.now() < replayUntil.current) return
+      if (!workingRef.current) {
+        workingRef.current = true
+        patchTerminalTab(wsId, paneId, tabId, { working: true })
+      }
+      if (workingTimer.current) clearTimeout(workingTimer.current)
+      workingTimer.current = setTimeout(() => {
+        workingRef.current = false
+        workingTimer.current = null
+        patchTerminalTab(wsId, paneId, tabId, { working: false })
+      }, 1600)
+    }
+
     const offData = term.onData((d) => window.ade.pty.write(id, d))
     const offEvent = window.ade.pty.onEvent((e) => {
       if (e.id !== id) return
-      if (e.t === 'data' && e.d) term.write(decode(e.d))
-      else if (e.t === 'spawned' && e.shell)
+      if (e.t === 'data' && e.d) {
+        term.write(decode(e.d))
+        noteOutput()
+      } else if (e.t === 'spawned' && e.shell) {
         // fresh shell: clear exited and any stale agent label from the old session
+        clearWorking()
         patchTerminalTab(wsId, paneId, tabId, {
           shell: e.shell,
           exited: false,
           agent: null,
+          working: false,
           pty: id
         })
-      else if (e.t === 'attached')
-        // reattached to a live session — adopt its recorded state
+      } else if (e.t === 'attached') {
+        // reattached to a live session — adopt its recorded state; the
+        // replayed tail must not trip the working light. Seeding
+        // lastAgentRef matters: without it a remount loses the agent→idle
+        // transition (prev reads null) AND output can't light `working`
+        // until the next agent event
+        replayUntil.current = Date.now() + 400
+        lastAgentRef.current = e.agent ?? null
+        clearWorking()
         patchTerminalTab(wsId, paneId, tabId, {
           shell: e.shell,
           cwd: e.cwd ?? undefined,
           agent: e.agent ?? null,
           exited: false,
+          working: false,
           pty: id
         })
-      else if (e.t === 'cwd' && e.cwd) patchTerminalTab(wsId, paneId, tabId, { cwd: e.cwd })
-      else if (e.t === 'exit') patchTerminalTab(wsId, paneId, tabId, { exited: true, agent: null })
-      else if (e.t === 'error')
+      } else if (e.t === 'cwd' && e.cwd) patchTerminalTab(wsId, paneId, tabId, { cwd: e.cwd })
+      else if (e.t === 'exit') {
+        clearWorking()
+        patchTerminalTab(wsId, paneId, tabId, { exited: true, agent: null, working: false })
+      } else if (e.t === 'error')
         term.writeln(
           `\r\n[${translate(useStore.getState().settings.language, 'ptyError')}] ${e.msg ?? ''}`
         )
       else if (e.t === 'agent') {
         const prev = lastAgentRef.current
         lastAgentRef.current = e.agent ?? null
-        patchTerminalTab(wsId, paneId, tabId, { agent: e.agent ?? null })
+        patchTerminalTab(wsId, paneId, tabId, {
+          agent: e.agent ?? null,
+          ...(e.agent ? {} : { working: false })
+        })
+        if (!e.agent) clearWorking()
         // agent → idle transition = completion fallback. In a detached window
         // the notification list lives in the main renderer — relay there.
         if (prev && !e.agent) {
@@ -380,6 +429,7 @@ export function TerminalTabView({
       ro.disconnect()
       offEvent()
       offData.dispose()
+      if (workingTimer.current) clearTimeout(workingTimer.current)
       term.dispose()
       // The pty session belongs to the tab record, not this view. Unmounts
       // from layout churn (splits, moves, dock/float), detach handoff and

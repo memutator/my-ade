@@ -22,6 +22,10 @@ export interface TerminalTab {
   shell?: string
   exited?: boolean
   agent?: string | null
+  /** a turn is in flight — driven by output activity while an agent owns the
+   *  shell (hook turn-start/end events refine it); renders as the pulsing
+   *  status dot in the tab's close-button slot */
+  working?: boolean
   /** live pty-host session id — lets remounts/detached windows `attach`
    *  (with scrollback replay) instead of spawning a new shell */
   pty?: string
@@ -110,8 +114,9 @@ export interface AppNotification {
   /** agent provider id — renders the vendor icon in the notification list */
   agent?: string
   /** 'needs-input' pings auto-resolve when the same tab's turn resumes
-   *  (a later event for the same session/tab marks them read) */
-  kind?: 'needs-input'
+   *  (a later event for the same session/tab marks them read). Both kinds
+   *  color the emitting tab's status dot while unread */
+  kind?: 'needs-input' | 'error'
   /** harness session that emitted the event — precise settling + dedupe */
   sessionId?: string
   ts: number

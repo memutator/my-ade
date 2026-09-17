@@ -176,6 +176,11 @@ without being asked:
   Process-idle never notifies for providers with an installed hook. Pending
   `needs-input` settles to read on the next event for the same session/tab.
   Verdicts append to `~/.config/ade/notify-decisions.log` via `notify:decision`.
+  A term tab's close slot is also a live status light (`TabItem.status` →
+  `.ctab-st`): `working` pulse driven by `tab.working` (pty output activity
+  while an agent is detected, refined by hook turn-start/end events — spec:
+  `docs/notifications.md` → Tab status dots), amber for unread `needs-input`,
+  red for unread `error`; hovering the tab swaps the dot back to the close X.
 - **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
