@@ -196,8 +196,12 @@ async function levelFor(
 // same provider+target+kind inside the window records pre-read instead of
 // re-pinging — this is where the hook path and the pty-idle path stop
 // double-firing, and where opencode's permission.updated churn collapses.
+// turn-complete keys on sessionId+message too: two REAL turns can finish
+// within seconds of each other and must each ping — only an identical
+// re-emit (compat double-registration, forwarded codex notify) collapses.
+// needs-input stays payload-blind: a re-asked permission is the same ask.
 const DEDUPE_MS: Record<string, number> = {
-  'turn-complete': 45_000,
+  'turn-complete': 15_000,
   'needs-input': 60_000,
   error: 20_000
 }
@@ -208,14 +212,21 @@ const BURST_MS = 3_000
 const recent = new Map<string, number>()
 const lastBurst = new Map<string, number>()
 
-function dedupe(provider: string, kind: string, t: Target): 'full' | 'quiet' {
+function dedupe(
+  ev: Pick<AgentHookEvent, 'provider' | 'event' | 'sessionId' | 'message'>,
+  t: Target
+): 'full' | 'quiet' {
   const now = Date.now()
-  const key = `${provider}|${t.ws?.id ?? ''}|${t.paneId ?? ''}|${t.tabId ?? ''}|${kind}`
+  const kind = ev.event
+  const key =
+    kind === 'turn-complete'
+      ? `${ev.provider}|${t.ws?.id ?? ''}|${t.paneId ?? ''}|${t.tabId ?? ''}|${kind}|${ev.sessionId ?? ''}|${ev.message ?? ''}`
+      : `${ev.provider}|${t.ws?.id ?? ''}|${t.paneId ?? ''}|${t.tabId ?? ''}|${kind}`
   const last = recent.get(key)
   if (last !== undefined && now - last < (DEDUPE_MS[kind] ?? 10_000)) return 'quiet'
   recent.set(key, now)
   if (kind === 'turn-complete') {
-    const bkey = `${provider}|${t.ws?.id ?? ''}`
+    const bkey = `${ev.provider}|${t.ws?.id ?? ''}`
     const blast = lastBurst.get(bkey)
     lastBurst.set(bkey, now)
     if (blast !== undefined && now - blast < BURST_MS) return 'quiet'
@@ -299,7 +310,7 @@ async function deliver(
   via: string
 ): Promise<void> {
   const st = useStore.getState()
-  const verdict = dedupe(ev.provider, ev.event, t)
+  const verdict = dedupe(ev, t)
   const { level, win } = ev.force ? { level: 'away' as Level, win: 'test' } : await levelFor(st, t)
   // needs-input never goes fully silent — it's pending work, not news; the
   // badge stays until the next event for the session/tab settles it

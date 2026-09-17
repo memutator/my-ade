@@ -78,11 +78,10 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
 // Notifying events dedupe on provider+session+cwd+kind+message: compat-loaded
 // hooks (grok/devin also read ~/.claude/settings.json) re-emit the identical
 // payload ~0 ms apart, while genuinely distinct turns/prompts carry different
-// messages and must not collapse. turn-complete keeps a wide window — a turn
-// can never legitimately end twice in 45 s; needs-input/error stay short so a
-// re-asked permission or a retried failure still surfaces.
+// messages and must not collapse. Windows only need to span re-emit latency —
+// two real turns CAN legitimately end within seconds of each other.
 const DEDUPE_MS: Record<string, number> = {
-  'turn-complete': 45_000,
+  'turn-complete': 10_000,
   'needs-input': 10_000,
   error: 10_000
 }

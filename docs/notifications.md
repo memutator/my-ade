@@ -114,13 +114,16 @@ they never survive hydration.
 Three layers, each closer to the user:
 
 1. **Tailer dedupe** (`EventLogTailer`): identical events (provider+session+
-   cwd+kind+message) collapse — 45 s for `turn-complete`, 10 s for
-   `needs-input`/`error`. Catches compat-loaded double registration
-   (grok/devin reading `~/.claude/settings.json`).
+   cwd+kind+message) collapse within 10 s. Catches compat-loaded double
+   registration (grok/devin reading `~/.claude/settings.json`) — re-emits land
+   ~0 ms apart, so the window only needs to span spawn jitter; real turns can
+   legitimately complete seconds apart.
 2. **Renderer target dedupe** (`attention.ts`): same provider+target+kind
-   within the window lands pre-read instead of re-pinging — `turn-complete`
-   45 s, `needs-input` 60 s, `error` 20 s. This is where the hook path and the
-   process-detection path stop double-firing: they resolve to the same tab.
+   within the window lands pre-read instead of re-pinging — `needs-input`
+   60 s, `error` 20 s. `turn-complete` (15 s) keys on sessionId+message too —
+   only an identical re-emit collapses, so rapid consecutive turns still ping.
+   This is where the hook path and the process-detection path stop
+   double-firing: they resolve to the same tab.
    A *different* `needs-input` message for the same target within the window
    still records (pre-read) — the pending badge already exists.
 3. **Burst coalescing**: `turn-complete` for the same provider+workspace within

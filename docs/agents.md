@@ -107,7 +107,8 @@ The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
 - dedupes notifying events on provider+session+cwd+kind+message —
   compat-loaded hooks re-emit the identical payload ~0 ms apart, while
   distinct turns/prompts carry different messages and must not collapse
-  (45 s window for `turn-complete`, 10 s for `needs-input`/`error`)
+  (10 s window — only needs to span re-emit latency; real turns can finish
+  seconds apart)
 
 `ADE_SESSION` is a per-run UUID set in main and inherited down the chain:
 pty-host → spawned shell → agent → hook script. Hooks are installed globally,
