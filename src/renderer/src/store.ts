@@ -265,9 +265,12 @@ function normalizePane(
   const kind: BlockKind = legacy === 'browser' ? 'web' : legacy === 'editor' ? 'file' : 'term'
   let tabs = (Array.isArray(p.tabs) ? p.tabs : []).map((t) => {
     const nt = { ...t, kind: t.kind ?? kind } as PaneTab
-    // `working` is a live runtime flag — a persisted true would light a dead
-    // agent's tab until its shell respawned
-    if (nt.kind === 'term') delete (nt as TerminalTab).working
+    // `working`/`quietUntil` are live runtime flags — a persisted true would
+    // light a dead agent's tab until its shell respawned
+    if (nt.kind === 'term') {
+      delete (nt as TerminalTab).working
+      delete (nt as TerminalTab).quietUntil
+    }
     return nt
   })
   if (tabs.length === 0) {

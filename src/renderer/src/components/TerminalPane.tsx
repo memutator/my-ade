@@ -332,10 +332,15 @@ export function TerminalTabView({
       if (now < replayUntil.current) return
       // the store is the single source — attention.ts can clear the flag on
       // hook events, so read it instead of mirroring locally
-      const working = paneAt(wsId, paneId)?.tabs.some(
-        (x) => x.id === tabId && x.kind === 'term' && x.working
+      const rec = paneAt(wsId, paneId)?.tabs.find(
+        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
       )
+      const working = rec?.working ?? false
       if (now - lastInputAt.current < 800 && !working) return // echo, not a turn
+      // an authoritative idle (hook clear, agent just detected) holds the
+      // light off across the redraw that follows it — post-turn prompt /
+      // startup banners are output too, but not work
+      if (!working && now < (rec?.quietUntil ?? 0)) return
       if (!working) patchTerminalTab(wsId, paneId, tabId, { working: true })
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = setTimeout(() => {
@@ -393,6 +398,9 @@ export function TerminalTabView({
         lastAgentRef.current = e.agent ?? null
         patchTerminalTab(wsId, paneId, tabId, {
           agent: e.agent ?? null,
+          // a freshly detected agent is mid-launch — its startup banner is
+          // output but not a turn; hold the light off or every spawn flashes
+          ...(!prev && e.agent ? { quietUntil: Date.now() + 1200 } : {}),
           ...(e.agent ? {} : { working: false })
         })
         if (!e.agent) clearWorking()

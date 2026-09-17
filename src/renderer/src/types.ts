@@ -26,6 +26,10 @@ export interface TerminalTab {
    *  shell (hook turn-start/end events refine it); renders as the pulsing
    *  status dot in the tab's close-button slot */
   working?: boolean
+  /** output can't light `working` until this time — set when an authoritative
+   *  event just declared the turn over (hook clear, fresh agent detect) so the
+   *  post-turn prompt redraw / startup banner doesn't relight the pulse */
+  quietUntil?: number
   /** live pty-host session id — lets remounts/detached windows `attach`
    *  (with scrollback replay) instead of spawning a new shell */
   pty?: string

@@ -266,9 +266,22 @@ const WORKING_CLEAR = new Set([
   'idle'
 ])
 
+// an authoritative "turn over" is followed by a last burst of output — the
+// agent redrawing its prompt — which the activity fallback would mistake for
+// a new turn and relight the pulse for another silence window. quietUntil
+// holds the light off across that redraw; a real turn-start re-arms it
+const QUIET_MS = 1200
+
 function setWorking(t: Target, on: boolean): void {
   if (!t.ws || !t.paneId || !t.tabId) return
-  patchTerminalTab(t.ws.id, t.paneId, t.tabId, { working: on })
+  patchTerminalTab(
+    t.ws.id,
+    t.paneId,
+    t.tabId,
+    on
+      ? { working: true, quietUntil: undefined }
+      : { working: false, quietUntil: Date.now() + QUIET_MS }
+  )
 }
 
 function titleFor(language: Language, provider: string, kind: string): string {
