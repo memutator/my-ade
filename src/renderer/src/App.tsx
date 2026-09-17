@@ -99,7 +99,9 @@ export default function App(): React.JSX.Element {
       agentSessions: s.agentSessions,
       resumeSessions: s.resumeSessions,
       treeRoots: s.treeRoots,
-      sidebarRoots: s.sidebarRoots
+      sidebarRoots: s.sidebarRoots,
+      sideAgentsCollapsed: s.sideAgentsCollapsed,
+      sideAgentsFrac: s.sideAgentsFrac
     })
     const flush = (): void => {
       window.ade.state.saveNow?.(snapshot(useStore.getState()))

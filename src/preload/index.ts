@@ -113,6 +113,25 @@ export interface HookActionResult {
   detail?: string
 }
 
+// normalized provider rate-limit snapshot (see src/main/usage.ts)
+export interface UsageWindow {
+  id: string
+  label: string
+  usedPct?: number
+  resetAt?: number
+  detail?: string
+}
+
+export interface UsageResult {
+  ok: boolean
+  provider: string
+  plan?: string
+  windows: UsageWindow[]
+  extra?: string
+  error?: string
+  fetchedAt: number
+}
+
 function toBase64(s: string): string {
   const bytes = new TextEncoder().encode(s)
   let bin = ''
@@ -345,6 +364,11 @@ const ade = {
     // file:// URL of resources/webview-preload.cjs — set as the webview
     // `preload` attribute so guest keydowns for app shortcuts reach the host.
     preloadPath: (): Promise<string> => ipcRenderer.invoke('webview:preloadPath')
+  },
+  usage: {
+    // per-harness rate-limit probe (claude/codex/gemini/copilot/zcode) —
+    // reads the CLI's own credentials and calls its usage endpoint
+    fetch: (provider: string): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch', provider)
   },
   openExternal: (url: string): void => ipcRenderer.send('shell:openExternal', url)
 }

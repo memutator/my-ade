@@ -1,6 +1,6 @@
 import { agentLabel } from './agents'
 import { translate } from './i18n'
-import type { Language, PaneState, PaneTab } from './types'
+import type { AppNotification, Language, PaneState, PaneTab } from './types'
 
 export function shortPath(p: string): string {
   const home = '/home/'
@@ -29,6 +29,8 @@ export function blockLabel(tab: PaneTab, lang: Language): string {
       )
     case 'file':
       return tab.name || translate(lang, 'editor')
+    case 'widget':
+      return translate(lang, tab.widget === 'usage' ? 'widgetUsage' : 'widgetAgents')
   }
 }
 
@@ -40,7 +42,32 @@ export function blockSub(tab: PaneTab): string | undefined {
       return urlForDisplay(tab.url) || undefined
     case 'file':
       return tab.path || undefined
+    case 'widget':
+      return tab.widget === 'usage' && tab.provider ? agentLabel(tab.provider) : undefined
   }
+}
+
+// The close-slot status dot's precedence, shared by the leaf's tab strip and
+// the sidebar/widget agents list: an unanswered ask outranks a past failure,
+// both outrank the live working pulse, all outrank generic news
+// (unread / file-dirty / exited shell).
+export type TabStatus = 'working' | 'input' | 'error' | 'news'
+
+export function statusForTab(
+  tab: PaneTab,
+  notifications: AppNotification[]
+): TabStatus | undefined {
+  const unread = notifications.filter((n) => !n.read && n.tabId === tab.id)
+  if (unread.some((n) => n.kind === 'needs-input')) return 'input'
+  if (unread.some((n) => n.kind === 'error')) return 'error'
+  if (tab.kind === 'term' && tab.working) return 'working'
+  const news =
+    tab.kind === 'term'
+      ? tab.exited || unread.length > 0
+      : tab.kind === 'file'
+        ? tab.dirty || unread.length > 0
+        : unread.length > 0
+  return news ? 'news' : undefined
 }
 
 // a leaf's identity is its active block — used by the drag ghost, dock chips

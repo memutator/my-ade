@@ -3005,3 +3005,287 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
 .pbtn.on {
   color: var(--accent);
 }
+
+/* ── sidebar split: file tree + agents section ─────────────── */
+
+.side-split {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-tree {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-tree .filetree {
+  flex: 1;
+}
+/* thin hit area between the sections — the visible line is the section's
+   own top border; the strip only tints on hover/drag */
+.side-sep {
+  height: 5px;
+  margin: -2px 0;
+  flex-shrink: 0;
+  cursor: row-resize;
+  z-index: 2;
+}
+.side-sep:hover {
+  background: var(--accent-soft);
+}
+.side-agents {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+.side-agents.collapsed {
+  flex: none;
+}
+.side-sec {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 7px 10px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.side-sec:hover {
+  color: var(--text);
+}
+.side-sec-chev {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform 0.1s;
+}
+.side-sec-chev.open {
+  transform: rotate(90deg);
+}
+.side-sec-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ag-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 14px;
+}
+.side-agents .ctab-st {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* agents list (sidebar section + 'agents' widget share this) */
+.ag-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 8px;
+  font-size: 12px;
+}
+.ag-pane {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 1px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ag-pane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ag-flag {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.ag-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ag-row:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ag-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ag-row .ctab-st {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ag-empty {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ── widget blocks ─────────────────────────────────────────── */
+
+.widget-tab {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-pane);
+}
+.widget {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.widget-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.widget-head .sel {
+  height: 22px;
+  font-size: 11.5px;
+}
+.sel-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* usage widget */
+.usage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.usage-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.usage-ctl .sel {
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between;
+}
+.usage-note {
+  padding: 6px 0;
+  color: var(--text-dim);
+}
+.usage-note.err {
+  color: var(--danger, #e5534b);
+}
+.usage-plan {
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.usage-row {
+  margin-bottom: 10px;
+}
+.usage-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 11.5px;
+}
+.usage-label {
+  color: var(--text-dim);
+}
+.usage-nums {
+  color: var(--text);
+  white-space: nowrap;
+}
+.usage-reset {
+  font-style: normal;
+  color: var(--text-faint);
+}
+.u-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.u-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.u-fill.warn {
+  background: #e5c07b;
+}
+.u-fill.crit {
+  background: #e5534b;
+}
+.usage-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.usage-foot {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.pact-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+.spin {
+  animation: ade-spin 0.9s linear infinite;
+}
+@keyframes ade-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
