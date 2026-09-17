@@ -224,6 +224,12 @@ export function TerminalTabView({
   // lights the flag (it still refreshes an already-lit one, so typing
   // mid-turn doesn't flicker the light out)
   const lastInputAt = useRef(0)
+  // a "burst" is output flowing with no >1.6 s gap. Only a burst that keeps
+  // going past ~0.9 s counts as a turn in flight — lone redraws (the attach
+  // replay tail, git/status watcher ticks, the post-turn prompt redraw) are
+  // one-frame blips that must not light the pulse
+  const lastDataAt = useRef(0)
+  const burstStartAt = useRef(0)
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
@@ -329,19 +335,28 @@ export function TerminalTabView({
     const noteOutput = (): void => {
       if (!lastAgentRef.current) return
       const now = Date.now()
+      // replayed scrollback is history — skip it without touching the burst
+      // clocks, so the first live output afterwards starts a fresh burst
       if (now < replayUntil.current) return
+      if (!burstStartAt.current || now - lastDataAt.current > 1600) burstStartAt.current = now
+      lastDataAt.current = now
       // the store is the single source — attention.ts can clear the flag on
       // hook events, so read it instead of mirroring locally
       const rec = paneAt(wsId, paneId)?.tabs.find(
         (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
       )
       const working = rec?.working ?? false
-      if (now - lastInputAt.current < 800 && !working) return // echo, not a turn
-      // an authoritative idle (hook clear, agent just detected) holds the
-      // light off across the redraw that follows it — post-turn prompt /
-      // startup banners are output too, but not work
-      if (!working && now < (rec?.quietUntil ?? 0)) return
-      if (!working) patchTerminalTab(wsId, paneId, tabId, { working: true })
+      if (!working) {
+        // suppressed output isn't turn evidence either — echo redraws and
+        // the quiet window's trailing redraw restart the burst clock instead
+        // of accumulating toward the light
+        if (now - lastInputAt.current < 800 || now < (rec?.quietUntil ?? 0)) {
+          burstStartAt.current = now
+          return
+        }
+        if (now - burstStartAt.current < 900) return // blip, not a turn
+        patchTerminalTab(wsId, paneId, tabId, { working: true })
+      }
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = setTimeout(() => {
         workingTimer.current = null
@@ -351,6 +366,9 @@ export function TerminalTabView({
 
     const offData = term.onData((d) => {
       lastInputAt.current = Date.now()
+      // typing isn't work — composer echoes can't keep a burst alive, else
+      // composing a long prompt would itself read as a turn
+      burstStartAt.current = 0
       window.ade.pty.write(id, d)
     })
     const offEvent = window.ade.pty.onEvent((e) => {
