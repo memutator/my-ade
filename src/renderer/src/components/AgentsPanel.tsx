@@ -51,7 +51,13 @@ export default function AgentsPanel({ wsId }: { wsId: string }): React.JSX.Eleme
     if (r.status === 'working' && r.tab.workingSince) {
       return fmtElapsed(now - r.tab.workingSince)
     }
-    if (r.tab.turnEndedAt) return t('ago', { t: fmtAge(now - r.tab.turnEndedAt) })
+    // '완료 n분 전' belongs to the unread signal — it answers "how long ago
+    // did the thing I missed finish?" Once the session has been seen (the
+    // notification swept to read) the measurement has served its purpose
+    // and the label stops.
+    if (r.status === 'news' && r.tab.turnEndedAt) {
+      return t('ago', { t: fmtAge(now - r.tab.turnEndedAt) })
+    }
     return undefined
   }
 
