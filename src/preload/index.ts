@@ -121,6 +121,10 @@ function toBase64(s: string): string {
 }
 
 const ade = {
+  /** dev-profile run (is.dev && !ADE_TEST) — main stamps ADE_DEV=1 before
+   *  spawning renderers; TopBar shows the badge so dev/prod stay visually
+   *  distinct */
+  dev: process.env.ADE_DEV === '1',
   pty: {
     spawn: (opts: PtySpawnOpts): Promise<void> => ipcRenderer.invoke('pty:spawn', opts),
     // attach to an existing session (remount / detached window): host replies

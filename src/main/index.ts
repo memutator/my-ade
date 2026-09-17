@@ -44,6 +44,8 @@ if (devProfile && !process.env.ADE_CONFIG_DIR) {
   const cfgBase = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
   process.env.ADE_CONFIG_DIR = join(cfgBase, 'ade-dev')
 }
+// renderers inherit the env — the titlebar shows a red dev badge on it
+if (devProfile) process.env.ADE_DEV = '1'
 
 // Per-run session tag: pty-host inherits it, every spawned shell and agent
 // CLI carries it, and hook scripts stamp it onto each event. The tailer drops

@@ -102,6 +102,7 @@ export default function TopBar(): React.JSX.Element {
 
       <div className="spacer" />
       <PaneDock />
+      {window.ade.dev && <span className="dev-badge">dev</span>}
       <NotificationBell />
       <Tooltip label={t('settingsTooltip')}>
         <button className="tbtn" onClick={() => setSettingsOpen(true)}>

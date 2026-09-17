@@ -94,6 +94,8 @@ splittable pane layout scoped to a project directory.
   so their hook events route into the dev channel; harness hook installs
   still target the user's real configs (hooks are global by nature).
   `ADE_TEST` (e2e) opts out — it isolates via `XDG_CONFIG_HOME` instead.
+  Dev runs stamp `ADE_DEV=1` into the env — the renderer reads it for the
+  red "dev" badge left of the titlebar bell.
 - `npm install` fails at the `electron-builder install-app-deps` postinstall
   (node-gyp rebuild needs make, which isn't installed) — deps still install fine;
   ignore it or use `--ignore-scripts`.
