@@ -345,7 +345,7 @@ export function TerminalTabView({
     const clearWorking = (): void => {
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = null
-      patchTerminalTab(wsId, paneId, tabId, { working: false, workingSince: undefined })
+      patchTerminalTab(wsId, paneId, tabId, { working: false })
     }
     const noteOutput = (): void => {
       if (!lastAgentRef.current) return
@@ -353,7 +353,11 @@ export function TerminalTabView({
       // replayed scrollback is history — skip it without touching the burst
       // clocks, so the first live output afterwards starts a fresh burst
       if (now < replayUntil.current) return
-      if (!burstStartAt.current || now - lastDataAt.current > 1600) burstStartAt.current = now
+      // a burst is a DENSE stream — a chunk only continues it while the gap
+      // stays under ~350ms. Sparser trickles (codex's git/status-watcher
+      // redraws in an active repo) can neither light the lamp nor hold it
+      const dense = now - lastDataAt.current < 350
+      if (!dense) burstStartAt.current = now
       lastDataAt.current = now
       // the store is the single source — attention.ts can clear the flag on
       // hook events, so read it instead of mirroring locally
@@ -370,14 +374,25 @@ export function TerminalTabView({
           return
         }
         if (now - burstStartAt.current < 900) return // blip, not a turn
-        patchTerminalTab(wsId, paneId, tabId, { working: true, workingSince: now })
+        patchTerminalTab(wsId, paneId, tabId, {
+          working: true,
+          // a relight soon after the light went out is the same turn
+          // resuming (a tool ran silently for a beat) — keep its start so
+          // the elapsed timer tracks the turn, not the latest burst
+          workingSince:
+            rec?.turnEndedAt && now - rec.turnEndedAt < 20_000 ? (rec.workingSince ?? now) : now
+        })
       }
+      // a sparse chunk can't hold the light — let the pending silence
+      // deadline stand so periodic redraws can't pin it forever
+      if (!dense) return
       if (workingTimer.current) clearTimeout(workingTimer.current)
       workingTimer.current = setTimeout(() => {
         workingTimer.current = null
         patchTerminalTab(wsId, paneId, tabId, {
           working: false,
-          workingSince: undefined,
+          // keep workingSince — a relight within the window above resumes
+          // the same turn's elapsed clock
           turnEndedAt: Date.now()
         })
       }, 1600)
@@ -484,7 +499,19 @@ export function TerminalTabView({
       ro.disconnect()
       offEvent()
       offData.dispose()
+      // the pty (and any live turn) outlives this view, but this view owned
+      // the silence timer — dropping it without clearing `working` leaves a
+      // stuck green pulse in a pane nobody is watching. Only patch when the
+      // lamp is actually on: stamping turnEndedAt unconditionally would
+      // mislabel hours-idle sessions as "ended just now"
       if (workingTimer.current) clearTimeout(workingTimer.current)
+      workingTimer.current = null
+      const rec = paneAt(wsId, paneId)?.tabs.find(
+        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
+      )
+      if (rec?.working) {
+        patchTerminalTab(wsId, paneId, tabId, { working: false, turnEndedAt: Date.now() })
+      }
       term.dispose()
       // The pty session belongs to the tab record, not this view. Unmounts
       // from layout churn (splits, moves, dock/float), detach handoff and
