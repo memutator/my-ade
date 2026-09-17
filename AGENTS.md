@@ -29,7 +29,11 @@ splittable pane layout scoped to a project directory.
   focused visible > last visible) and append a tab; a new leaf is inserted
   only when nothing visible exists. Invariant: **the focused leaf is never
   implicitly split** — `splitPane` is reachable only from explicit user
-  gestures (Alt+D/Alt+S, the `⋯` menu, drag-to-edge).
+  gestures (Alt+D/Alt+S, the `⋯` menu, drag-to-edge). One exception
+  (`soleLeafSplit`): appending a NEW tab when the workspace has a single
+  visible leaf splits that leaf right — stacking would hide the only thing
+  on screen (tab-reuse paths like openFile's dedup/preview slot still stay
+  in place).
 - Terminal cwd defaults to the workspace's `project.path`. File-tree roots are
   re-pickable via `TreeRootMenu` (MRU `treeRoots` → other projects → dir
   picker): the sidebar/peek-overlay share `sidebarRoots[projectId]` (default

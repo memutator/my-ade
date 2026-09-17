@@ -97,7 +97,8 @@ function insertPane(w: Workspace, pane: PaneState): Workspace {
 // UI — allowed even when detached), else the focused visible pane, else the
 // last visible leaf. Undefined = nothing on screen; the caller makes a leaf.
 // Invariant: opens stack into an existing leaf, never split — a focused leaf
-// can only be split by explicit user gestures (split keys, drag-to-edge).
+// can only be split by explicit user gestures (split keys, drag-to-edge),
+// with ONE exception: see soleLeafSplit.
 function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
   const explicit = paneId && w.panes[paneId] && !w.panes[paneId].minimized ? paneId : undefined
   const focused =
@@ -108,6 +109,29 @@ function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
       ? w.focusedPaneId
       : undefined
   return explicit ?? focused ?? visibleLeafIds(w.root, w.panes).at(-1)
+}
+
+// The one exception to stack-don't-split: a workspace with a single visible
+// leaf. Stacking a new tab on top of it hides the thing you were looking at,
+// so the open splits that leaf right and lands in the new pane instead.
+// Returns the updated workspace, or null when the exception doesn't apply.
+function soleLeafSplit(
+  w: Workspace,
+  target: string | undefined,
+  tab: PaneTab
+): Workspace | null {
+  const vis = visibleLeafIds(w.root, w.panes)
+  if (!target || vis.length !== 1 || vis[0] !== target) return null
+  const pane = makePane('term')
+  pane.tabs = [tab]
+  pane.activeTabId = tab.id
+  const panes = { ...w.panes, [pane.id]: pane }
+  return {
+    ...w,
+    panes,
+    root: insertAt(w.root, panes, pane.id, target, 'right'),
+    focusedPaneId: pane.id
+  }
 }
 
 // Push a tab into a leaf and raise it — the shared tail of every
@@ -621,7 +645,8 @@ export const useStore = create<AdeState>((set, get) => {
 
     // Opening content never splits the focused leaf: the block stacks into
     // the target leaf as a tab (explicit > focused > last visible). A new
-    // leaf only appears when nothing visible exists.
+    // leaf only appears when nothing visible exists — or when the workspace
+    // has exactly one visible leaf, which splits right instead (soleLeafSplit).
     newBlock: (kind, wsIdArg) =>
       set((s) => {
         const wsId = wid(wsIdArg)
@@ -637,6 +662,7 @@ export const useStore = create<AdeState>((set, get) => {
         const tab = makeTab(kind, home())
         return {
           workspaces: updWs(s.workspaces, wsId, (w) =>
+            soleLeafSplit(w, target, tab) ??
             pushTab(w, target, [...w.panes[target].tabs, tab], tab.id)
           )
         }
@@ -1181,7 +1207,18 @@ export const useStore = create<AdeState>((set, get) => {
         const emptyIdx = p.tabs.findIndex((t) => t.kind === 'file' && !t.path)
         const pi = preview ? p.tabs.findIndex((t) => t.kind === 'file' && t.preview) : -1
         const slot = emptyIdx >= 0 ? emptyIdx : pi
-        const tabs = slot >= 0 ? p.tabs.map((t, i) => (i === slot ? tab : t)) : [...p.tabs, tab]
+        if (slot < 0) {
+          // a genuinely new tab on a one-leaf workspace splits right instead
+          // of covering the leaf you were looking at
+          return {
+            workspaces: updWs(
+              s.workspaces,
+              wsId,
+              (w) => soleLeafSplit(w, target, tab) ?? pushTab(w, target, [...p.tabs, tab], tab.id)
+            )
+          }
+        }
+        const tabs = p.tabs.map((t, i) => (i === slot ? tab : t))
         return {
           workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, tab.id))
         }
@@ -1208,8 +1245,10 @@ export const useStore = create<AdeState>((set, get) => {
         const tab: BrowserTab = { kind: 'web', id: uid(), url, title: '' }
         if (p && target) {
           return {
-            workspaces: updWs(s.workspaces, wsId, (w) =>
-              pushTab(w, target, [...p.tabs, tab], tab.id)
+            workspaces: updWs(
+              s.workspaces,
+              wsId,
+              (w) => soleLeafSplit(w, target, tab) ?? pushTab(w, target, [...p.tabs, tab], tab.id)
             )
           }
         }

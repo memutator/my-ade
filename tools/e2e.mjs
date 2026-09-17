@@ -538,17 +538,19 @@ async function scBrowserFile() {
   const f1 = 'file://' + page.split('/').map(encodeURIComponent).join('/')
   const f2 = 'file:///tmp/other.html'
 
-  // opens stack a web block into the focused leaf — no split, no new pane
+  // a fresh workspace has one leaf — the single-leaf exception splits it
+  // right and the web block lands in the new pane instead of stacking
   await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f1)}, undefined, true)`)
   const first = await h.ev(`(() => {
     const s = window.__ade.getState()
-    const leaf = Object.values(s.workspaces[0].panes).find((p) =>
+    const w = s.workspaces[0]
+    const leaf = Object.values(w.panes).find((p) =>
       p.tabs.some((t) => t.kind === 'web'))
     const wt = leaf?.tabs.find((t) => t.kind === 'web')
-    return leaf?.tabs.length === 2 && wt?.url === ${JSON.stringify(f1)} &&
-      leaf.activeTabId === wt.id
+    return Object.keys(w.panes).length === 2 && leaf?.tabs.length === 1 &&
+      wt?.url === ${JSON.stringify(f1)} && leaf.activeTabId === wt.id
   })()`)
-  ok(first === true, 'file url stacked a web tab into the focused leaf')
+  ok(first === true, 'file url on a one-leaf workspace split it right')
 
   const loaded = await h
     .waitFor(
@@ -561,7 +563,8 @@ async function scBrowserFile() {
     .catch(() => null)
   ok(loaded === f1, `webview navigated to the file (${loaded})`)
 
-  // a second file open appends a web block — the loaded page must not be clobbered
+  // two leaves now — a second file open stacks into the focused leaf and
+  // the loaded page must not be clobbered
   await h.ev(`window.__ade.getState().openUrlInBrowser(${JSON.stringify(f2)}, undefined, true)`)
   const after = await h.ev(`(() => {
     const leaf = Object.values(window.__ade.getState().workspaces[0].panes)
