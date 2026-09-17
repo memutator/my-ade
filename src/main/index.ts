@@ -19,6 +19,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents, stopPtyHost } from './pty'
 import { startEventIngest, registerHookIpc } from './hooks'
+import { sweepDevinSessionLocks, devinLocksPresent } from './devinLocks'
 import { appendCapped, decisionsFilePath } from './eventsFile'
 import { registerFileWatchIpc } from './filewatch'
 import { registerFsOpsIpc } from './fsops'
@@ -559,6 +560,9 @@ app.whenReady().then(() => {
   startPtyHost()
   startEventIngest(() => mainWindow)
   pushAgentConfig()
+  // dropped devin session locks from crashes/reboots/last quit — the CLI
+  // refuses a session whose lock file exists, even when its holder is dead
+  sweepDevinSessionLocks()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -571,6 +575,19 @@ app.on('window-all-closed', () => {
 
 // take the pty-host down with us — its shell/agent children die with it
 // (SIGHUP on master close) instead of lingering as orphans after every quit
-app.on('will-quit', () => {
+let quitSweepDone = false
+app.on('will-quit', (e) => {
   stopPtyHost()
+  // the killed agents' devin locks go stale here — but they die async, so a
+  // synchronous sweep would still find them alive. Hold quit for a beat to
+  // let the sweep land; skipped entirely when no lock files exist so a
+  // devin-free quit stays instant.
+  if (!quitSweepDone && devinLocksPresent()) {
+    quitSweepDone = true
+    e.preventDefault()
+    setTimeout(() => {
+      sweepDevinSessionLocks()
+      app.quit()
+    }, 400)
+  }
 })

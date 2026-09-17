@@ -5,6 +5,7 @@ import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { scheduleDevinLockSweep } from './devinLocks'
 
 let host: ChildProcess | null = null
 let hostReady = false
@@ -117,6 +118,9 @@ export function startPtyHost(): void {
         res(m.t === 'attached')
       }
     }
+    // a closed pane kills the agent inside its shell — if that was devin,
+    // its session lock just went stale (the CLI doesn't unlink on kill)
+    if (m.t === 'exit') scheduleDevinLockSweep()
     // broadcast to every window — detached panes live in separate renderers
     // that need their session's live data too
     for (const win of BrowserWindow.getAllWindows()) {

@@ -9,6 +9,7 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { EventLogTailer, eventsFilePath, appendEvent, AgentHookEvent } from './eventsFile'
 import { hookStatuses, installHook, refreshInstalledHooks } from './hookInstallers'
+import { scheduleDevinLockSweep } from './devinLocks'
 
 function resourceFile(name: string): string {
   if (is.dev) return join(app.getAppPath(), 'resources', name)
@@ -27,6 +28,10 @@ export function startEventIngest(getWindow: () => BrowserWindow | null): void {
     (ev: AgentHookEvent) => {
       const win = getWindow()
       if (win && !win.isDestroyed()) win.webContents.send('agent:event', ev)
+      // a devin session ending may mean the CLI exited without unlinking its
+      // session lock — sweep after a beat (foreign events count too: the lock
+      // dir is shared, and the sweep only drops provably-dead holders)
+      if (ev.provider === 'devin' && ev.event === 'session-end') scheduleDevinLockSweep()
     },
     (e) => console.error('[hooks] event tail error', e)
   )

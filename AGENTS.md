@@ -151,6 +151,12 @@ without being asked:
   terminals never notify. Ade-owned hook artifacts (script copy, grok's hook
   file, opencode plugin) refresh to the shipped version on app start;
   user-owned configs need a re-Install click.
+- **devin session-lock sweep** (`src/main/devinLocks.ts`): `devin` CLI leaves
+  `~/.local/share/devin/cli/session_locks/*.lock` behind on kill/crash and
+  then refuses the session with `session_locked`. ade sweeps on app start,
+  on each devin `session-end` event, on pty `exit`, and (quit delayed ~400ms)
+  on `will-quit` — a lock drops only when no flock is held on the inode AND
+  its recorded pid is dead/not-devin, so live sessions are never unlocked.
 - **session resume** (`src/renderer/src/resume.ts`, spec: `docs/agents.md` →
   Session resume): `resumeSessions` is the persisted, bounded set of sessions
   alive at last shutdown — `{sessionId, provider, cwd, wsId, paneId, tabId}`
