@@ -373,7 +373,11 @@ export function TerminalTabView({
           burstStartAt.current = now
           return
         }
-        if (now - burstStartAt.current < 900) return // blip, not a turn
+        // right after a turn end the bar rises — a relight needs a longer
+        // dense stream, so a post-turn redraw storm can't fake a new turn
+        // and re-stamp the '…ago' clock
+        const need = rec?.turnEndedAt && now - rec.turnEndedAt < 60_000 ? 2000 : 900
+        if (now - burstStartAt.current < need) return
         patchTerminalTab(wsId, paneId, tabId, {
           working: true,
           // a relight soon after the light went out is the same turn
@@ -393,7 +397,10 @@ export function TerminalTabView({
           working: false,
           // keep workingSince — a relight within the window above resumes
           // the same turn's elapsed clock
-          turnEndedAt: Date.now()
+          turnEndedAt: Date.now(),
+          // and hold off the lamp briefly — a trailing post-turn redraw
+          // mustn't relight it and re-stamp the clock it just wrote
+          quietUntil: Date.now() + 2000
         })
       }, 1600)
     }

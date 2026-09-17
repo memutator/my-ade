@@ -285,19 +285,31 @@ const QUIET_MS = 1200
 
 function setWorking(t: Target, on: boolean): void {
   if (!t.ws || !t.paneId || !t.tabId) return
-  patchTerminalTab(
-    t.ws.id,
-    t.paneId,
-    t.tabId,
-    on
-      ? { working: true, workingSince: Date.now(), quietUntil: undefined }
-      : {
-          working: false,
-          workingSince: undefined,
-          turnEndedAt: Date.now(),
-          quietUntil: Date.now() + QUIET_MS
-        }
-  )
+  const now = Date.now()
+  // read the tab fresh — the resolved target's snapshot predates patches
+  // other events may have landed since
+  const rec = useStore
+    .getState()
+    .workspaces.find((w) => w.id === t.ws!.id)
+    ?.panes[t.paneId]?.tabs.find((x): x is TerminalTab => x.id === t.tabId && x.kind === 'term')
+  if (on) {
+    // a duplicate turn-start for a lit lamp mustn't push the start forward
+    if (rec?.working) return
+    patchTerminalTab(t.ws.id, t.paneId, t.tabId, {
+      working: true,
+      workingSince: now,
+      quietUntil: undefined
+    })
+    return
+  }
+  patchTerminalTab(t.ws.id, t.paneId, t.tabId, {
+    working: false,
+    workingSince: undefined,
+    // only the working→idle transition owns the 'ended' clock — a second
+    // clear event on an already-idle tab must not reset the '…ago' label
+    ...(rec?.working ? { turnEndedAt: now } : {}),
+    quietUntil: now + QUIET_MS
+  })
 }
 
 function titleFor(language: Language, provider: string, kind: string): string {
