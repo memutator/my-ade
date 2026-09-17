@@ -115,6 +115,28 @@ function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
   return explicit ?? focused ?? visibleLeafIds(w.root, w.panes).at(-1)
 }
 
+// Terminal links (file paths, urls) open in a content pane rather than the
+// pane you clicked in — that pane's strip is the terminal's own business.
+// Among the OTHER visible leaves prefer ones already carrying file/web
+// blocks (pure content > mixed > terminals) and break ties by fewest tabs,
+// so file+browse roughly bundle together and new tabs spread out. Undefined
+// = no other leaf — the caller's stackTarget/soleLeafSplit path decides
+// (a sole terminal leaf still splits right for the open).
+export function linkTargetPane(w: Workspace, fromPaneId: string): string | undefined {
+  const leaves = visibleLeafIds(w.root, w.panes).filter((id) => id !== fromPaneId)
+  if (!leaves.length) return undefined
+  const count = (id: string, kind: PaneTab['kind']): number =>
+    w.panes[id].tabs.filter((t) => t.kind === kind).length
+  const rank = (id: string): number => {
+    const content = count(id, 'file') + count(id, 'web')
+    if (!content) return 0
+    return count(id, 'term') ? 1 : 2
+  }
+  return leaves
+    .map((id) => ({ id, r: rank(id), n: w.panes[id].tabs.length }))
+    .sort((a, b) => b.r - a.r || a.n - b.n)[0].id
+}
+
 // The one exception to stack-don't-split: a workspace with a single visible
 // leaf. Stacking a new tab on top of it hides the thing you were looking at,
 // so the open splits that leaf right and lands in the new pane instead.

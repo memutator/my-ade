@@ -5,7 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneState, TerminalTab } from '../types'
-import { useStore, patchTerminalTab } from '../store'
+import { useStore, patchTerminalTab, linkTargetPane } from '../store'
 import { reportProcessIdle } from '../attention'
 import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
@@ -115,8 +115,15 @@ function extractPath(token: string): { path: string; start: number; end: number 
   return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
 }
 
+// The leaf a link opens into — a content pane, never the clicked terminal's
+// own (see linkTargetPane); undefined when no other leaf exists
+function linkTarget(wsId: string, paneId: string): string | undefined {
+  const w = useStore.getState().workspaces.find((x) => x.id === wsId)
+  return w ? linkTargetPane(w, paneId) : undefined
+}
+
 // Resolve against the owning tab's live cwd and open in the workspace — the
-// file tab stacks into this tab's leaf (never a split)
+// file tab stacks into a sibling content leaf, not this tab's own
 function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string): void {
   const cwd = paneAt(wsId, paneId)?.tabs.find(
     (t): t is TerminalTab => t.id === tabId && t.kind === 'term'
@@ -125,7 +132,9 @@ function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string
     .resolvePath(raw, cwd)
     .then((abs) => {
       if (!abs) return
-      useStore.getState().openFile(abs, abs.split('/').pop() ?? abs, wsId, false, paneId)
+      useStore
+        .getState()
+        .openFile(abs, abs.split('/').pop() ?? abs, wsId, false, linkTarget(wsId, paneId))
     })
     .catch(() => {})
 }
@@ -266,7 +275,13 @@ export function TerminalTabView({
     term.loadAddon(fit)
     // click a URL → a browser pane in this workspace; click a file path → an
     // editor pane (resolved against the tab's live cwd at click time)
-    term.loadAddon(new WebLinksAddon((_e, uri) => useStore.getState().openUrlInBrowser(uri, wsId)))
+    term.loadAddon(
+      new WebLinksAddon((_e, uri) =>
+        // newTab: a link always stacks a fresh web block into the content
+        // leaf — never navigates the tab it happens to have active
+        useStore.getState().openUrlInBrowser(uri, wsId, true, linkTarget(wsId, paneId))
+      )
+    )
     term.registerLinkProvider(makePathLinkProvider(term, wsId, paneId, tabId))
     // clipboard chords — xterm forwards every key to the pty, so copy/paste
     // is intercepted before it sees them. Any copy chord (Ctrl+Shift+C,
