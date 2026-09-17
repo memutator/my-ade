@@ -1964,7 +1964,8 @@ html[data-theme='light'] .ctab.active {
 .pane-tabs .tstrip {
   flex: 1;
   min-width: 0;
-  padding-top: 4px;
+  /* halve the dead space left of the first tab (titlebar gap + this pad) */
+  padding: 4px 10px 0 2px;
 }
 .pane-tabs .ctab {
   height: 25px;
