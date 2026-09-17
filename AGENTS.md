@@ -20,7 +20,7 @@ splittable pane layout scoped to a project directory.
   plus the active block's content (`TerminalTabView` / `BrowserTabView` /
   `FileView`), and inactive blocks stay mounted (hidden) so shells, web
   pages and dirty buffers all keep running. Block chrome lives inside the
-  content: a file block gets a top-left `.tree-fab` whose ~350ms hover pops
+  content: a file block gets a top-right `.tree-fab` whose ~350ms hover pops
   the directory-tree overlay (`pane.treeRoot` + `TreeRootMenu` + `FileTree`,
   opens into that leaf); a web block floats a translucent `.web-head`
   omnibox/nav card over the page.

@@ -524,7 +524,7 @@ webview.browser-view {
 .tree-fab {
   position: absolute;
   top: 8px;
-  left: 8px;
+  right: 8px;
   z-index: 6;
   display: inline-flex;
   align-items: center;

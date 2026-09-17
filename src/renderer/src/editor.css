@@ -16,11 +16,12 @@
   font-family: var(--editor-font, 'JetBrains Mono', 'Fira Code', ui-monospace, monospace);
 }
 
-/* floating raw/rendered switch for markdown files */
+/* floating raw/rendered switch for markdown files — the right offset clears
+   the .tree-fab parked in the file block's top-right corner */
 .md-view-toggle {
   position: absolute;
   top: 8px;
-  right: 10px;
+  right: 40px;
   z-index: 30;
   display: flex;
   align-items: stretch;

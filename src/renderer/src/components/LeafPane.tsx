@@ -90,7 +90,8 @@ function TreePeek({
       </button>
       {rect && (
         <Popup
-          pos={{ left: rect.left, top: rect.bottom + 5 }}
+          pos={{ left: rect.right, top: rect.bottom + 5 }}
+          alignX="end"
           onClose={() => setRect(null)}
           insideRef={fabRef}
           className="tree-overlay"
