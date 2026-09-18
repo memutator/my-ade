@@ -409,8 +409,8 @@ const mahas = {
     // per-harness rate-limit probe (claude/codex/gemini/copilot/zcode) —
     // reads the CLI's own credentials and calls its usage endpoint
     fetch: (provider: string): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch', provider),
-    ledger: (tracked: LedgerQuery[]): Promise<LedgerResult> =>
-      ipcRenderer.invoke('usage:ledger', tracked)
+    ledger: (tracked: LedgerQuery[], force?: boolean): Promise<LedgerResult> =>
+      ipcRenderer.invoke('usage:ledger', tracked, !!force)
   },
   openExternal: (url: string): void => ipcRenderer.send('shell:openExternal', url)
 }

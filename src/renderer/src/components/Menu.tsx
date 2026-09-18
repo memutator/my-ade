@@ -9,7 +9,7 @@ import {
   type RefObject
 } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { nativeDialogOpen } from '../nativeDialog'
 
 /* Popups nested inside another Popup must portal into the parent's DOM
@@ -148,6 +148,7 @@ export function Dropdown({
   mode = 'click',
   align = 'start',
   panelClassName,
+  closeOnClick = true,
   children
 }: {
   trigger: ReactNode
@@ -155,6 +156,9 @@ export function Dropdown({
   /** which panel edge aligns with the trigger's; 'end' = right edges */
   align?: 'start' | 'end'
   panelClassName?: string
+  /** menu semantics: a click inside the panel closes it. Multi-select
+      leaves this false so checkboxes can be toggled without dismissing. */
+  closeOnClick?: boolean
   children: ReactNode
 }): React.JSX.Element {
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -182,7 +186,16 @@ export function Dropdown({
     <span
       ref={anchorRef}
       style={{ display: 'inline-flex' }}
-      onClick={mode === 'click' ? () => (rect ? close() : openNow()) : undefined}
+      onClick={
+        mode === 'click'
+          ? (e) => {
+              // the panel is a React child but a DOM portal — ignore those
+              // bubbles so multi-select checkboxes don't toggle the menu shut
+              if (!anchorRef.current?.contains(e.target as Node)) return
+              rect ? close() : openNow()
+            }
+          : undefined
+      }
       {...hover}
     >
       {trigger}
@@ -192,7 +205,7 @@ export function Dropdown({
           alignX={align}
           onClose={close}
           insideRef={anchorRef}
-          closeOnClick
+          closeOnClick={closeOnClick}
           className={panelClassName}
           {...hover}
         >
@@ -315,37 +328,92 @@ export function CtxMenu({
 
 export function Select({
   value,
+  values,
   options,
   onChange,
+  onChangeValues,
+  multiple = false,
+  summary,
+  selectAllLabel,
   className
 }: {
-  value: string
+  value?: string
+  values?: string[]
   options: { value: string; label: ReactNode }[]
-  onChange: (v: string) => void
+  onChange?: (v: string) => void
+  onChangeValues?: (v: string[]) => void
+  multiple?: boolean
+  /** trigger contents when `multiple` — caller formats the selection */
+  summary?: ReactNode
+  /** extra first row that toggles every option */
+  selectAllLabel?: ReactNode
   className?: string
 }): React.JSX.Element {
+  const selected = multiple ? (values ?? []) : value ? [value] : []
   const current = options.find((o) => o.value === value)
+  const toggle = (v: string): void => {
+    const set = new Set(selected)
+    if (set.has(v)) set.delete(v)
+    else set.add(v)
+    onChangeValues?.(options.filter((o) => set.has(o.value)).map((o) => o.value))
+  }
   return (
     <Dropdown
       mode="click"
+      closeOnClick={!multiple}
       panelClassName="sel-pop"
       trigger={
         <button type="button" className={`sel${className ? ` ${className}` : ''}`}>
-          <span className="sel-label">{current?.label ?? value}</span>
+          <span className="sel-label">
+            {multiple ? (summary ?? value) : (current?.label ?? value)}
+          </span>
           <ChevronDown />
         </button>
       }
     >
-      {options.map((o) => (
+      {multiple && selectAllLabel != null && (
         <button
-          key={o.value}
           type="button"
-          className={`sel-item${o.value === value ? ' on' : ''}`}
-          onClick={() => onChange(o.value)}
+          role="menuitemcheckbox"
+          aria-checked={selected.length === options.length && options.length > 0}
+          className={`sel-item${selected.length === options.length && options.length > 0 ? ' on' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onChangeValues?.(selected.length === options.length ? [] : options.map((o) => o.value))
+          }}
         >
-          {o.label}
+          <span
+            className={`sel-check${selected.length === options.length && options.length > 0 ? ' on' : ''}`}
+          >
+            {selected.length === options.length && options.length > 0 ? <Check /> : null}
+          </span>
+          {selectAllLabel}
         </button>
-      ))}
+      )}
+      {multiple && selectAllLabel != null && <div className="sel-sep" />}
+      {options.map((o) => {
+        const on = selected.includes(o.value)
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role={multiple ? 'menuitemcheckbox' : undefined}
+            aria-checked={multiple ? on : undefined}
+            className={`sel-item${on ? ' on' : ''}`}
+            onClick={(e) => {
+              if (multiple) {
+                e.stopPropagation()
+                toggle(o.value)
+              } else onChange?.(o.value)
+            }}
+          >
+            {multiple && (
+              <span className={`sel-check${on ? ' on' : ''}`}>{on ? <Check /> : null}</span>
+            )}
+            {o.label}
+          </button>
+        )
+      })}
     </Dropdown>
   )
 }

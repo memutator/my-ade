@@ -2,7 +2,7 @@
 export type BlockKind = 'term' | 'web' | 'file' | 'widget'
 
 /** built-in widget blocks — 'agents' mirrors the sidebar's per-pane session
- *  list into a tab, 'usage' is a per-harness rate-limit dashboard */
+ *  list into a tab, 'usage' is a multi-harness rate-limit dashboard */
 export type WidgetKind = 'agents' | 'usage' | 'tokens'
 
 /** edge of a target pane a drop/insert lands on */
@@ -73,8 +73,10 @@ export interface WidgetTab {
   kind: 'widget'
   id: string
   widget: WidgetKind
-  /** usage widget: the provider whose limits are on screen */
+  /** usage widget: last/primary provider (tab subtitle; also hydrates old tabs) */
   provider?: string
+  /** usage widget: harnesses whose quotas are on the dashboard */
+  providers?: string[]
 }
 
 /** one tab inside a leaf — the block */

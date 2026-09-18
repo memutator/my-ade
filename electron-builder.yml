@@ -12,6 +12,8 @@ files:
   - '!node_modules/@homebridge/node-pty-prebuilt-multiarch/**'
 asarUnpack:
   - resources/**
+  - '**/ledger-worker.js'
+  - '**/chunks/*.js'
 extraResources:
   - from: resources/pty-host.cjs
     to: pty-host.cjs

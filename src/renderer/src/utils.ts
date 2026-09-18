@@ -66,8 +66,13 @@ export function blockSub(tab: PaneTab): string | undefined {
       return urlForDisplay(tab.url) || undefined
     case 'file':
       return tab.path || undefined
-    case 'widget':
-      return tab.widget === 'usage' && tab.provider ? agentLabel(tab.provider) : undefined
+    case 'widget': {
+      if (tab.widget !== 'usage') return undefined
+      const ids = tab.providers?.length ? tab.providers : tab.provider ? [tab.provider] : []
+      if (!ids.length) return undefined
+      if (ids.length === 1) return agentLabel(ids[0])
+      return `${agentLabel(ids[0])} +${ids.length - 1}`
+    }
   }
 }
 

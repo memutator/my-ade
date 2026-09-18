@@ -39,9 +39,15 @@
   height: 12px;
   color: var(--text-faint);
 }
+.sel-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sel-pop {
   z-index: 200;
-  min-width: 140px;
+  min-width: 180px;
   padding: 4px;
   background: var(--bg-elev);
   border: 1px solid var(--border-strong);
@@ -49,7 +55,9 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 .sel-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 5px 10px;
   border: none;
@@ -66,6 +74,32 @@
 }
 .sel-item.on {
   color: var(--accent);
+}
+.sel-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.sel-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg);
+  color: #fff;
+}
+.sel-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.sel-check svg {
+  width: 10px;
+  height: 10px;
+  color: inherit;
 }
 
 /* label + small description stacked in a settings row */

@@ -22,7 +22,7 @@ import { ipcMain, net } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { readFile, writeFile } from 'fs/promises'
-import { scanLedger, type LedgerQuery, type LedgerResult } from './ledger'
+import { getLedger, type LedgerQuery, type LedgerResult } from './ledger'
 
 export interface UsageWindow {
   id: string
@@ -69,7 +69,7 @@ async function getJson(url: string, headers: Record<string, string> = {}): Promi
   })
   if (!res.ok) {
     const t = await readBody(res)
-    throw new Error(`HTTP ${res.status}${t ? `: ${t.slice(0, 160)}` : ''}`)
+    throw httpError(res.status, t)
   }
   return res.json()
 }
@@ -87,9 +87,27 @@ async function postJson(
   })
   if (!res.ok) {
     const t = await readBody(res)
-    throw new Error(`HTTP ${res.status}${t ? `: ${t.slice(0, 160)}` : ''}`)
+    throw httpError(res.status, t)
   }
   return res.json()
+}
+
+function httpError(status: number, body: string): Error {
+  const raw = body.trim()
+  if (raw.startsWith('{')) {
+    try {
+      const j = JSON.parse(raw) as Record<string, unknown>
+      const code = typeof j.code === 'string' ? j.code : undefined
+      const msg = typeof j.message === 'string' ? j.message : undefined
+      if (msg) {
+        const short = msg.replace(/\s*\((?:error|trace) ID: [^)]+\)/gi, '').trim()
+        return new Error(code && code !== 'unknown' ? `${code}: ${short}` : short)
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return new Error(`HTTP ${status}${raw ? `: ${raw.slice(0, 120)}` : ''}`)
 }
 
 async function postForm(url: string, fields: Record<string, string>): Promise<unknown> {
@@ -117,6 +135,24 @@ async function readJson(p: string): Promise<Record<string, unknown> | null> {
 const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
+
+/** Human plan label: SuperGrokPro → SuperGrok Pro, TEAMS_TIER_DEVIN_PRO → Devin Pro. */
+function prettyPlan(v: unknown): string | undefined {
+  const s = str(v)
+  if (!s) return undefined
+  const t = s.replace(/^TEAMS_TIER_/i, '')
+  const snake = /[_-]/.test(t)
+  const parts = snake
+    ? t.split(/[_-]+/).filter(Boolean)
+    : t
+        .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .split(/\s+/)
+        .filter(Boolean)
+  return parts
+    .map((w) => (w ? w[0].toUpperCase() + (snake ? w.slice(1).toLowerCase() : w.slice(1)) : w))
+    .join(' ')
+}
 
 function isoMs(v: unknown): number | undefined {
   const s = str(v)
@@ -164,10 +200,55 @@ async function grokAccessToken(): Promise<string | undefined> {
   return next
 }
 
+/** CLI display name — /user.subscriptionTier is a SKU enum (SuperGrokPro)
+ *  that does not distinguish Heavy/Plus. Prefer subscription_tier_display. */
+function grokDisplayOf(o: Record<string, unknown> | null | undefined): string | undefined {
+  if (!o) return undefined
+  const direct = prettyPlan(o.subscription_tier_display) ?? prettyPlan(o.subscriptionTierDisplay)
+  if (direct) return direct
+  const nested = o.settings
+  if (nested && typeof nested === 'object' && !Array.isArray(nested) && nested !== o) {
+    return grokDisplayOf(nested as Record<string, unknown>)
+  }
+  return undefined
+}
+
+async function grokCachedDisplay(): Promise<string | undefined> {
+  const cache = await readJson(join(homedir(), '.grok', 'settings_cache.json'))
+  let payload: unknown = cache?.payload
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload) as unknown
+    } catch {
+      payload = null
+    }
+  }
+  const root = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
+  const settings =
+    root?.settings && typeof root.settings === 'object'
+      ? (root.settings as Record<string, unknown>)
+      : root
+  return grokDisplayOf(settings)
+}
+
+async function grokPlanLabel(
+  liveSettings: Record<string, unknown> | null,
+  user: Record<string, unknown> | null
+): Promise<string | undefined> {
+  const live = grokDisplayOf(liveSettings)
+  if (live) return live
+  const cached = await grokCachedDisplay()
+  if (cached) return cached
+  const sku = str(user?.subscriptionTier)
+  // SuperGrokPro is the paid-family SKU, not the "Pro" product name.
+  if (sku === 'SuperGrokPro') return 'SuperGrok'
+  return prettyPlan(sku)
+}
+
 async function fetchGrok(): ReturnType<Fetcher> {
   const token = await grokAccessToken()
   if (!token) return fail('no Grok credentials (~/.grok/auth.json) — run `grok login`')
-  const auth = { Authorization: `Bearer ${token}` }
+  const auth = { Authorization: `Bearer ${token}`, 'User-Agent': 'grok-shell' }
   const billing = (await getJson(
     'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
     auth
@@ -176,6 +257,9 @@ async function fetchGrok(): ReturnType<Fetcher> {
     'https://cli-chat-proxy.grok.com/v1/user?include=subscription',
     auth
   ).catch(() => null)) as Record<string, unknown> | null
+  const settings = (await getJson('https://cli-chat-proxy.grok.com/v1/settings', auth).catch(
+    () => null
+  )) as Record<string, unknown> | null
   const cfg = (billing.config as Record<string, unknown> | undefined) ?? billing
   const period = (cfg.currentPeriod as Record<string, unknown> | undefined) ?? {}
   const resetAt = isoMs(period.end) ?? isoMs(cfg.billingPeriodEnd)
@@ -209,7 +293,7 @@ async function fetchGrok(): ReturnType<Fetcher> {
   if (num(prepaid?.val)) bits.push(`prepaid ${num(prepaid?.val)}`)
   if (!windows.length) return fail('empty billing response')
   return {
-    plan: str(user?.subscriptionTier),
+    plan: await grokPlanLabel(settings, user),
     windows,
     extra: bits.join(' · ') || undefined
   }
@@ -301,7 +385,7 @@ async function fetchCodex(): ReturnType<Fetcher> {
   const resets = r.rate_limit_reset_credits as Record<string, unknown> | undefined
   if (num(resets?.available_count)) bits.push(`${num(resets?.available_count)} reset credit(s)`)
   if (!windows.length) return fail('empty usage response')
-  return { plan: str(r.plan_type), windows, extra: bits.join(' · ') || undefined }
+  return { plan: prettyPlan(r.plan_type), windows, extra: bits.join(' · ') || undefined }
 }
 
 // ── gemini ──────────────────────────────────────────────────────────────
@@ -410,7 +494,7 @@ async function fetchCopilot(): ReturnType<Fetcher> {
     a.id === 'premium_interactions' ? -1 : b.id === 'premium_interactions' ? 1 : 0
   )
   if (!windows.length) return fail('no quota snapshots (copilot plan may not expose quotas)')
-  return { plan: str(r.copilot_plan), windows }
+  return { plan: prettyPlan(r.copilot_plan), windows }
 }
 
 // ── zcode / z.ai ────────────────────────────────────────────────────────
@@ -487,7 +571,7 @@ async function fetchZai(): ReturnType<Fetcher> {
       windows.push({ id: 'mcp', label: 'MCP tools · monthly', usedPct: num(data.monthlyMCPUsage) })
   }
   if (!windows.length) return fail('no coding-plan quota (pay-as-you-go or free tier)')
-  return { plan: str(data.level), windows }
+  return { plan: prettyPlan(data.level), windows }
 }
 
 // ── opencode (Go plan) ──────────────────────────────────────────────────
@@ -531,7 +615,7 @@ async function fetchOpencode(): ReturnType<Fetcher> {
     win(usage.monthly ?? usage.monthlyUsage, '30d', 'Monthly')
   ].filter((w): w is UsageWindow => !!w)
   if (!windows.length) return fail('empty OpenCode Go usage response')
-  return { plan: 'Go', windows }
+  return { plan: prettyPlan('Go'), windows }
 }
 
 // ── devin ───────────────────────────────────────────────────────────────
@@ -585,16 +669,18 @@ async function fetchDevin(): ReturnType<Fetcher> {
   const key = kv.windsurf_api_key
   if (!key) return fail('Devin credentials.toml has no windsurf_api_key — run `devin auth login`')
   const host = (kv.api_server_url || 'https://server.codeium.com').replace(/\/+$/, '')
+  // SeatManagementService is the Windsurf/Codeium endpoint. ideName "devin"
+  // 500s ("unknown" internal error); vscode/windsurf identities succeed.
   const r = (await postJson(
     `${host}/exa.seat_management_pb.SeatManagementService/GetUserStatus`,
     { 'Connect-Protocol-Version': '1' },
     {
       metadata: {
-        apiKey: key,
-        ideName: 'devin',
-        ideVersion: '1.0',
-        extensionName: 'devin',
-        extensionVersion: '1.0',
+        api_key: key,
+        ide_name: 'vscode',
+        ide_version: '1.96.0',
+        extension_name: 'windsurf',
+        extension_version: '1.0.0',
         locale: 'en'
       }
     }
@@ -659,7 +745,9 @@ async function fetchDevin(): ReturnType<Fetcher> {
   if (micros !== undefined && micros !== 0) bits.push(`extra $${(micros / 1_000_000).toFixed(2)}`)
   if (!windows.length && !bits.length) return fail('empty Devin usage response')
   return {
-    plan: str(pick(info, 'planName', 'plan_name')) ?? str(pick(user, 'teamsTier', 'teams_tier')),
+    plan:
+      prettyPlan(pick(info, 'planName', 'plan_name')) ??
+      prettyPlan(pick(user, 'teamsTier', 'teams_tier')),
     windows,
     extra: bits.join(' · ') || undefined
   }
@@ -688,25 +776,28 @@ export function registerUsageIpc(): void {
       return { ...base, ok: false, windows: [], error: String(e instanceof Error ? e.message : e) }
     }
   })
-  ipcMain.handle('usage:ledger', async (_e, tracked: LedgerQuery[]): Promise<LedgerResult> => {
-    const list = Array.isArray(tracked)
-      ? tracked.filter((t) => t && typeof t.sessionId === 'string')
-      : []
-    try {
-      return await scanLedger(list)
-    } catch {
-      return {
-        profiles: [],
-        sessions: list.map((t) => ({
-          sessionId: t.sessionId,
-          provider: t.provider,
-          title: t.name,
-          cwd: t.cwd,
-          tokens: { input: 0, output: 0, cached: 0, reasoning: 0, total: 0 },
-          found: false
-        })),
-        fetchedAt: Date.now()
+  ipcMain.handle(
+    'usage:ledger',
+    async (_e, tracked: LedgerQuery[], force?: boolean): Promise<LedgerResult> => {
+      const list = Array.isArray(tracked)
+        ? tracked.filter((t) => t && typeof t.sessionId === 'string')
+        : []
+      try {
+        return await getLedger(list, !!force)
+      } catch {
+        return {
+          profiles: [],
+          sessions: list.map((t) => ({
+            sessionId: t.sessionId,
+            provider: t.provider,
+            title: t.name,
+            cwd: t.cwd,
+            tokens: { input: 0, output: 0, cached: 0, reasoning: 0, total: 0 },
+            found: false
+          })),
+          fetchedAt: Date.now()
+        }
       }
     }
-  })
+  )
 }
