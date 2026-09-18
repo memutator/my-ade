@@ -436,7 +436,7 @@ export interface PersistedState {
   agentsScope: 'ws' | 'all'
 }
 
-interface AdeState extends PersistedState {
+interface MahasState extends PersistedState {
   notifications: AppNotification[]
   /** ambient-level pings shown as slide-down toasts — runtime-only */
   toasts: ToastItem[]
@@ -566,7 +566,7 @@ function updWs(
   return workspaces.map((w) => (w.id === wsId ? fn(w) : w))
 }
 
-export const useStore = create<AdeState>((set, get) => {
+export const useStore = create<MahasState>((set, get) => {
   // helper: resolve wsId (default: active)
   const wid = (wsId?: string): string | null => wsId ?? get().activeWorkspaceId
 
@@ -780,8 +780,8 @@ export const useStore = create<AdeState>((set, get) => {
       // a detached pane owns its window + pty sessions — the window's renderer
       // is already gone by close time, so kill its live sessions here
       if (pane?.detached) {
-        for (const t of pane.tabs) if (t.kind === 'term' && t.pty) window.ade.pty.kill(t.pty)
-        window.ade.win.closeDetached?.(wsId0, paneId)
+        for (const t of pane.tabs) if (t.kind === 'term' && t.pty) window.mahas.pty.kill(t.pty)
+        window.mahas.win.closeDetached?.(wsId0, paneId)
       }
       set((s) => {
         const wsId = wsId0
@@ -1078,7 +1078,8 @@ export const useStore = create<AdeState>((set, get) => {
         const remaining = src.tabs.filter((t) => t.id !== tabId)
         // unreachable from the UI (a detached pane isn't a drag source), but
         // an emptied detached pane must also lose its window
-        if (!remaining.length && src.detached) window.ade.win.closeDetached?.(fromWsId, fromPaneId)
+        if (!remaining.length && src.detached)
+          window.mahas.win.closeDetached?.(fromWsId, fromPaneId)
 
         const stripSrc = (w: Workspace): Workspace => {
           if (!remaining.length) return removePaneFromWs(w, fromPaneId)
@@ -1382,7 +1383,7 @@ export const useStore = create<AdeState>((set, get) => {
         for (const p of Object.values(w.panes)) {
           if (p.tabs.length && p.tabs.every((t) => t.kind === 'file' && under(t.path))) {
             dead.add(p.id)
-            if (p.detached) window.ade.win.closeDetached?.(w.id, p.id)
+            if (p.detached) window.mahas.win.closeDetached?.(w.id, p.id)
           }
         }
       }
@@ -1568,7 +1569,7 @@ export const useStore = create<AdeState>((set, get) => {
         const target = get().workspaces.find((w) => w.id === n.workspaceId)?.panes[n.paneId]
         // a detached pane lives in its own window — focus that, don't restore
         if (target?.detached) {
-          window.ade.win.focusDetached(n.workspaceId, n.paneId)
+          window.mahas.win.focusDetached(n.workspaceId, n.paneId)
         } else {
           get().focusPane(n.paneId, n.workspaceId)
         }
@@ -1605,7 +1606,7 @@ export const useStore = create<AdeState>((set, get) => {
         // instance's event) before this instance sees any session event
         const info = s.agentSessions[sessionId] ?? {}
         const title = name || undefined
-        const patch: Partial<AdeState> = {
+        const patch: Partial<MahasState> = {
           agentSessions: {
             ...s.agentSessions,
             [sessionId]: { ...info, name: title, ts: Date.now() }

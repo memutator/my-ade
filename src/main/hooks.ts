@@ -1,6 +1,6 @@
 // Electron glue for agent lifecycle hooks:
 //  - tails the NDJSON event file that harness hook scripts append to
-//    (resources/ade-hook.cjs, resources/ade-opencode-plugin.js) and forwards
+//    (resources/mahas-hook.cjs, resources/mahas-opencode-plugin.js) and forwards
 //    each event to the renderer as `agent:event`
 //  - IPC for the Settings "Agent hooks" section: status / install / test
 
@@ -19,9 +19,9 @@ function resourceFile(name: string): string {
 let tailer: EventLogTailer | null = null
 
 export function startEventIngest(getWindow: () => BrowserWindow | null): void {
-  // keep ade-owned hook artifacts (script copy, grok hook file, opencode
+  // keep mahas-owned hook artifacts (script copy, grok hook file, opencode
   // plugin) in sync with the shipped version before events start flowing
-  refreshInstalledHooks(resourceFile('ade-hook.cjs'), resourceFile('ade-opencode-plugin.js'))
+  refreshInstalledHooks(resourceFile('mahas-hook.cjs'), resourceFile('mahas-opencode-plugin.js'))
   tailer?.stop()
   tailer = new EventLogTailer(
     eventsFilePath(),
@@ -40,10 +40,10 @@ export function startEventIngest(getWindow: () => BrowserWindow | null): void {
 
 export function registerHookIpc(): void {
   ipcMain.handle('hooks:status', () =>
-    hookStatuses(resourceFile('ade-hook.cjs'), resourceFile('ade-opencode-plugin.js'))
+    hookStatuses(resourceFile('mahas-hook.cjs'), resourceFile('mahas-opencode-plugin.js'))
   )
   ipcMain.handle('hooks:install', (_e, provider: string) =>
-    installHook(provider, resourceFile('ade-hook.cjs'), resourceFile('ade-opencode-plugin.js'))
+    installHook(provider, resourceFile('mahas-hook.cjs'), resourceFile('mahas-opencode-plugin.js'))
   )
   // Writes a synthetic event through the real file channel — end-to-end test.
   ipcMain.handle('hooks:test', (_e, provider: string) => {
@@ -52,9 +52,9 @@ export function registerHookIpc(): void {
         provider: typeof provider === 'string' && provider ? provider : 'unknown',
         event: 'turn-complete',
         cwd: process.cwd(),
-        sessionId: `ade-test-${Date.now()}`,
-        adeSession: process.env.ADE_SESSION,
-        message: 'test notification from ade',
+        sessionId: `mahas-test-${Date.now()}`,
+        mahasSession: process.env.MAHAS_SESSION,
+        message: 'test notification from mahas',
         force: true
       })
       return { ok: true }
@@ -63,14 +63,14 @@ export function registerHookIpc(): void {
     }
   })
   // Renderer-originated events (e.g. session-rename after a tab rename) travel
-  // the same file channel so every ade instance sees them — stamped with this
+  // the same file channel so every mahas instance sees them — stamped with this
   // instance's session so the tailer marks them `ours`.
   ipcMain.handle('hooks:emit', (_e, ev: AgentHookEvent) => {
     try {
       if (!ev || typeof ev.provider !== 'string' || typeof ev.event !== 'string') {
         return { ok: false, error: 'bad event' }
       }
-      appendEvent({ ...ev, adeSession: process.env.ADE_SESSION })
+      appendEvent({ ...ev, mahasSession: process.env.MAHAS_SESSION })
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e instanceof Error ? e.message : e) }

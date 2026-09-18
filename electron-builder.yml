@@ -1,5 +1,5 @@
-appId: com.ade.app
-productName: ADE
+appId: com.mahas.app
+productName: Mahas
 directories:
   buildResources: build
 files:
@@ -19,10 +19,10 @@ extraResources:
     to: webview-preload.cjs
   - from: resources/agents
     to: agents
-  - from: resources/ade-hook.cjs
-    to: ade-hook.cjs
-  - from: resources/ade-opencode-plugin.js
-    to: ade-opencode-plugin.js
+  - from: resources/mahas-hook.cjs
+    to: mahas-hook.cjs
+  - from: resources/mahas-opencode-plugin.js
+    to: mahas-opencode-plugin.js
   # pty-host runs under system Node outside the asar — ship node-pty where its
   # require('@homebridge/node-pty-prebuilt-multiarch') can resolve it.
   - from: node_modules/@homebridge/node-pty-prebuilt-multiarch
@@ -38,7 +38,7 @@ extraResources:
       - '!**/*.test.js'
       - '!binding.gyp'
 win:
-  executableName: my-ade
+  executableName: mahas
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

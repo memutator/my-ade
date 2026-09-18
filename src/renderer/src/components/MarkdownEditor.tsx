@@ -26,7 +26,7 @@ import '@milkdown/kit/prose/gapcursor/style/gapcursor.css'
 import '@milkdown/kit/prose/tables/style/tables.css'
 
 // Ctrl/Cmd+K toggles a link on the selection — opens the edit tooltip input
-const linkKeymap = $useKeymap('adeLink', {
+const linkKeymap = $useKeymap('mahasLink', {
   ToggleLink: {
     shortcuts: 'Mod-k',
     command: (ctx) => (): boolean => {
@@ -36,13 +36,13 @@ const linkKeymap = $useKeymap('adeLink', {
   }
 })
 
-// links open ADE-first — an in-app browser pane (the tooltip's window.open
+// links open Mahas-first — an in-app browser pane (the tooltip's window.open
 // is bounced back by the main process as 'open-url' and lands the same way;
 // a detached editor relays through pane:cmd since only the main store owns
 // workspaces). A plain click just moves the caret.
 function openLink(href: string): void {
   if (isDetachedWin && detachedWsId && detachedPaneId) {
-    window.ade.win.paneCmd({
+    window.mahas.win.paneCmd({
       action: 'openUrl',
       wsId: detachedWsId,
       paneId: detachedPaneId,
@@ -56,7 +56,7 @@ function openLink(href: string): void {
 const linkOpenPlugin = $prose(
   (ctx) =>
     new Plugin({
-      key: new PluginKey('ade-link-open'),
+      key: new PluginKey('mahas-link-open'),
       props: {
         handleDOMEvents: {
           click: (view, event) => {

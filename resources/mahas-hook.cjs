@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 'use strict'
-// ade-hook.cjs — harness-agnostic event bridge for ade.
+// mahas-hook.cjs — harness-agnostic event bridge for mahas.
 //
 // Agent harnesses invoke this script from their lifecycle hooks; it appends a
-// single NDJSON event line to the ade event log, which the Electron main
+// single NDJSON event line to the mahas event log, which the Electron main
 // process tails and forwards to the renderer as `agent:event`.
 //
-//   node ade-hook.cjs <provider>               reads the hook payload JSON on stdin
-//   node ade-hook.cjs <provider> <event>       stdin payload, explicit ade event name
-//   node ade-hook.cjs codex '<json-payload>'   codex `notify`: payload arrives as last argv
+//   node mahas-hook.cjs <provider>               reads the hook payload JSON on stdin
+//   node mahas-hook.cjs <provider> <event>       stdin payload, explicit mahas event name
+//   node mahas-hook.cjs codex '<json-payload>'   codex `notify`: payload arrives as last argv
 //
-// Event log: $ADE_EVENTS_FILE or ~/.config/ade/agent-events.log
+// Event log: $MAHAS_EVENTS_FILE or ~/.config/mahas/agent-events.log
 // The script never writes to stdout (harness hook protocols read it), never
 // throws, and always exits 0 — hook failures must not disturb the agent.
 
@@ -19,8 +19,8 @@ const path = require('path')
 const os = require('os')
 const { spawn } = require('child_process')
 
-const CONFIG_DIR = process.env.ADE_CONFIG_DIR || path.join(configHome(), 'ade')
-const EVENTS_FILE = process.env.ADE_EVENTS_FILE || path.join(CONFIG_DIR, 'agent-events.log')
+const CONFIG_DIR = process.env.MAHAS_CONFIG_DIR || path.join(configHome(), 'mahas')
+const EVENTS_FILE = process.env.MAHAS_EVENTS_FILE || path.join(CONFIG_DIR, 'agent-events.log')
 const RAW_FILE = path.join(CONFIG_DIR, 'hook-raw.log')
 const FORWARD_FILE = path.join(CONFIG_DIR, 'notify-forward.json')
 const RAW_CAP = 1024 * 1024 // tail-kept — oldest lines dropped past this
@@ -54,7 +54,7 @@ function logRaw(entry) {
 }
 
 function debug(msg) {
-  if (process.env.ADE_HOOK_DEBUG) {
+  if (process.env.MAHAS_HOOK_DEBUG) {
     try {
       fs.mkdirSync(CONFIG_DIR, { recursive: true })
       fs.appendFileSync(path.join(CONFIG_DIR, 'hook-debug.log'), `[${new Date().toISOString()}] ${msg}\n`)
@@ -73,7 +73,7 @@ function resolveProvider(argProvider) {
   return argProvider || 'unknown'
 }
 
-// Map each harness's raw hook event name to an ade event. Three kinds notify —
+// Map each harness's raw hook event name to a mahas event. Three kinds notify —
 // `turn-complete`, `needs-input`, `error`; everything else is tracking-only:
 // `turn-start`, `session-start`, `session-end`, `turn-cancelled` (user stopped
 // the turn themselves), `idle` (grok's post-settle backstop ping — redundant
@@ -136,7 +136,7 @@ function normalizeEvent(raw, fallback, payload) {
     case 'userpromptsubmit':
       return 'turn-start'
     // already-canonical names pass through — tools, tests, and any harness
-    // speaking ade's taxonomy directly stay idempotent
+    // speaking mahas's taxonomy directly stay idempotent
     case 'needsinput':
       return 'needs-input'
     case 'turncomplete':
@@ -262,13 +262,13 @@ function buildEvent(provider, argEvent, payload) {
     cwd: cwd || undefined,
     sessionId: sessionId || undefined,
     message: message || undefined,
-    // stamped by the shell env chain (pty spawn → agent → hook) so ade can
+    // stamped by the shell env chain (pty spawn → agent → hook) so mahas can
     // tell our sessions' events apart from agents running elsewhere
-    adeSession: process.env.ADE_SESSION || undefined,
+    mahasSession: process.env.MAHAS_SESSION || undefined,
     // pty spawn stamps the hosting pane/tab — exact attribution, no cwd
     // guessing (tabs sharing a directory resolve to the first match)
-    paneId: process.env.ADE_PANE || undefined,
-    tabId: process.env.ADE_TAB || undefined,
+    paneId: process.env.MAHAS_PANE || undefined,
+    tabId: process.env.MAHAS_TAB || undefined,
     ts: Date.now()
   }
 }
@@ -282,7 +282,7 @@ function emit(ev) {
   }
 }
 
-// codex `notify` is a single slot; when ade took it over, the displaced command
+// codex `notify` is a single slot; when mahas took it over, the displaced command
 // is recorded here and we re-invoke it with the same payload so nothing breaks.
 function forwardCodex(rawPayload) {
   try {
@@ -308,7 +308,7 @@ function finish(provider, argEvent, payload, rawArg) {
   const ev = buildEvent(provider, argEvent, payload)
   emit(ev)
   // raw capture: which env tagged this run (provider relabeling + ours
-  // stamping), what the harness sent, and what ade normalized it to
+  // stamping), what the harness sent, and what mahas normalized it to
   let raw
   try {
     const s = JSON.stringify(payload ?? rawArg ?? null)
@@ -323,7 +323,7 @@ function finish(provider, argEvent, payload, rawArg) {
     via: rawArg != null ? 'argv' : 'stdin',
     arg: argEvent || undefined,
     env: {
-      ade: !!process.env.ADE_SESSION,
+      mahas: !!process.env.MAHAS_SESSION,
       grok: !!process.env.GROK_SESSION_ID || !!process.env.GROK_HOOK_EVENT,
       devin: !!process.env.DEVIN_PROJECT_DIR || !!process.env.DEVIN_SESSION_ID,
       claude: !!process.env.CLAUDE_PROJECT_DIR,

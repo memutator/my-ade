@@ -1,4 +1,4 @@
-# ade docs
+# mahas docs
 
 ## User guide
 

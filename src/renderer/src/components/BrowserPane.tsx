@@ -227,7 +227,7 @@ export function BrowserTabView({
   const [preload, setPreload] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    window.ade.webview
+    window.mahas.webview
       .preloadPath()
       .then((p) => {
         if (live) setPreload(p)
@@ -277,9 +277,9 @@ export function BrowserTabView({
     // clicking inside the guest focuses the webview element — that's our
     // only signal, so it also marks the pane focused
     el?.addEventListener('focus', () => onFocusPaneRef.current())
-    // guest preload relays app-shortcut keydowns as ipc-message 'ade:key'
+    // guest preload relays app-shortcut keydowns as ipc-message 'mahas:key'
     const onIpc = (e: Electron.IpcMessageEvent): void => {
-      if (e.channel === 'ade:key') applyShortcut(e.args[0])
+      if (e.channel === 'mahas:key') applyShortcut(e.args[0])
     }
     el?.addEventListener('ipc-message', onIpc)
   }, [])
@@ -360,7 +360,7 @@ export function BrowserTabView({
     const onGone = (): void =>
       setError(translate(useStore.getState().settings.language, 'pageCrashed'))
     const onNewWindow = (e: Event): void => {
-      window.ade.openExternal((e as unknown as { url: string }).url)
+      window.mahas.openExternal((e as unknown as { url: string }).url)
     }
 
     wv.addEventListener('dom-ready', syncUrl)
@@ -382,7 +382,7 @@ export function BrowserTabView({
     // (non-Alt) combos too — re-runs when the user edits bindings
     const pushBindings = (): void => {
       try {
-        wv.send('ade:bindings', Object.values(effectiveBindings(useStore.getState().settings)))
+        wv.send('mahas:bindings', Object.values(effectiveBindings(useStore.getState().settings)))
       } catch {
         /* not dom-ready yet — the listener below covers the initial attach */
       }

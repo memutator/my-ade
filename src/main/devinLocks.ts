@@ -5,7 +5,7 @@
 // lifetime — and unlinks it on clean exit. A killed/crashed CLI leaves the
 // file behind and the next open of that session is refused with
 // `session_locked` even though nothing holds it: the CLI never reclaims a
-// dead pid's lock (observed on 3000.10.31). ade terminals kill agents by
+// dead pid's lock (observed on 3000.10.31). mahas terminals kill agents by
 // closing their pane, so stale locks accumulate fast.
 //
 // A lock is stale iff no flock is held on its inode AND the recorded pid is

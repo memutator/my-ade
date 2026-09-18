@@ -27,9 +27,9 @@ export default function QuitConfirm(): React.JSX.Element | null {
 
   useEffect(
     () =>
-      window.ade.win.onCloseRequest(() => {
+      window.mahas.win.onCloseRequest(() => {
         if (liveTerminals(useStore.getState().workspaces) === 0) {
-          window.ade.win.forceClose()
+          window.mahas.win.forceClose()
         } else {
           setOpen(true)
         }
@@ -56,7 +56,7 @@ export default function QuitConfirm(): React.JSX.Element | null {
             <button className="sbtn" onClick={() => setOpen(false)}>
               {t('quitCancel')}
             </button>
-            <button className="sbtn accent" onClick={() => window.ade.win.forceClose()}>
+            <button className="sbtn accent" onClick={() => window.mahas.win.forceClose()}>
               {t('quitConfirm')}
             </button>
           </div>

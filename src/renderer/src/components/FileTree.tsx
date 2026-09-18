@@ -19,7 +19,7 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useFileIcon } from '../fileIcons'
 
-// posix path helpers — ade only ever runs on this linux box
+// posix path helpers — mahas only ever runs on this linux box
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
 const dirname = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/'
 const joinPath = (d: string, n: string): string => (d.endsWith('/') ? d : d + '/') + n
@@ -29,7 +29,7 @@ const isHtml = (name: string): boolean => /\.html?$/i.test(name)
 const isUnder = (p: string, dir: string): boolean =>
   p === dir || p.startsWith(dir.endsWith('/') ? dir : dir + '/')
 
-const DND_MIME = 'application/x-ade-paths'
+const DND_MIME = 'application/x-mahas-paths'
 
 // clipboard shared by every FileTree instance (sidebar + hover overlay), like
 // VS Code's global explorer clipboard. Not persisted.
@@ -269,7 +269,7 @@ export default function FileTree({
   }, [])
 
   const reload = useCallback(async (dir: string): Promise<void> => {
-    const entries = await window.ade.fs.list(dir)
+    const entries = await window.mahas.fs.list(dir)
     setDirs((d) => ({ ...d, [dir]: entries }))
   }, [])
 
@@ -297,14 +297,14 @@ export default function FileTree({
   // two tree instances can share a path
   useEffect(() => {
     const want = new Set([rootPath, ...open])
-    for (const p of want) if (!watchedRef.current.has(p)) void window.ade.dir.watch(p)
-    for (const p of watchedRef.current) if (!want.has(p)) void window.ade.dir.unwatch(p)
+    for (const p of want) if (!watchedRef.current.has(p)) void window.mahas.dir.watch(p)
+    for (const p of watchedRef.current) if (!want.has(p)) void window.mahas.dir.unwatch(p)
     watchedRef.current = want
   }, [rootPath, open])
 
   useEffect(
     () => () => {
-      for (const p of watchedRef.current) void window.ade.dir.unwatch(p)
+      for (const p of watchedRef.current) void window.mahas.dir.unwatch(p)
       watchedRef.current = new Set()
     },
     []
@@ -313,7 +313,7 @@ export default function FileTree({
   // a watched dir changed on disk → re-list it (only if we actually show it)
   useEffect(
     () =>
-      window.ade.dir.onChanged((p) => {
+      window.mahas.dir.onChanged((p) => {
         if (p in dirsRef.current) void reload(p)
       }),
     [reload]
@@ -323,7 +323,7 @@ export default function FileTree({
 
   useEffect(() => {
     let on = true
-    void window.ade.fs.list(rootPath).then((e) => on && setDirs((d) => ({ ...d, [rootPath]: e })))
+    void window.mahas.fs.list(rootPath).then((e) => on && setDirs((d) => ({ ...d, [rootPath]: e })))
     return () => {
       on = false
     }
@@ -408,7 +408,7 @@ export default function FileTree({
   const doTrash = useCallback(
     async (paths: string[]): Promise<void> => {
       if (!paths.length) return
-      const r = await window.ade.fs.trash(paths)
+      const r = await window.mahas.fs.trash(paths)
       if (!r.ok) {
         flash(r.error ?? 'delete failed')
         if (!r.paths?.length) return
@@ -423,7 +423,7 @@ export default function FileTree({
 
   const doCopy = useCallback(
     async (paths: string[], destDir: string): Promise<void> => {
-      const r = await window.ade.fs.copy(paths, destDir)
+      const r = await window.mahas.fs.copy(paths, destDir)
       if (!r.ok) flash(r.error ?? 'copy failed')
       refreshAll()
     },
@@ -434,7 +434,7 @@ export default function FileTree({
   const doDuplicate = useCallback(
     async (paths: string[]): Promise<void> => {
       for (const p of paths) {
-        const r = await window.ade.fs.copy([p], dirname(p))
+        const r = await window.mahas.fs.copy([p], dirname(p))
         if (!r.ok) flash(r.error ?? 'duplicate failed')
       }
       refreshAll()
@@ -444,7 +444,7 @@ export default function FileTree({
 
   const doMove = useCallback(
     async (paths: string[], destDir: string): Promise<void> => {
-      const r = await window.ade.fs.move(paths, destDir)
+      const r = await window.mahas.fs.move(paths, destDir)
       if (!r.ok) flash(r.error ?? 'move failed')
       // remap open-editor tabs + tree state for each source that landed under a new path
       paths.forEach((p, i) => {
@@ -480,7 +480,7 @@ export default function FileTree({
       if (!newName || newName === entry.name) return
       const dir = dirname(entry.path)
       const newPath = joinPath(dir, newName)
-      const r = await window.ade.fs.rename(entry.path, newPath)
+      const r = await window.mahas.fs.rename(entry.path, newPath)
       if (!r.ok) {
         flash(r.error ?? 'rename failed')
         return
@@ -510,7 +510,7 @@ export default function FileTree({
       if (!c) return
       const nm = name.trim()
       if (!nm) return
-      const r = await window.ade.fs.create(c.dir, nm, c.kind)
+      const r = await window.mahas.fs.create(c.dir, nm, c.kind)
       if (!r.ok || !r.path) {
         flash(r.error ?? 'create failed')
         return
@@ -787,7 +787,7 @@ export default function FileTree({
     const pathItems = (p: string): CtxItem[] => [
       { label: t('copyPath'), act: () => void navigator.clipboard.writeText(p) },
       { label: t('copyRelPath'), act: () => void navigator.clipboard.writeText(rel(p)) },
-      { label: t('reveal'), act: () => window.ade.fs.reveal(p) }
+      { label: t('reveal'), act: () => window.mahas.fs.reveal(p) }
     ]
 
     if (!entry) {

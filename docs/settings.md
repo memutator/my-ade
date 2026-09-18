@@ -8,7 +8,7 @@ page. Esc is also the cancel key while recording a keybinding — see
 
 There is no save button. Every change lands in the store immediately and is
 persisted debounced (~400 ms) with the rest of the app state to
-`~/.config/ade/ade-state.json` (`$XDG_CONFIG_HOME/ade/ade-state.json` when
+`~/.config/mahas/mahas-state.json` (`$XDG_CONFIG_HOME/mahas/mahas-state.json` when
 `XDG_CONFIG_HOME` is set). The file holds projects, workspaces, layouts,
 bookmarks, and settings — deleting it factory-resets everything.
 
@@ -53,7 +53,7 @@ bookmarks, and settings — deleting it factory-resets everything.
   (`installed` / `not installed`), an **Install** button while uninstalled, and
   a **Test** button once installed (writes a synthetic `turn-complete` through
   the real event channel — end-to-end, expect a notification). Installers are
-  additive, idempotent, and back up any file they mutate (`<file>.ade-bak`).
+  additive, idempotent, and back up any file they mutate (`<file>.mahas-bak`).
   See [agents](agents.md) for what each hook does.
 
 ## Shortcuts

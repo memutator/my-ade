@@ -48,7 +48,7 @@ let hookInstalled: Record<string, boolean> = {}
 
 export async function refreshHookInstalled(): Promise<void> {
   try {
-    const status = await window.ade.hooks.status()
+    const status = await window.mahas.hooks.status()
     hookInstalled = Object.fromEntries(status.map((h) => [h.id, h.installed]))
   } catch {
     /* keep the previous map */
@@ -62,7 +62,7 @@ function logDecision(
   reason: string,
   via: string
 ): void {
-  window.ade.notify.decision?.({
+  window.mahas.notify.decision?.({
     ts: Date.now(),
     via,
     ev: { provider: ev.provider, event: ev.event, sessionId: ev.sessionId, cwd: ev.cwd },
@@ -73,7 +73,7 @@ function logDecision(
 }
 
 // Resolve an event to a workspace/pane/tab. Exact env attribution wins
-// (pty-stamped ADE_PANE/ADE_TAB ride the shell → agent → hook chain), then
+// (pty-stamped MAHAS_PANE/MAHAS_TAB ride the shell → agent → hook chain), then
 // the session registry, then cwd prefix matching — which can't distinguish
 // tabs that share a directory, so it lands on the first match.
 function resolveTarget(
@@ -145,7 +145,7 @@ function resolveTarget(
         }
       }
     }
-    // cwd missed (agent moved dirs before ade saw it) — attribute to the tab
+    // cwd missed (agent moved dirs before mahas saw it) — attribute to the tab
     // currently hosting this provider, if exactly one does
     if (!tab && provider) {
       const hits: { paneId: string; tab: TerminalTab }[] = []
@@ -182,7 +182,7 @@ async function levelFor(
 ): Promise<{ level: Level; win: string }> {
   const ws = t.ws
   const pane = ws && t.paneId ? ws.panes[t.paneId] : undefined
-  const win = await window.ade.win
+  const win = await window.mahas.win
     .state({ wsId: ws?.id, paneId: t.paneId, detached: !!pane?.detached })
     .catch(() => 'hidden')
   if (win !== 'focused') return { level: 'away', win }
@@ -372,7 +372,7 @@ async function deliver(
     })
   }
   if (action === 'os' && st.settings.osNotifications) {
-    window.ade.notify.show(title, [session, body].filter(Boolean).join(' — '), {
+    window.mahas.notify.show(title, [session, body].filter(Boolean).join(' — '), {
       workspaceId: wsId ?? undefined,
       paneId: t.paneId,
       tabId: t.tabId
@@ -438,10 +438,10 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
     return
   }
   // hooks are installed globally, so agents launched in terminals outside
-  // ade (no ADE_SESSION in their env) append here too — never act on those.
+  // mahas (no MAHAS_SESSION in their env) append here too — never act on those.
   // Exception: an agent orphaned by a previous run still carries its
   // env-stamped paneId/tabId, and those ids only exist in our own persisted
-  // workspaces — foreign agents can't forge them and another ade instance's
+  // workspaces — foreign agents can't forge them and another mahas instance's
   // ids never collide. Adopt it: its events attribute to the restored tab and
   // the session re-registers as resumable instead of vanishing.
   if (!ev.ours) {

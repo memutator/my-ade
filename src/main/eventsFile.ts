@@ -1,7 +1,7 @@
 // Event ingest channel: harness hook scripts append one NDJSON line per event
 // to a plain file; the main process tails it and forwards parsed events to the
 // renderer. Chosen over a socket/HTTP endpoint: zero ports, survives app
-// restarts (events are never lost while ade is closed — they are drained on
+// restarts (events are never lost while mahas is closed — they are drained on
 // next launch), and needs no extra permissions.
 //
 // Kept free of electron imports so the whole pipeline can be exercised with
@@ -18,7 +18,7 @@ export interface AgentHookEvent {
   cwd?: string
   sessionId?: string
   message?: string
-  adeSession?: string
+  mahasSession?: string
   /** set by the tailer: true when the event carries this instance's session */
   ours?: boolean
   /** session-rename payload: the new session name */
@@ -29,13 +29,13 @@ export interface AgentHookEvent {
   ts?: number
 }
 
-export function adeConfigDir(home: string = os.homedir()): string {
+export function mahasConfigDir(home: string = os.homedir()): string {
   const base = process.env.XDG_CONFIG_HOME || path.join(home, '.config')
-  return process.env.ADE_CONFIG_DIR || path.join(base, 'ade')
+  return process.env.MAHAS_CONFIG_DIR || path.join(base, 'mahas')
 }
 
 export function eventsFilePath(home?: string): string {
-  return process.env.ADE_EVENTS_FILE || path.join(adeConfigDir(home), 'agent-events.log')
+  return process.env.MAHAS_EVENTS_FILE || path.join(mahasConfigDir(home), 'agent-events.log')
 }
 
 export function appendEvent(ev: AgentHookEvent, file: string = eventsFilePath()): void {
@@ -47,7 +47,7 @@ export function appendEvent(ev: AgentHookEvent, file: string = eventsFilePath())
 // (hook-raw.log → agent-events.log → notify-decisions.log), so "why did/didn't
 // this ping" is answerable without reproducing.
 export function decisionsFilePath(home?: string): string {
-  return process.env.ADE_NOTIFY_LOG || path.join(adeConfigDir(home), 'notify-decisions.log')
+  return process.env.MAHAS_NOTIFY_LOG || path.join(mahasConfigDir(home), 'notify-decisions.log')
 }
 
 // Append one JSON line, keeping the file under `cap` bytes by rewriting the
@@ -182,9 +182,9 @@ export class EventLogTailer {
     }
     if (!ev || typeof ev.provider !== 'string' || typeof ev.event !== 'string') return
     // hooks are installed globally, so agents launched in other terminals (or
-    // another ade instance) also append here — the renderer drops everything
+    // another mahas instance) also append here — the renderer drops everything
     // that isn't `ours` (foreign sessions never notify)
-    ev.ours = !!process.env.ADE_SESSION && ev.adeSession === process.env.ADE_SESSION
+    ev.ours = !!process.env.MAHAS_SESSION && ev.mahasSession === process.env.MAHAS_SESSION
     const ts = typeof ev.ts === 'number' ? ev.ts : Date.now()
     const window = DEDUPE_MS[ev.event]
     if (window) {

@@ -228,7 +228,7 @@ function run(st: St, a: ShortcutAction): boolean {
 // Shared shortcut dispatch — used by the window keydown listener AND by keys
 // forwarded from <webview> guests (a focused webview never emits keydown to
 // the host document; resources/webview-preload.cjs relays them via
-// ipc-message → `ade:key`). Returns true when handled.
+// ipc-message → `mahas:key`). Returns true when handled.
 export function applyShortcut(input: ShortcutInput): boolean {
   if (capturing || input.meta) return false
   const st = useStore.getState()

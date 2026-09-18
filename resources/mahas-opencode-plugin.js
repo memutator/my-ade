@@ -1,6 +1,6 @@
-// ade opencode plugin — emits an ade event when an opencode session goes idle,
+// mahas opencode plugin — emits a mahas event when an opencode session goes idle,
 // errors, or waits on a user decision. Installed to
-// ~/.config/opencode/plugins/ade-events.js by ade's "Agent hooks" installer.
+// ~/.config/opencode/plugins/mahas-events.js by mahas's "Agent hooks" installer.
 // OpenCode loads every file in that directory; `directory` is the project dir
 // the session was opened in.
 //
@@ -11,8 +11,8 @@ import { appendFileSync, mkdirSync, openSync, readSync, closeSync, writeFileSync
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const dir = process.env.ADE_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'ade')
-const file = process.env.ADE_EVENTS_FILE || join(dir, 'agent-events.log')
+const dir = process.env.MAHAS_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'mahas')
+const file = process.env.MAHAS_EVENTS_FILE || join(dir, 'agent-events.log')
 const rawFile = join(dir, 'hook-raw.log')
 const RAW_CAP = 1024 * 1024
 
@@ -80,7 +80,7 @@ function logRaw(entry) {
 const childSessions = new Set()
 const lastLoggedType = new Map()
 
-export const AdeEventsPlugin = async ({ directory }) => ({
+export const MahasEventsPlugin = async ({ directory }) => ({
   event: async ({ event }) => {
     try {
       const p = event.properties || {}
@@ -143,10 +143,10 @@ export const AdeEventsPlugin = async ({ directory }) => ({
             cwd: directory,
             sessionId: p.sessionID || p.info?.id,
             message: messageFor(event.type, p) || undefined,
-            adeSession: process.env.ADE_SESSION || undefined,
+            mahasSession: process.env.MAHAS_SESSION || undefined,
             // pty-stamped hosting pane/tab — exact event attribution
-            paneId: process.env.ADE_PANE || undefined,
-            tabId: process.env.ADE_TAB || undefined,
+            paneId: process.env.MAHAS_PANE || undefined,
+            tabId: process.env.MAHAS_TAB || undefined,
             ts: now
           }) + '\n',
           { flag: 'a' }

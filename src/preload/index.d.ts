@@ -1,9 +1,9 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { AdeApi } from './index'
+import type { MahasApi } from './index'
 
 declare global {
   interface Window {
     electron: ElectronAPI
-    ade: AdeApi
+    mahas: MahasApi
   }
 }

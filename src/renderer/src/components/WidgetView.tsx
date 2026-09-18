@@ -27,7 +27,7 @@ const inflight = new Map<string, Promise<UsageResult>>()
 function fetchUsage(provider: string): Promise<UsageResult> {
   let p = inflight.get(provider)
   if (!p) {
-    p = window.ade.usage
+    p = window.mahas.usage
       .fetch(provider)
       .then((res) => {
         usageCache.set(provider, res)

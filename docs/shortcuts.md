@@ -100,7 +100,7 @@ table):
 A focused `<webview>` keeps its keydowns — the host document never sees them.
 `resources/webview-preload.cjs` runs inside every guest and forwards `Alt+*`,
 `Ctrl+Tab`, and every combo in the effective binding table (pushed via
-`ade:bindings` whenever bindings change or a guest loads) as an `ipc-message`
-`ade:key` → `applyShortcut` — the same dispatch the window keydown listener
+`mahas:bindings` whenever bindings change or a guest loads) as an `ipc-message`
+`mahas:key` → `applyShortcut` — the same dispatch the window keydown listener
 uses. So custom combos work while typing in a web block; all other keys go
 to the page untouched.

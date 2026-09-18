@@ -1,6 +1,6 @@
 # Getting started
 
-ade is a Linux-first Electron app — a tiling shell where Chrome-style workspace
+mahas is a Linux-first Electron app — a tiling shell where Chrome-style workspace
 tabs live in the title bar and each workspace is a split-pane layout scoped to a
 project directory.
 
@@ -10,8 +10,8 @@ project directory.
   (`ozone-platform-hint=auto`); running under XWayland makes text render blurry.
 - **Node.js**, installed somewhere reachable. Terminal panes are driven by a
   separate pty-host process that runs under system Node (not Electron), so a
-  `node` binary must exist. ade probes, in order:
-  - `ADE_NODE` / `NODE_BINARY` env vars (explicit override)
+  `node` binary must exist. mahas probes, in order:
+  - `MAHAS_NODE` / `NODE_BINARY` env vars (explicit override)
   - `node` on `PATH`
   - `/usr/bin/node`, `/usr/local/bin/node`, `/snap/bin/node`,
     `/home/linuxbrew/.linuxbrew/bin/node`
@@ -22,38 +22,38 @@ project directory.
 
   nvm / volta / fnm / mise / asdf / system / snap installs all resolve — no
   symlink into a fixed location is needed. If terminals stay dead, set
-  `ADE_NODE=/path/to/node` before launching.
+  `MAHAS_NODE=/path/to/node` before launching.
 
 ## Install
 
 ### deb (recommended)
 
 ```bash
-sudo dpkg -i dist/ade_0.1.0_amd64.deb
+sudo dpkg -i dist/mahas_0.1.0_amd64.deb
 ```
 
-Installs to `/opt/ade`, links `ade` into `/usr/bin`, and drops a
-`ade.desktop` entry for the app launcher. The postinst also:
+Installs to `/opt/mahas`, links `mahas` into `/usr/bin`, and drops a
+`mahas.desktop` entry for the app launcher. The postinst also:
 
 - sets `chrome-sandbox` setuid root on kernels without working user namespaces
 - installs the bundled AppArmor profile on Ubuntu 24+ (skipped cleanly on
   AppArmor versions that can't parse it)
 - refreshes the mime/desktop databases
 
-Then run `ade` from a shell or your launcher.
+Then run `mahas` from a shell or your launcher.
 
 ### AppImage
 
 ```bash
-chmod +x dist/ade-0.1.0.AppImage
-./dist/ade-0.1.0.AppImage
+chmod +x dist/mahas-0.1.0.AppImage
+./dist/mahas-0.1.0.AppImage
 ```
 
 On Ubuntu 24+ AppArmor blocks user-namespace creation for unconfined apps, so
 the sandbox must be disabled:
 
 ```bash
-ELECTRON_DISABLE_SANDBOX=1 ./dist/ade-0.1.0.AppImage
+ELECTRON_DISABLE_SANDBOX=1 ./dist/mahas-0.1.0.AppImage
 ```
 
 ## First run
@@ -71,7 +71,7 @@ ELECTRON_DISABLE_SANDBOX=1 ./dist/ade-0.1.0.AppImage
 ## Persistence
 
 Projects, workspaces, layouts, pane state, bookmarks, and settings are
-saved (debounced) to `~/.config/ade/ade-state.json` and restored on the next
+saved (debounced) to `~/.config/mahas/mahas-state.json` and restored on the next
 launch. Terminal scrollback and running shells are not persisted — sessions
 respawn on restart.
 

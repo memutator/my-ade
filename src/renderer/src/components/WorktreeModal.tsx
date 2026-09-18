@@ -40,7 +40,7 @@ export default function WorktreeModal({
   const t = useT()
 
   const refresh = (): void => {
-    void window.ade.git.info(project.path).then((i) => {
+    void window.mahas.git.info(project.path).then((i) => {
       setInfo(i)
       setBase((b) => b || i.branch || '')
     })
@@ -71,7 +71,7 @@ export default function WorktreeModal({
   const create = async (): Promise<void> => {
     setBusy(true)
     setErr(null)
-    const r = await window.ade.git.addWorktree(project.path, {
+    const r = await window.mahas.git.addWorktree(project.path, {
       branch: branch.trim(),
       base: base.trim() || undefined
     })
@@ -85,7 +85,7 @@ export default function WorktreeModal({
 
   const remove = async (wtPath: string): Promise<void> => {
     const force = forceFor === wtPath
-    const r = await window.ade.git.removeWorktree(project.path, wtPath, force)
+    const r = await window.mahas.git.removeWorktree(project.path, wtPath, force)
     if (!r.ok) {
       setForceFor(wtPath)
       setErr(r.error ?? 'remove failed')
@@ -93,7 +93,7 @@ export default function WorktreeModal({
     }
     setForceFor(null)
     setErr(null)
-    // drop the ade project that pointed at this worktree (and its workspaces)
+    // drop the mahas project that pointed at this worktree (and its workspaces)
     const proj = projects.find((p) => p.path === wtPath)
     if (proj) removeProject(proj.id)
     refresh()

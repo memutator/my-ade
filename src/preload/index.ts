@@ -139,11 +139,11 @@ function toBase64(s: string): string {
   return btoa(bin)
 }
 
-const ade = {
-  /** dev-profile run (is.dev && !ADE_TEST) — main stamps ADE_DEV=1 before
+const mahas = {
+  /** dev-profile run (is.dev && !MAHAS_TEST) — main stamps MAHAS_DEV=1 before
    *  spawning renderers; TopBar shows the badge so dev/prod stay visually
    *  distinct */
-  dev: process.env.ADE_DEV === '1',
+  dev: process.env.MAHAS_DEV === '1',
   pty: {
     spawn: (opts: PtySpawnOpts): Promise<void> => ipcRenderer.invoke('pty:spawn', opts),
     // attach to an existing session (remount / detached window): host replies
@@ -233,7 +233,7 @@ const ade = {
       body?: string,
       meta?: { workspaceId?: string; paneId?: string; tabId?: string }
     ): void => ipcRenderer.send('notify:show', { title, body, ...meta }),
-    // notification-policy verdict trail → ~/.config/ade/notify-decisions.log
+    // notification-policy verdict trail → ~/.config/mahas/notify-decisions.log
     decision: (rec: unknown): void => ipcRenderer.send('notify:decision', rec),
     onClicked: (
       cb: (m: {
@@ -373,12 +373,12 @@ const ade = {
   openExternal: (url: string): void => ipcRenderer.send('shell:openExternal', url)
 }
 
-export type AdeApi = typeof ade
+export type MahasApi = typeof mahas
 
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('ade', ade)
+    contextBridge.exposeInMainWorld('mahas', mahas)
   } catch (error) {
     console.error(error)
   }
@@ -386,5 +386,5 @@ if (process.contextIsolated) {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
   // @ts-ignore (define in dts)
-  window.ade = ade
+  window.mahas = mahas
 }

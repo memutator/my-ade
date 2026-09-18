@@ -5,11 +5,11 @@ they are not already looking at**. Everything below follows from that.
 
 ## What an agent event means
 
-ade normalizes every harness's lifecycle hooks into one taxonomy
-(`resources/ade-hook.cjs`). The question that decides the class: *does the user
+mahas normalizes every harness's lifecycle hooks into one taxonomy
+(`resources/mahas-hook.cjs`). The question that decides the class: *does the user
 need to act, or is this just news?*
 
-| ade event        | user must act? | semantics                                          |
+| mahas event        | user must act? | semantics                                          |
 | ---------------- | -------------- | -------------------------------------------------- |
 | `needs-input`    | **yes**        | agent is blocked on a decision (permission/question/elicitation) — work stops until the user answers |
 | `turn-complete`  | no             | turn finished normally; the result waits            |
@@ -24,7 +24,7 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 
 ### Per-harness source mapping
 
-| provider       | raw event                          | ade event        | notes |
+| provider       | raw event                          | mahas event        | notes |
 | -------------- | ---------------------------------- | ---------------- | ----- |
 | claude         | `Stop`                             | `turn-complete`  | |
 | claude         | `Notification` (permission prompt) | `needs-input`    | payload carries a display `message` only |
@@ -174,14 +174,14 @@ double-clicks.
 
 ## Observability
 
-Three append-only NDJSON logs under `~/.config/ade/` trace the pipeline end to
+Three append-only NDJSON logs under `~/.config/mahas/` trace the pipeline end to
 end — raw input, normalized stream, and the decision each event produced:
 
 | file                    | written by            | contents |
 | ----------------------- | --------------------- | -------- |
-| `hook-raw.log`          | `ade-hook.cjs`, opencode plugin | every invocation: `{ts, provider, arg, env presence, normalized event, sessionId, cwd, raw payload}` — the evidence base for the per-harness table above. Always on, tail-kept at ~1 MB |
+| `hook-raw.log`          | `mahas-hook.cjs`, opencode plugin | every invocation: `{ts, provider, arg, env presence, normalized event, sessionId, cwd, raw payload}` — the evidence base for the per-harness table above. Always on, tail-kept at ~1 MB |
 | `agent-events.log`      | hook script / plugin  | normalized events — the actual ingest channel |
 | `notify-decisions.log`  | renderer (via `notify:decision` IPC) | per ours-event verdict: `{ev, target, level, action, reason}` — why something did or didn't ping |
 
-`hook-debug.log` still exists behind `ADE_HOOK_DEBUG=1` for script-internal
+`hook-debug.log` still exists behind `MAHAS_HOOK_DEBUG=1` for script-internal
 failures; `hook-raw.log` needs no flag.

@@ -127,7 +127,7 @@ async function fetchCodex(): ReturnType<Fetcher> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
-    'User-Agent': 'ade'
+    'User-Agent': 'mahas'
   }
   const accountId = str(tokens?.account_id)
   if (accountId) headers['ChatGPT-Account-Id'] = accountId
@@ -241,7 +241,7 @@ async function fetchCopilot(): ReturnType<Fetcher> {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'ade'
+    'User-Agent': 'mahas'
   })) as Record<string, unknown>
   const snaps = r.quota_snapshots as Record<string, Record<string, unknown>> | undefined
   const resetAt = str(r.quota_reset_date) ? Date.parse(str(r.quota_reset_date)!) : undefined

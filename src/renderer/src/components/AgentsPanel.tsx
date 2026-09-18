@@ -37,7 +37,7 @@ export default function AgentsPanel({ wsId }: { wsId: string }): React.JSX.Eleme
     const st = useStore.getState()
     const pane = g.pane
     if (pane.detached) {
-      window.ade.win.focusDetached(g.ws.id, pane.id)
+      window.mahas.win.focusDetached(g.ws.id, pane.id)
       return
     }
     if (g.ws.id !== st.activeWorkspaceId) st.activateWorkspace(g.ws.id)

@@ -52,7 +52,7 @@ export default function DetachedApp({
   // off it (keep the pty alive when this view unmounts) and sync-up echoes
   // the whole pane object, which would otherwise clear the flag in main
   useEffect(() => {
-    void window.ade?.win.hello().then((h) => {
+    void window.mahas?.win.hello().then((h) => {
       if (h?.pane) {
         useStore
           .getState()
@@ -70,7 +70,7 @@ export default function DetachedApp({
   useEffect(() => {
     const report = (): void => {
       if (document.hasFocus())
-        window.ade.win.paneCmd({ action: 'attended', wsId, paneId, tabId: attendedTabId })
+        window.mahas.win.paneCmd({ action: 'attended', wsId, paneId, tabId: attendedTabId })
     }
     report()
     window.addEventListener('focus', report)
@@ -81,8 +81,8 @@ export default function DetachedApp({
   // panes are owned by the main store, so relay the request there
   useEffect(
     () =>
-      window.ade.win.onOpenUrl((url) =>
-        window.ade.win.paneCmd({ action: 'openUrl', wsId, paneId, url })
+      window.mahas.win.onOpenUrl((url) =>
+        window.mahas.win.paneCmd({ action: 'openUrl', wsId, paneId, url })
       ),
     [wsId, paneId]
   )
@@ -95,7 +95,7 @@ export default function DetachedApp({
       const p = s.workspaces.find((w) => w.id === wsId)?.panes[paneId]
       if (p !== last) {
         last = p
-        if (p) window.ade.win.paneSyncUp({ wsId, paneId, pane: p })
+        if (p) window.mahas.win.paneSyncUp({ wsId, paneId, pane: p })
       }
     })
     return unsub
@@ -104,7 +104,7 @@ export default function DetachedApp({
   const togglePin = (): void => {
     const next = !pinned
     setPinned(next)
-    window.ade.win.setAlwaysOnTop?.(next)
+    window.mahas.win.setAlwaysOnTop?.(next)
   }
 
   return (
@@ -118,22 +118,22 @@ export default function DetachedApp({
             </button>
           </Tooltip>
           <Tooltip label={t('reattachPane')}>
-            <button className="pbtn" onClick={() => window.ade.win.reattach()}>
+            <button className="pbtn" onClick={() => window.mahas.win.reattach()}>
               <ArrowDownToLine />
             </button>
           </Tooltip>
           <Tooltip label={t('minimize')}>
-            <button className="pbtn" onClick={() => window.ade.win.minimize()}>
+            <button className="pbtn" onClick={() => window.mahas.win.minimize()}>
               <Minus />
             </button>
           </Tooltip>
           <Tooltip label={t('maximize')}>
-            <button className="pbtn" onClick={() => window.ade.win.maximize()}>
+            <button className="pbtn" onClick={() => window.mahas.win.maximize()}>
               <Square />
             </button>
           </Tooltip>
           <Tooltip label={t('reattachPane')}>
-            <button className="pbtn" onClick={() => window.ade.win.reattach()}>
+            <button className="pbtn" onClick={() => window.mahas.win.reattach()}>
               <X />
             </button>
           </Tooltip>

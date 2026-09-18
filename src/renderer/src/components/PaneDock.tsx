@@ -51,7 +51,7 @@ export default function PaneDock(): React.JSX.Element | null {
             <div
               className={`dock-chip${p.detached ? ' detached' : ''}`}
               onClick={() =>
-                p.detached ? window.ade.win.focusDetached(ws.id, p.id) : restorePane(p.id, ws.id)
+                p.detached ? window.mahas.win.focusDetached(ws.id, p.id) : restorePane(p.id, ws.id)
               }
             >
               <Icon />

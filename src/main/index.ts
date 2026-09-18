@@ -14,7 +14,7 @@ import { pathToFileURL } from 'url'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
 import { readFile, writeFile, stat, readdir } from 'fs/promises'
-import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'fs'
+import { readFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents, stopPtyHost } from './pty'
@@ -30,29 +30,42 @@ import { windowStateFor, trackWindowState } from './windowState'
 
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 
-// productName is the display name (ADE); userData stays on the legacy
-// lowercase dir so existing state/icon caches don't orphan on the rename.
+// productName is the display name (Mahas); userData doubles as the agent
+// event-channel dir (~/.config/mahas). The ade → mahas rename adopts the old
+// profile dir wholesale so state, window geometry, icon caches and hook
+// plumbing all survive.
 // Dev runs get a fully isolated profile — own userData (state file, window
-// geometry, webview sessions, icon cache) AND own ADE_CONFIG_DIR (event
+// geometry, webview sessions, icon cache) AND own MAHAS_CONFIG_DIR (event
 // channel, hook script copy, decision log) — so `npm run dev` never fights
 // the installed app over live session state. Hook scripts resolve
-// ADE_CONFIG_DIR from the spawned agent's env, so dev-terminal agents emit
+// MAHAS_CONFIG_DIR from the spawned agent's env, so dev-terminal agents emit
 // into the dev channel while the user's real harness configs stay shared.
-// ADE_TEST (e2e) keeps the stock layout — its isolation is XDG_CONFIG_HOME.
-const devProfile = is.dev && !process.env.ADE_TEST
-app.setPath('userData', join(app.getPath('appData'), devProfile ? 'ade-dev' : 'ade'))
-if (devProfile && !process.env.ADE_CONFIG_DIR) {
+// MAHAS_TEST (e2e) keeps the stock layout — its isolation is XDG_CONFIG_HOME.
+const devProfile = is.dev && !process.env.MAHAS_TEST
+const userDataDir = join(app.getPath('appData'), devProfile ? 'mahas-dev' : 'mahas')
+try {
+  const legacy = join(app.getPath('appData'), devProfile ? 'ade-dev' : 'ade')
+  if (!existsSync(userDataDir) && existsSync(legacy)) {
+    renameSync(legacy, userDataDir)
+    const st = join(userDataDir, 'ade-state.json')
+    if (existsSync(st)) renameSync(st, join(userDataDir, 'mahas-state.json'))
+  }
+} catch {
+  /* first-boot migration is best-effort */
+}
+app.setPath('userData', userDataDir)
+if (devProfile && !process.env.MAHAS_CONFIG_DIR) {
   const cfgBase = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  process.env.ADE_CONFIG_DIR = join(cfgBase, 'ade-dev')
+  process.env.MAHAS_CONFIG_DIR = join(cfgBase, 'mahas-dev')
 }
 // renderers inherit the env — the titlebar shows a red dev badge on it
-if (devProfile) process.env.ADE_DEV = '1'
+if (devProfile) process.env.MAHAS_DEV = '1'
 
 // Per-run session tag: pty-host inherits it, every spawned shell and agent
 // CLI carries it, and hook scripts stamp it onto each event. The tailer drops
-// events from foreign sessions (agents running outside ade, or another ade
+// events from foreign sessions (agents running outside mahas, or another mahas
 // instance) so notifications only fire for OUR terminals.
-process.env.ADE_SESSION ??= randomUUID()
+process.env.MAHAS_SESSION ??= randomUUID()
 
 const IMAGE_EXTS = new Set([
   '.png',
@@ -158,10 +171,10 @@ function createWindow(): void {
   const st = windowStateFor('main', wa)
   const width = st.width ?? Math.min(1440, wa.width)
   const height = st.height ?? Math.min(900, wa.height)
-  // ADE_TEST runs the full app headlessly — window never maps, can't steal
+  // MAHAS_TEST runs the full app headlessly — window never maps, can't steal
   // focus (focusable:false), and doesn't blink in the taskbar. Used by
-  // tools/e2e.mjs; combine with ADE_FAKE_FOCUS to pin the win:state verdict.
-  const testMode = !!process.env.ADE_TEST
+  // tools/e2e.mjs; combine with MAHAS_FAKE_FOCUS to pin the win:state verdict.
+  const testMode = !!process.env.MAHAS_TEST
   mainWindow = new BrowserWindow({
     width,
     height,
@@ -191,7 +204,7 @@ function createWindow(): void {
   })
   // closing the main window = quitting the app — let the renderer veto with
   // an in-app confirm while live terminals would be killed. A crashed/hung
-  // renderer can't veto (it would never answer), and ADE_TEST bypasses so
+  // renderer can't veto (it would never answer), and MAHAS_TEST bypasses so
   // e2e can quit with live agents on purpose
   mainWindow.on('close', (e) => {
     if (testMode || quitConfirmed) return
@@ -340,10 +353,10 @@ function registerWindowIpc(): void {
   // their own window) — the renderer's notify policy keys off this:
   // 'focused' can be attended/ambient, anything else is 'away'
   ipcMain.handle('win:state', (_e, m: { wsId?: string; paneId?: string; detached?: boolean }) => {
-    // test seam: ADE_FAKE_FOCUS pins the verdict so e2e can exercise every
+    // test seam: MAHAS_FAKE_FOCUS pins the verdict so e2e can exercise every
     // attention level deterministically — a hidden window can never hold
     // real OS focus (Wayland won't let an app self-focus anyway)
-    if (process.env.ADE_FAKE_FOCUS && !m?.detached) return process.env.ADE_FAKE_FOCUS
+    if (process.env.MAHAS_FAKE_FOCUS && !m?.detached) return process.env.MAHAS_FAKE_FOCUS
     const win = m?.detached ? detachedWins.get(`${m.wsId}:${m.paneId}`) : mainWindow
     if (!win || win.isDestroyed()) return 'hidden'
     if (win.isMinimized()) return 'minimized'
@@ -405,7 +418,7 @@ function registerFsIpc(): void {
   ipcMain.handle('clipboard:read', () => clipboard.readText())
 }
 
-const STATE_FILE = (): string => join(app.getPath('userData'), 'ade-state.json')
+const STATE_FILE = (): string => join(app.getPath('userData'), 'mahas-state.json')
 
 function registerStateIpc(): void {
   ipcMain.handle('state:load', async () => {
@@ -538,7 +551,7 @@ async function pushAgentConfig(): Promise<void> {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId(devProfile ? 'com.ade.app.dev' : 'com.ade.app')
+  electronApp.setAppUserModelId(devProfile ? 'com.mahas.app.dev' : 'com.mahas.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

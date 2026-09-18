@@ -1,4 +1,4 @@
-// ade pty-host — runs under system Node (not Electron) so node-pty ABI always matches.
+// mahas pty-host — runs under system Node (not Electron) so node-pty ABI always matches.
 // Protocol: newline-delimited JSON over stdio.
 //   in : {t:'spawn',id,cols,rows,cwd,command,args} | {t:'attach',id,cols,rows} |
 //        {t:'write',id,d(base64)} | {t:'resize',id,cols,rows} | {t:'kill',id} |
@@ -113,10 +113,10 @@ function handleSpawn(m) {
   // agents launched inside carry exact pane/tab attribution (env survives the
   // shell → agent → hook chain; cwd-guessing can't distinguish tabs that
   // share a directory)
-  const [adePane, adeTab] = String(m.id).split(':')
+  const [mahasPane, mahasTab] = String(m.id).split(':')
   const env = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
-  if (adePane) env.ADE_PANE = adePane
-  if (adeTab) env.ADE_TAB = adeTab
+  if (mahasPane) env.MAHAS_PANE = mahasPane
+  if (mahasTab) env.MAHAS_TAB = mahasTab
   let proc
   try {
     proc = pty.spawn(command, args, {

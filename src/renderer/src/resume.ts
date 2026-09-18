@@ -1,4 +1,4 @@
-// Agent session resume — after a restart, ade offers to reopen the agent
+// Agent session resume — after a restart, mahas offers to reopen the agent
 // sessions that were live when it last persisted state (see ResumeSession —
 // a bounded current set, not a history).
 //
@@ -41,14 +41,14 @@ function dropForPty(ptyId: string): void {
 }
 
 export function initResumeTracking(): () => void {
-  const off = window.ade.pty.onEvent((e) => {
+  const off = window.mahas.pty.onEvent((e) => {
     if (e.t === 'spawned' || e.t === 'attached') {
       live.add(e.id)
       const cmd = pending.get(e.id)
       if (cmd) {
         pending.delete(e.id)
         // let the fresh shell reach its prompt before the command lands
-        setTimeout(() => window.ade.pty.write(e.id, cmd + '\r'), 350)
+        setTimeout(() => window.mahas.pty.write(e.id, cmd + '\r'), 350)
       }
     } else if (e.t === 'exit') {
       live.delete(e.id)
@@ -129,7 +129,7 @@ export function resumeWorkspaceSessions(wsId: string): number {
   let n = 0
   for (const c of cands) {
     const pty = c.tab.pty!
-    if (live.has(pty)) window.ade.pty.write(pty, c.cmd + '\r')
+    if (live.has(pty)) window.mahas.pty.write(pty, c.cmd + '\r')
     else pending.set(pty, c.cmd) // drained by the tab's own spawned event
     // leftmost resumed tab ends up active — matches the visual restore order
     if (!panes.has(c.rec.paneId)) panes.set(c.rec.paneId, c.rec.tabId)

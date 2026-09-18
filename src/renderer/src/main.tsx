@@ -8,11 +8,11 @@ import { loadAgentManifest } from './agents'
 import './styles.css'
 
 // @ts-expect-error debugging handle (CDP / console poking)
-window.__ade = useStore
+window.__mahas = useStore
 
 async function bootstrap(): Promise<void> {
   const [saved] = await Promise.all([
-    window.ade.state.load().catch(() => null),
+    window.mahas.state.load().catch(() => null),
     loadAgentManifest().catch(() => ({}))
   ])
   if (saved && typeof saved === 'object') {

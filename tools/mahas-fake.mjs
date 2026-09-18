@@ -1,26 +1,26 @@
 #!/usr/bin/env node
-// ade-fake — a fake agent harness for testing ADE end-to-end.
+// mahas-fake — a fake agent harness for testing Mahas end-to-end.
 //
-// Run it inside an ADE terminal tab exactly like a real agent CLI. It inherits
-// ADE_SESSION/ADE_PANE/ADE_TAB from the spawned shell's env (stamped by
+// Run it inside a Mahas terminal tab exactly like a real agent CLI. It inherits
+// MAHAS_SESSION/MAHAS_PANE/MAHAS_TAB from the spawned shell's env (stamped by
 // pty-host), emits lifecycle events through the real hook script
-// (ade-hook.cjs), and stays alive until told to exit — so the pty agent
+// (mahas-hook.cjs), and stays alive until told to exit — so the pty agent
 // detector, hook normalization, attention policy and resume machinery all
 // exercise the real code path.
 //
-//   node tools/ade-fake.mjs                    interactive — single keys emit events
-//   node tools/ade-fake.mjs --session-id X     pin the session id
-//   node tools/ade-fake.mjs --resume X         re-attach to session id X
-//   node tools/ade-fake.mjs --emit <ev> [--session-id X] [--message M]
+//   node tools/mahas-fake.mjs                    interactive — single keys emit events
+//   node tools/mahas-fake.mjs --session-id X     pin the session id
+//   node tools/mahas-fake.mjs --resume X         re-attach to session id X
+//   node tools/mahas-fake.mjs --emit <ev> [--session-id X] [--message M]
 //                                              emit one event and exit
-//   node tools/ade-fake.mjs --quiet            no session-start/session-end around the hold
+//   node tools/mahas-fake.mjs --quiet            no session-start/session-end around the hold
 //
 // Interactive keys: n needs-input · c turn-complete · e error · i idle ·
 //                   u user-prompt (turn-start) · r session-rename ·
 //                   x session-end + exit
 //
-// The provider id is `fake` (manifest.json) — detection matches `ade-fake` in
-// the cmdline, and `resume` replays `node tools/ade-fake.mjs --resume '<sid>'`
+// The provider id is `fake` (manifest.json) — detection matches `mahas-fake` in
+// the cmdline, and `resume` replays `node tools/mahas-fake.mjs --resume '<sid>'`
 // (run from the repo root).
 
 import { spawnSync } from 'node:child_process'
@@ -40,14 +40,14 @@ function opt(name, dflt) {
 const has = (name) => args.includes('--' + name)
 
 function hookPath() {
-  if (process.env.ADE_HOOK) return process.env.ADE_HOOK
+  if (process.env.MAHAS_HOOK) return process.env.MAHAS_HOOK
   const configDir =
-    process.env.ADE_CONFIG_DIR ||
-    join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'ade')
-  const installed = join(configDir, 'ade-hook.cjs')
+    process.env.MAHAS_CONFIG_DIR ||
+    join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'mahas')
+  const installed = join(configDir, 'mahas-hook.cjs')
   if (existsSync(installed)) return installed
-  // last resort: the repo copy next to this script — covers runs outside ADE
-  return join(HERE, '..', 'resources', 'ade-hook.cjs')
+  // last resort: the repo copy next to this script — covers runs outside Mahas
+  return join(HERE, '..', 'resources', 'mahas-hook.cjs')
 }
 
 const sessionId =
@@ -62,7 +62,7 @@ function emit(event, extra = {}) {
   const r = spawnSync(process.execPath, [hookPath(), 'fake', event, payload], {
     stdio: 'inherit'
   })
-  if (r.status !== 0) console.error(`[ade-fake] hook emit failed: ${event}`)
+  if (r.status !== 0) console.error(`[mahas-fake] hook emit failed: ${event}`)
 }
 
 if (has('--emit')) {
@@ -74,8 +74,8 @@ const quiet = has('--quiet')
 const resumed = has('--resume')
 if (!quiet) emit('session-start', resumed ? { reason: 'resume' } : {})
 
-console.log(`[ade-fake] session ${sessionId}${resumed ? ' (resumed)' : ''}`)
-console.log('[ade-fake] keys: n needs-input · c turn-complete · e error · i idle · u turn-start · r rename · x end+exit')
+console.log(`[mahas-fake] session ${sessionId}${resumed ? ' (resumed)' : ''}`)
+console.log('[mahas-fake] keys: n needs-input · c turn-complete · e error · i idle · u turn-start · r rename · x end+exit')
 
 let ending = false
 function end(code = 0) {
@@ -105,6 +105,6 @@ if (process.stdin.isTTY) {
     const ev = table[k.name]
     if (!ev) return
     emit(ev, k.name === 'r' ? { name: 'renamed session' } : {})
-    console.log(`[ade-fake] → ${ev}`)
+    console.log(`[mahas-fake] → ${ev}`)
   })
 }

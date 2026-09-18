@@ -1,16 +1,16 @@
 // Per-harness hook installers. Electron-free (node builtins only) so the whole
 // module can be exercised with plain node against a fake HOME.
 //
-// Each provider knows how to detect its CLI, report whether the ade hook is
+// Each provider knows how to detect its CLI, report whether the mahas hook is
 // installed, and install it. Installers are additive and idempotent: they never
 // remove the user's existing hooks, they back up any file they mutate
-// (<file>.ade-bak), and they only run when the user clicks Install in Settings.
+// (<file>.mahas-bak), and they only run when the user clicks Install in Settings.
 
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { spawnSync } from 'child_process'
-import { adeConfigDir } from './eventsFile'
+import { mahasConfigDir } from './eventsFile'
 
 export interface HookStatus {
   id: string
@@ -50,7 +50,7 @@ function binAvailable(bin: string): boolean {
 
 function backup(file: string): void {
   try {
-    if (fs.existsSync(file)) fs.copyFileSync(file, file + '.ade-bak')
+    if (fs.existsSync(file)) fs.copyFileSync(file, file + '.mahas-bak')
   } catch {
     /* backup is best-effort */
   }
@@ -99,10 +99,12 @@ function appendJsonHook(
   ) as Record<string, unknown>
   if (opts.eventsKey) hooks.events = container
   const arr = Array.isArray(container[event]) ? (container[event] as unknown[]) : []
-  if (arr.some((g) => JSON.stringify(g).includes('ade-hook')))
+  if (arr.some((g) => JSON.stringify(g).includes('mahas-hook')))
     return { ok: true, detail: 'already installed' }
-  arr.push(group)
-  container[event] = arr
+  // a pre-rename 'ade-hook' group is ours — replace it, don't double-register
+  const kept = arr.filter((g) => !JSON.stringify(g).includes('ade-hook'))
+  kept.push(group)
+  container[event] = kept
   fs.mkdirSync(path.dirname(file), { recursive: true })
   backup(file)
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
@@ -127,7 +129,7 @@ function parseTomlStringArray(line: string): string[] {
   return out
 }
 
-const HOOK_MARK = 'ade-hook'
+const HOOK_MARK = 'mahas-hook'
 
 const PROVIDERS: ProviderDef[] = [
   {
@@ -172,7 +174,7 @@ const PROVIDERS: ProviderDef[] = [
           .split('\n')
           .find((l) => /^\s*notify\s*=/.test(l))
         if (line && !line.includes(HOOK_MARK))
-          return 'existing notify command is kept — ade forwards the payload to it'
+          return 'existing notify command is kept — mahas forwards the payload to it'
       } catch {
         /* no file */
       }
@@ -204,9 +206,11 @@ const PROVIDERS: ProviderDef[] = [
       if (idx >= 0) {
         if (lines[idx].includes(HOOK_MARK)) return { ok: true, detail: 'already installed' }
         // Preserve the displaced command: the hook script re-invokes it with the payload.
+        // A pre-rename 'ade-hook' line is ours — replace it, don't chain it.
+        const legacy = lines[idx].includes('ade-hook')
         const prev = parseTomlStringArray(lines[idx])
-        if (prev.length) {
-          const fwdFile = path.join(adeConfigDir(home), 'notify-forward.json')
+        if (!legacy && prev.length) {
+          const fwdFile = path.join(mahasConfigDir(home), 'notify-forward.json')
           let table: Record<string, unknown> = {}
           try {
             table = JSON.parse(fs.readFileSync(fwdFile, 'utf8'))
@@ -220,7 +224,7 @@ const PROVIDERS: ProviderDef[] = [
         lines[idx] = notifyLine
         backup(file)
         fs.writeFileSync(file, lines.join('\n'), 'utf8')
-        return { ok: true, detail: 'previous notify command chained after ade' }
+        return { ok: true, detail: 'previous notify command chained after mahas' }
       }
       // `notify` is a top-level key: it must precede the first [table] header.
       const firstTable = lines.findIndex((l) => /^\s*\[/.test(l))
@@ -237,13 +241,13 @@ const PROVIDERS: ProviderDef[] = [
     label: 'Grok',
     bin: 'grok',
     mechanism:
-      'Stop/StopCancelled/StopFailure + Notification + SessionStart/End — ~/.grok/hooks/ade.json',
-    configPath: (home) => path.join(home, '.grok', 'hooks', 'ade.json'),
-    installed: (home) => fileMentions(path.join(home, '.grok', 'hooks', 'ade.json'), HOOK_MARK),
+      'Stop/StopCancelled/StopFailure + Notification + SessionStart/End — ~/.grok/hooks/mahas.json',
+    configPath: (home) => path.join(home, '.grok', 'hooks', 'mahas.json'),
+    installed: (home) => fileMentions(path.join(home, '.grok', 'hooks', 'mahas.json'), HOOK_MARK),
     install: (home, cmd) => {
-      const file = path.join(home, '.grok', 'hooks', 'ade.json')
+      const file = path.join(home, '.grok', 'hooks', 'mahas.json')
       const doc = {
-        description: 'ade turn notifications',
+        description: 'mahas turn notifications',
         hooks: {
           Stop: [{ hooks: [{ type: 'command', command: cmd, timeout: 10 }] }],
           StopCancelled: [{ hooks: [{ type: 'command', command: cmd }] }],
@@ -283,7 +287,7 @@ const PROVIDERS: ProviderDef[] = [
       const file = path.join(configHome(home), 'devin', 'config.json')
       const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
       // passive observer: the script prints no decision, so the normal
-      // permission prompt still runs — ade just gets told it's waiting.
+      // permission prompt still runs — mahas just gets told it's waiting.
       // SessionStart/End feed the restart-resume set.
       const rs = ['Stop', 'PermissionRequest', 'SessionStart', 'SessionEnd'].map((ev) =>
         appendJsonHook(file, ev, group)
@@ -327,14 +331,14 @@ const PROVIDERS: ProviderDef[] = [
     label: 'OpenCode',
     bin: 'opencode',
     mechanism: 'plugin session.idle/error + permission/question.asked — ~/.config/opencode/plugins',
-    configPath: (home) => path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
+    configPath: (home) => path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js'),
     installed: (home) =>
       fileMentions(
-        path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
-        'AdeEventsPlugin'
+        path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js'),
+        'MahasEventsPlugin'
       ),
     install: (home, _cmd, _argv, pluginSrc) => {
-      const dest = path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js')
+      const dest = path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js')
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       let same = false
       try {
@@ -351,7 +355,7 @@ const PROVIDERS: ProviderDef[] = [
 ]
 
 function ensureHookCopy(home: string, hookScriptSrc: string): string {
-  const dest = path.join(adeConfigDir(home), 'ade-hook.cjs')
+  const dest = path.join(mahasConfigDir(home), 'mahas-hook.cjs')
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   try {
     if (
@@ -407,8 +411,8 @@ export function installHook(
   }
 }
 
-// Refresh ade-owned hook artifacts at startup. The hook script copy under
-// ~/.config/ade and grok's hook file are ours end-to-end, and the opencode
+// Refresh mahas-owned hook artifacts at startup. The hook script copy under
+// ~/.config/mahas and grok's hook file are ours end-to-end, and the opencode
 // plugin file is a file we own inside opencode's plugins dir — all three
 // track the shipped version so fixes land without a re-Install click.
 // User-owned config files (claude settings.json, devin/zcode config.json,
@@ -421,6 +425,20 @@ export function refreshInstalledHooks(
 ): void {
   try {
     const dest = ensureHookCopy(home, hookScriptSrc)
+    // sweep pre-rename ade-owned leftovers — they point at ~/.config/ade
+    // paths that no longer exist. User configs carrying 'ade-hook' entries
+    // migrate on the next Install click.
+    for (const f of [
+      path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
+      path.join(home, '.grok', 'hooks', 'ade.json'),
+      path.join(mahasConfigDir(home), 'ade-hook.cjs')
+    ]) {
+      try {
+        if (fileMentions(f, 'ade-hook') || fileMentions(f, 'AdeEventsPlugin')) fs.unlinkSync(f)
+      } catch {
+        /* best-effort */
+      }
+    }
     for (const id of ['grok', 'opencode']) {
       const p = PROVIDERS.find((x) => x.id === id)
       try {

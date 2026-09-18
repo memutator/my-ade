@@ -1,6 +1,6 @@
-# ade
+# mahas
 
-Personal ADE (Agent Development Environment) — a minimal tiling shell in the spirit of
+Personal Mahas (Agent Development Environment) — a minimal tiling shell in the spirit of
 Wave Terminal, for Linux. Chrome-style workspace tabs live in the title bar; each
 workspace is a splittable pane layout scoped to a project directory.
 
@@ -25,7 +25,7 @@ workspace is a splittable pane layout scoped to a project directory.
 - **Terminal links** — URL/file paths in terminal output open in matching panes
 - **File tree** — app icon hover → overlay, click → pinned sidebar
 - **Persistence** — projects, workspaces, layouts, pane state, and settings are
-  restored across restarts (`~/.config/ade/ade-state.json`)
+  restored across restarts (`~/.config/mahas/mahas-state.json`)
 
 ## Development
 

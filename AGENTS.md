@@ -1,6 +1,6 @@
-# ade
+# mahas
 
-Personal ADE (Agent Development Environment) — a minimal tiling shell in the spirit of
+Personal Mahas (Agent Development Environment) — a minimal tiling shell in the spirit of
 Wave Terminal. Chrome-style workspace tabs sit in the title bar; each workspace is a
 splittable pane layout scoped to a project directory.
 
@@ -87,21 +87,21 @@ splittable pane layout scoped to a project directory.
 
 - `npm run dev` — start dev (sets `ELECTRON_DISABLE_SANDBOX=1`; required because
   `chrome-sandbox` lacks setuid root on this machine). Dev runs an isolated
-  profile: `userData` → `appData/ade-dev` (state file, window state, icon
-  cache, webview sessions) and `ADE_CONFIG_DIR` → `~/.config/ade-dev` (event
+  profile: `userData` → `appData/mahas-dev` (state file, window state, icon
+  cache, webview sessions) and `MAHAS_CONFIG_DIR` → `~/.config/mahas-dev` (event
   channel, hook script copy, decision log) — it never touches the installed
-  app's live data. Agents spawned in dev terminals inherit `ADE_CONFIG_DIR`
+  app's live data. Agents spawned in dev terminals inherit `MAHAS_CONFIG_DIR`
   so their hook events route into the dev channel; harness hook installs
   still target the user's real configs (hooks are global by nature).
-  `ADE_TEST` (e2e) opts out — it isolates via `XDG_CONFIG_HOME` instead.
-  Dev runs stamp `ADE_DEV=1` into the env — the renderer reads it for the
+  `MAHAS_TEST` (e2e) opts out — it isolates via `XDG_CONFIG_HOME` instead.
+  Dev runs stamp `MAHAS_DEV=1` into the env — the renderer reads it for the
   red "dev" badge left of the titlebar bell.
 - `npm install` fails at the `electron-builder install-app-deps` postinstall
   (node-gyp rebuild needs make, which isn't installed) — deps still install fine;
   ignore it or use `--ignore-scripts`.
 - `npm run typecheck` / `npm run lint` / `npm run build`
 - `node tools/e2e.mjs [scenario]` — CDP-driven e2e against `out/` (needs
-  `npm run build` first); `tools/ade-fake.mjs` is the fake harness it drives.
+  `npm run build` first); `tools/mahas-fake.mjs` is the fake harness it drives.
   See `docs/agents.md` → Testing.
 - `npm run build:linux` — package via electron-builder
 
@@ -111,19 +111,19 @@ Packaging is versioned — before every `npm run build:linux`, do all three
 without being asked:
 
 1. **Bump `version` in `package.json`** (patch by default; minor for
-   milestones). Never repackage an unchanged version — an installed `ade`
+   milestones). Never repackage an unchanged version — an installed `mahas`
    can't be told apart from the previous build under the same number.
 2. **Write `requirements/<version>.md`** from `requirements/_template.md` —
    one `- [ ]` item (+ a `비고:` line) per user-facing behavior change in
    that release, grouped by area, so the user can verify each item while
    using the app. Files for older versions stay untouched.
 3. After packaging, report the artifacts and the reinstall command
-   (`sudo apt install --reinstall ./dist/ade_<version>_amd64.deb`).
+   (`sudo apt install --reinstall ./dist/mahas_<version>_amd64.deb`).
 
 ## Architecture
 
 - **Electron main** (`src/main/index.ts`): frameless `BrowserWindow`; IPC for files,
-  dir listing/picker, JSON state (`userData/ade-state.json`), OS `Notification`
+  dir listing/picker, JSON state (`userData/mahas-state.json`), OS `Notification`
   (click forwards `notify:clicked` with workspace/pane meta), agent manifest.
   `webPreferences.webviewTag: true` enables `<webview>` browser panes.
   `ozone-platform-hint=auto` keeps it on native Wayland (XWayland renders blurry text).
@@ -138,13 +138,13 @@ without being asked:
   disk-caches under `userData/agent-icons/`, returns a data URL; `AgentIcon.tsx`
   falls back to a brand-colored letter monogram.
 - **agent hooks** (`src/main/hooks.ts` + `hookInstallers.ts` + `eventsFile.ts`):
-  per-harness hooks append NDJSON events to `~/.config/ade/agent-events.log`;
-  a tailer forwards them to the renderer as `agent:event`. `ade-hook.cjs`
+  per-harness hooks append NDJSON events to `~/.config/mahas/agent-events.log`;
+  a tailer forwards them to the renderer as `agent:event`. `mahas-hook.cjs`
   normalizes every harness into one taxonomy — `turn-complete` / `needs-input`
   / `error` notify, `idle` / `turn-cancelled` / `turn-start` /
   `session-start` / `session-end` are tracking-only — and logs every raw
   invocation to `hook-raw.log` (always on, tail-kept). Installers: codex
-  (`~/.codex/config.toml` notify), grok (`~/.grok/hooks/ade.json` — Stop,
+  (`~/.codex/config.toml` notify), grok (`~/.grok/hooks/mahas.json` — Stop,
   StopCancelled→error-or-silent, StopFailure→error, Notification classified by
   `notificationType`: `permission_prompt`→needs-input, `idle_prompt`→idle,
   SessionStart/SessionEnd), claude (`~/.claude/settings.json` Stop+Notification
@@ -155,18 +155,18 @@ without being asked:
   permission/question.asked, held ~800ms so auto-approved asks never notify).
   `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
-  per provider. Events carry `adeSession` (`process.env.ADE_SESSION`, a per-run
+  per provider. Events carry `mahasSession` (`process.env.MAHAS_SESSION`, a per-run
   UUID set in main) plus `paneId`/`tabId` — the pty id's first two segments,
-  stamped as `ADE_PANE`/`ADE_TAB` at spawn and echoed by the hook — so events
+  stamped as `MAHAS_PANE`/`MAHAS_TAB` at spawn and echoed by the hook — so events
   attribute to the exact emitting tab (cwd guessing collapses when tabs share
-  a directory). The tailer stamps `ours` (`adeSession === ours`); the renderer
+  a directory). The tailer stamps `ours` (`mahasSession === ours`); the renderer
   drops every event that isn't ours — hooks are global so agents in foreign
-  terminals never notify. Ade-owned hook artifacts (script copy, grok's hook
+  terminals never notify. Mahas-owned hook artifacts (script copy, grok's hook
   file, opencode plugin) refresh to the shipped version on app start;
   user-owned configs need a re-Install click.
 - **devin session-lock sweep** (`src/main/devinLocks.ts`): `devin` CLI leaves
   `~/.local/share/devin/cli/session_locks/*.lock` behind on kill/crash and
-  then refuses the session with `session_locked`. ade sweeps on app start,
+  then refuses the session with `session_locked`. mahas sweeps on app start,
   on each devin `session-end` event, on pty `exit`, and (quit delayed ~400ms)
   on `will-quit` — a lock drops only when no flock is held on the inode AND
   its recorded pid is dead/not-devin, so live sessions are never unlocked.
@@ -194,13 +194,13 @@ without being asked:
   hook/pty-idle double-fires; 3s burst coalescing collapses subagent fan-out.
   Process-idle never notifies for providers with an installed hook. Pending
   `needs-input` settles to read on the next event for the same session/tab.
-  Verdicts append to `~/.config/ade/notify-decisions.log` via `notify:decision`.
+  Verdicts append to `~/.config/mahas/notify-decisions.log` via `notify:decision`.
   A term tab's close slot is also a live status light (`TabItem.status` →
   `.ctab-st`): `working` pulse driven by `tab.working` (pty output activity
   while an agent is detected, refined by hook turn-start/end events — spec:
   `docs/notifications.md` → Tab status dots), amber for unread `needs-input`,
   red for unread `error`; hovering the tab swaps the dot back to the close X.
-- **Preload** (`src/preload/index.ts`): `window.ade` — `pty`, `file`, `fs`, `state`,
+- **Preload** (`src/preload/index.ts`): `window.mahas` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.
 - **Renderer** (`src/renderer/src`): React 19 + zustand. Store holds `projects`,
   `workspaces[]` (each with `root`/`panes`/`focusedPaneId`), `settings`,
@@ -266,7 +266,7 @@ Hierarchy: **app shell → workspace surface → pane content**, one step darker
   reorder target instead of a pane/ws drop.
 - A focused `<webview>` also keeps its keydowns — `resources/webview-preload.cjs`
   runs inside every guest (`preload` attr) and relays Alt+\* / Ctrl+Tab via
-  `ipc-message` → `ade:key` to `applyShortcut` in `shortcuts.ts` — the same
+  `ipc-message` → `mahas:key` to `applyShortcut` in `shortcuts.ts` — the same
   dispatch the window keydown listener uses.
 - No build tools (make/gcc) on this machine — never add deps that require node-gyp
   builds; prefer prebuilt binaries.

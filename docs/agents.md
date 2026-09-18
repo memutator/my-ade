@@ -1,6 +1,6 @@
 # Agents
 
-ade notices agent CLIs running inside its terminals and tells you when a turn
+mahas notices agent CLIs running inside its terminals and tells you when a turn
 finishes. Two mechanisms cooperate: **process detection** (always on, works for
 any CLI in the manifest) and **harness hooks** (opt-in per provider, real
 turn-complete signals instead of a process-exit proxy).
@@ -40,15 +40,15 @@ falls back to a brand-colored letter monogram (`color`).
 ## Harness hooks
 
 Per-harness lifecycle hooks append one NDJSON event per line to
-`~/.config/ade/agent-events.log`; the main process tails the file and forwards
+`~/.config/mahas/agent-events.log`; the main process tails the file and forwards
 each event to the renderer as `agent:event`. A file (not a socket) so events
-are never lost while ade is closed — they drain on next launch — and no ports
+are never lost while mahas is closed — they drain on next launch — and no ports
 or extra permissions are needed.
 
 Installers live in `src/main/hookInstallers.ts` and run only when you click
 **Install** in Settings → agents. They are additive and idempotent, never
-remove existing hooks, and back up any file they mutate (`<file>.ade-bak`).
-The hook script itself is copied to `~/.config/ade/ade-hook.cjs` and registered
+remove existing hooks, and back up any file they mutate (`<file>.mahas-bak`).
+The hook script itself is copied to `~/.config/mahas/mahas-hook.cjs` and registered
 as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 `PATH`.
 
@@ -56,27 +56,27 @@ as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 | -------- | ------------------------------------------------------- | --------------------------------------- |
 | claude   | `Stop` + `Notification` + `SessionStart`/`SessionEnd` hook groups | `~/.claude/settings.json`               |
 | codex    | `notify = ["node", <hook>, "codex"]` top-level key      | `~/.codex/config.toml`                  |
-| grok     | `Stop`, `StopCancelled`, `StopFailure`, `Notification`, `SessionStart`, `SessionEnd` | `~/.grok/hooks/ade.json`                |
+| grok     | `Stop`, `StopCancelled`, `StopFailure`, `Notification`, `SessionStart`, `SessionEnd` | `~/.grok/hooks/mahas.json`                |
 | devin    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` hook groups | `~/.config/devin/config.json`           |
 | zcode    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` in `hooks.events` + `hooks.enabled` | `~/.zcode/cli/config.json`   |
-| opencode | plugin `AdeEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`, `question.asked` | `~/.config/opencode/plugins/ade-events.js` |
+| opencode | plugin `MahasEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`, `question.asked` | `~/.config/opencode/plugins/mahas-events.js` |
 
-The hook script copy under `~/.config/ade`, grok's hook file and the opencode
+The hook script copy under `~/.config/mahas`, grok's hook file and the opencode
 plugin file are refreshed to the shipped version on every app start — fixes to
 them don't need a re-Install. User-owned configs (claude `settings.json`,
 devin/zcode `config.json`, codex `config.toml`) only change when you click
 **Install** again.
 
 Codex note: `notify` is a single slot. If you already had one, the installer
-records it in `~/.config/ade/notify-forward.json` and the hook script
+records it in `~/.config/mahas/notify-forward.json` and the hook script
 re-invokes it with the same payload — your existing notify keeps working.
 
 ### Event pipeline
 
-`resources/ade-hook.cjs` is the bridge every command-style hook calls. It reads
+`resources/mahas-hook.cjs` is the bridge every command-style hook calls. It reads
 the harness's hook payload (stdin JSON, or the JSON argv for codex `notify`),
 normalizes event names into a shared taxonomy, pulls `cwd`/`sessionId`/a
-clipped `message` out of payload or harness env vars, stamps `adeSession`, and
+clipped `message` out of payload or harness env vars, stamps `mahasSession`, and
 appends the event line. It never writes stdout and always exits 0 — hook
 failures must not disturb the agent. Harnesses that compat-load
 `~/.claude/settings.json` (grok, devin) get relabeled by env so events
@@ -84,7 +84,7 @@ attribute correctly.
 
 The shared taxonomy — three kinds notify, the rest are tracking-only:
 
-| ade event        | meaning                                        | sources |
+| mahas event        | meaning                                        | sources |
 | ---------------- | ---------------------------------------------- | ------- |
 | `turn-complete`  | turn finished normally                         | `Stop`, `agent-turn-complete` (codex notify), `session.idle`, grok `task_complete` |
 | `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (all claude messages — permission prompts and the ≥60 s "waiting for your input"; grok `permission_prompt` etc.), opencode `permission.asked`, `question.asked` (800 ms grace — cancelled on a fast `*.replied`) |
@@ -97,7 +97,7 @@ The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
 
 - starts at EOF — history is not replayed; truncates the file past 2 MB
 - `fs.watch`, with a 1 s stat-poll fallback when inotify is exhausted
-- stamps `ours` (`adeSession === process.env.ADE_SESSION`) — the renderer drops
+- stamps `ours` (`mahasSession === process.env.MAHAS_SESSION`) — the renderer drops
   everything else, so foreign sessions never notify. One exception: an event
   whose stamped `paneId`/`tabId` exists in our restored workspaces is adopted
   anyway — an agent orphaned by a previous run still carries those env values,
@@ -110,11 +110,11 @@ The tailer (`EventLogTailer`, `src/main/eventsFile.ts`):
   (10 s window — only needs to span re-emit latency; real turns can finish
   seconds apart)
 
-`ADE_SESSION` is a per-run UUID set in main and inherited down the chain:
+`MAHAS_SESSION` is a per-run UUID set in main and inherited down the chain:
 pty-host → spawned shell → agent → hook script. Hooks are installed globally,
-so every codex run on the machine appends to this file — `adeSession` is how
-ade tells its own sessions apart. The same env chain carries `ADE_PANE` /
-`ADE_TAB` (parsed out of the pty id `paneId:tabId:uuid` at spawn): events
+so every codex run on the machine appends to this file — `mahasSession` is how
+mahas tells its own sessions apart. The same env chain carries `MAHAS_PANE` /
+`MAHAS_TAB` (parsed out of the pty id `paneId:tabId:uuid` at spawn): events
 stamp `paneId`/`tabId`, so the renderer attributes them to the exact emitting
 tab instead of guessing by cwd — which collapses whenever several tabs share
 a directory.
@@ -152,8 +152,8 @@ status and mechanism.
 
 ## Session resume
 
-ade keeps a bounded, persisted set of the agent sessions that were **alive at
-last shutdown** (`resumeSessions` in `ade-state.json`, keyed by harness
+mahas keeps a bounded, persisted set of the agent sessions that were **alive at
+last shutdown** (`resumeSessions` in `mahas-state.json`, keyed by harness
 `sessionId` — a current set, never a history). On the next launch, activating a
 workspace with resumable sessions pops a dialog offering to reopen them all in
 one click.
@@ -196,22 +196,22 @@ survive and stay resumable. A `beforeunload` guard keeps dying sessions'
 
 Two tools live under `tools/` (both plain Node, lint-ignored):
 
-- **`ade-fake.mjs`** — a fake harness that runs inside an ade terminal tab like
-  a real agent CLI: it inherits `ADE_SESSION`/`ADE_PANE`/`ADE_TAB` from the
-  shell env, emits lifecycle events through the installed `ade-hook.cjs`, and
+- **`mahas-fake.mjs`** — a fake harness that runs inside a mahas terminal tab like
+  a real agent CLI: it inherits `MAHAS_SESSION`/`MAHAS_PANE`/`MAHAS_TAB` from the
+  shell env, emits lifecycle events through the installed `mahas-hook.cjs`, and
   stays alive until `x`/Ctrl-C/a signal. Interactive keys emit events
   (`n` needs-input, `c` turn-complete, `e` error, `i` idle, `u` turn-start,
   `r` session-rename, `x` end+exit); `--session-id` pins the id, `--resume`
   re-attaches one, `--emit <ev>` fires once and exits, `--quiet` skips the
   start/end pair. The `fake` manifest entry gives it process detection (cmdline
-  `ade-fake`) and a resume spec (`node tools/ade-fake.mjs --resume '<sid>'` —
+  `mahas-fake`) and a resume spec (`node tools/mahas-fake.mjs --resume '<sid>'` —
   cwd must be the repo root).
 - **`e2e.mjs`** — a CDP driver that boots the built app (`npm run build` →
   `electron .`, not electron-vite dev) under a fresh `XDG_CONFIG_HOME` and
-  drives it via `window.__ade` (the store handle `main.tsx` exposes) +
-  `Runtime.evaluate`. Runs **headless**: `ADE_TEST=1` creates the window with
+  drives it via `window.__mahas` (the store handle `main.tsx` exposes) +
+  `Runtime.evaluate`. Runs **headless**: `MAHAS_TEST=1` creates the window with
   `show:false`/`focusable:false` (never maps, never steals focus), and
-  `ADE_FAKE_FOCUS=focused|visible|…` pins the `win:state` verdict so all three
+  `MAHAS_FAKE_FOCUS=focused|visible|…` pins the `win:state` verdict so all three
   attention levels are deterministic. Scenarios (`node tools/e2e.mjs
   [name…]`): `orphans` (quit kills agent processes), `resume` (two sessions,
   one pane, distinct tabs → reboot → both offered and re-injected into their
@@ -239,9 +239,9 @@ Two tools live under `tools/` (both plain Node, lint-ignored):
   `cwd`, `data`, …) are broadcast to every window. Detached pane windows relay
   their process-idle to the main renderer via `pane:cmd` `agentIdle` so the
   notification list has a single owner.
-- Environment overrides: `ADE_CONFIG_DIR`, `ADE_EVENTS_FILE` relocate the event
-  channel; `ADE_NOTIFY_LOG` relocates the decision log; `ADE_HOOK_DEBUG=1`
-  adds script-internal failure detail to `~/.config/ade/hook-debug.log`.
-  Raw payload capture is always on in `~/.config/ade/hook-raw.log`;
-  `ADE_NODE`/`NODE_BINARY` pick the Node binary for pty-host (see
+- Environment overrides: `MAHAS_CONFIG_DIR`, `MAHAS_EVENTS_FILE` relocate the event
+  channel; `MAHAS_NOTIFY_LOG` relocates the decision log; `MAHAS_HOOK_DEBUG=1`
+  adds script-internal failure detail to `~/.config/mahas/hook-debug.log`.
+  Raw payload capture is always on in `~/.config/mahas/hook-raw.log`;
+  `MAHAS_NODE`/`NODE_BINARY` pick the Node binary for pty-host (see
   [troubleshooting](troubleshooting.md)).

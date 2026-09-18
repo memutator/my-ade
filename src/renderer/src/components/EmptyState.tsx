@@ -8,13 +8,13 @@ export default function EmptyState(): React.JSX.Element {
   const t = useT()
 
   const pickDir = async (): Promise<void> => {
-    const dir = await window.ade.fs.pickDirectory()
+    const dir = await window.mahas.fs.pickDirectory()
     if (dir) createWorkspace(addProject(dir).id, t('workspace'))
   }
 
   return (
     <div className="empty-state">
-      <div className="logo">ADE</div>
+      <div className="logo">Mahas</div>
       <div className="empty-actions">
         {projects.map((p) => (
           <button key={p.id} onClick={() => createWorkspace(p.id, t('workspace'))}>

@@ -16,22 +16,22 @@ Since `f0ce8c3` the main process probes `PATH` first, then scans
 `/usr/bin`, `/usr/local/bin`, `/snap/bin`, linuxbrew, `~/.volta/bin`,
 `~/.local/bin`, `~/.asdf/shims`, and the newest install under
 `~/.nvm`, `~/.local/share/mise`, `~/.local/share/fnm`, `~/.asdf/installs`.
-Point it explicitly with `ADE_NODE=/path/to/node` (`NODE_BINARY` also works).
+Point it explicitly with `MAHAS_NODE=/path/to/node` (`NODE_BINARY` also works).
 If no Node is found at all the app stays up but terminals stay dead — check
 the `[pty-host]` errors on stderr.
 
 **Icon shows `?` in the dock/panel after installing the deb.** The package
-ships `hicolor/512x512/apps/ade.png` and `ade.desktop`, but the desktop's
+ships `hicolor/512x512/apps/mahas.png` and `mahas.desktop`, but the desktop's
 icon cache may be stale — run `kbuildsycoca6 --noincremental` (KDE) or just
 log out and back in.
 
 **Factory reset.** Everything persisted lives in
-`~/.config/ade/ade-state.json` (`$XDG_CONFIG_HOME/ade/` when set) — projects,
+`~/.config/mahas/mahas-state.json` (`$XDG_CONFIG_HOME/mahas/` when set) — projects,
 workspaces, layouts, settings, bookmarks. Window geometry lives in the
 sibling `window-state.json` (size + maximized; x/y honored on X11 only —
 Wayland compositors ignore client position requests). Quit and delete the
 files to start clean. Agent event log and icons sit alongside them
-(`agent-events.log`, `agent-icons/`, `ade-hook.cjs`, `notify-forward.json`).
+(`agent-events.log`, `agent-icons/`, `mahas-hook.cjs`, `notify-forward.json`).
 
 ## Display
 
@@ -55,12 +55,12 @@ agent → idle *transition* — an interactive agent that stays running between
 turns is invisible to it. Install the harness hook (Settings → agent hooks)
 for real `turn-complete` events. Also check the provider toggle isn't off, and
 that the agent ran inside a registered project (foreign hook events outside
-projects stay silent). `ADE_HOOK_DEBUG=1` makes hook scripts log to
-`~/.config/ade/hook-debug.log`.
+projects stay silent). `MAHAS_HOOK_DEBUG=1` makes hook scripts log to
+`~/.config/mahas/hook-debug.log`.
 
 ## Development
 
-**File tree/agent events stopped; `inotify` errors.** ade watches
+**File tree/agent events stopped; `inotify` errors.** mahas watches
 directories, open files, and the agent event log. Raise the limits:
 
 ```
@@ -108,8 +108,8 @@ Screenshots are physical pixels (`devicePixelRatio` is 1).
 | Variable                     | Effect                                                        |
 | ---------------------------- | ------------------------------------------------------------- |
 | `ELECTRON_DISABLE_SANDBOX=1` | Required for dev / AppImage without a usable chrome-sandbox    |
-| `ADE_NODE`, `NODE_BINARY`    | Node binary used to spawn pty-host                             |
-| `ADE_CONFIG_DIR`             | Relocate `~/.config/ade` (event log, hook copy, icon cache)    |
-| `ADE_EVENTS_FILE`            | Relocate the NDJSON agent-event file                           |
-| `ADE_HOOK_DEBUG=1`           | Hook scripts log to `~/.config/ade/hook-debug.log`             |
-| `ADE_SESSION`                | Per-run UUID set by main — don't set it yourself               |
+| `MAHAS_NODE`, `NODE_BINARY`    | Node binary used to spawn pty-host                             |
+| `MAHAS_CONFIG_DIR`             | Relocate `~/.config/mahas` (event log, hook copy, icon cache)    |
+| `MAHAS_EVENTS_FILE`            | Relocate the NDJSON agent-event file                           |
+| `MAHAS_HOOK_DEBUG=1`           | Hook scripts log to `~/.config/mahas/hook-debug.log`             |
+| `MAHAS_SESSION`                | Per-run UUID set by main — don't set it yourself               |

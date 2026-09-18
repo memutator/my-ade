@@ -128,7 +128,7 @@ function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string
   const cwd = paneAt(wsId, paneId)?.tabs.find(
     (t): t is TerminalTab => t.id === tabId && t.kind === 'term'
   )?.cwd
-  window.ade.fs
+  window.mahas.fs
     .resolvePath(raw, cwd)
     .then((abs) => {
       if (!abs) return
@@ -253,10 +253,10 @@ export function TerminalTabView({
 
   const copySelection = (): void => {
     const term = termRef.current
-    if (term?.hasSelection()) void window.ade.clipboard.write(term.getSelection())
+    if (term?.hasSelection()) void window.mahas.clipboard.write(term.getSelection())
   }
   const pasteClipboard = (): void => {
-    void window.ade.clipboard.read().then((s) => s && termRef.current?.paste(s))
+    void window.mahas.clipboard.read().then((s) => s && termRef.current?.paste(s))
   }
 
   useEffect(() => {
@@ -293,7 +293,7 @@ export function TerminalTabView({
       if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'c') {
         if (term.hasSelection()) {
           e.preventDefault() // else Chromium fires 'copy' on the textarea too
-          void window.ade.clipboard.write(term.getSelection())
+          void window.mahas.clipboard.write(term.getSelection())
           return false
         }
         return e.ctrlKey && !e.shiftKey && !e.metaKey
@@ -303,7 +303,7 @@ export function TerminalTabView({
         // default action still dispatches 'paste' on the textarea and xterm's
         // own paste listener writes the clipboard a second time. Cancel it.
         e.preventDefault()
-        void window.ade.clipboard.read().then((s) => s && term.paste(s))
+        void window.mahas.clipboard.read().then((s) => s && term.paste(s))
         return false
       }
       return true
@@ -328,7 +328,7 @@ export function TerminalTabView({
     const refit = (): void => {
       try {
         fit.fit()
-        window.ade.pty.resize(id, term.cols, term.rows)
+        window.mahas.pty.resize(id, term.cols, term.rows)
       } catch {
         /* not visible yet */
       }
@@ -410,9 +410,9 @@ export function TerminalTabView({
       // typing isn't work — composer echoes can't keep a burst alive, else
       // composing a long prompt would itself read as a turn
       burstStartAt.current = 0
-      window.ade.pty.write(id, d)
+      window.mahas.pty.write(id, d)
     })
-    const offEvent = window.ade.pty.onEvent((e) => {
+    const offEvent = window.mahas.pty.onEvent((e) => {
       if (e.id !== id) return
       if (e.t === 'data' && e.d) {
         term.write(decode(e.d))
@@ -469,7 +469,7 @@ export function TerminalTabView({
         // the notification list lives in the main renderer — relay there.
         if (prev && !e.agent) {
           if (isDetachedWin)
-            window.ade.win.paneCmd({ action: 'agentIdle', wsId, paneId, tabId, provider: prev })
+            window.mahas.win.paneCmd({ action: 'agentIdle', wsId, paneId, tabId, provider: prev })
           else reportProcessIdle(prev, wsId, paneId, tabId)
         }
       }
@@ -478,7 +478,7 @@ export function TerminalTabView({
     const ro = new ResizeObserver(() => {
       try {
         fit.fit()
-        window.ade.pty.resize(id, term.cols, term.rows)
+        window.mahas.pty.resize(id, term.cols, term.rows)
       } catch {
         /* not visible yet */
       }
@@ -488,16 +488,16 @@ export function TerminalTabView({
     // attach → reuse the live session (host replays its scrollback tail);
     // fall back to a fresh spawn under the same id when it's gone
     if (existingPty) {
-      window.ade.pty
+      window.mahas.pty
         .attach(id, term.cols, term.rows)
         .then((ok) => {
           if (!ok && !disposed) {
-            window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+            window.mahas.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
           }
         })
         .catch(() => {})
     } else {
-      window.ade.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+      window.mahas.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
     }
 
     return () => {
@@ -535,7 +535,7 @@ export function TerminalTabView({
           break
         }
       }
-      if (!ownsSession) window.ade.pty.kill(id)
+      if (!ownsSession) window.mahas.pty.kill(id)
       termRef.current = null
       fitRef.current = null
     }

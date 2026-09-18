@@ -3406,9 +3406,9 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   background: var(--border);
 }
 .spin {
-  animation: ade-spin 0.9s linear infinite;
+  animation: mahas-spin 0.9s linear infinite;
 }
-@keyframes ade-spin {
+@keyframes mahas-spin {
   to {
     transform: rotate(360deg);
   }

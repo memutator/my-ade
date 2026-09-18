@@ -188,7 +188,7 @@ export default function LeafPane({
   // goes through pane:cmd (which also tears this window down)
   const applyTabs = (next: PaneTab[], keepId?: string): void => {
     if (next.length === 0) {
-      if (isDetachedWin) window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
+      if (isDetachedWin) window.mahas.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
       else closePane(pane.id, wsId)
       return
     }
@@ -223,7 +223,7 @@ export default function LeafPane({
   // cleanup won't kill it: the tab record still exists)
   const restartTab = (tabId: string): void => {
     const old = tabs.find((x): x is TerminalTab => x.id === tabId && x.kind === 'term')?.pty
-    if (old) window.ade.pty.kill(old)
+    if (old) window.mahas.pty.kill(old)
     patchTerminalTab(wsId, pane.id, tabId, { pty: undefined })
     setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
   }
@@ -234,7 +234,7 @@ export default function LeafPane({
     patchTerminalTab(wsId, pane.id, tabId, { title: title || undefined })
     // session-rename hook: if a harness session was observed for this tab,
     // propagate the name through the real event channel so the session
-    // registry (and every ade instance) learns it — powers the "which
+    // registry (and every mahas instance) learns it — powers the "which
     // session" line in notifications
     const st = useStore.getState()
     const tab = termTab(tabId)
@@ -243,7 +243,7 @@ export default function LeafPane({
     )?.[0]
     if (sid) {
       st.renameAgentSession(sid, title)
-      void window.ade.hooks.emit?.({
+      void window.mahas.hooks.emit?.({
         provider: tab?.agent ?? st.agentSessions[sid]?.provider ?? 'unknown',
         event: 'session-rename',
         sessionId: sid,
@@ -287,7 +287,7 @@ export default function LeafPane({
   // an empty file block's own dialog fills the block in place (via the
   // explicit paneId — never splits, never wanders to another leaf)
   const openDialog = async (): Promise<void> => {
-    const p = await window.ade.file.openDialog()
+    const p = await window.mahas.file.openDialog()
     if (p) openFile(p, basename(p), wsId, false, pane.id)
   }
 
@@ -309,7 +309,7 @@ export default function LeafPane({
         {
           label: t('copyCwd'),
           disabled: !tab.cwd,
-          act: () => tab.cwd && void window.ade.clipboard.write(tab.cwd)
+          act: () => tab.cwd && void window.mahas.clipboard.write(tab.cwd)
         },
         { label: t('restartShell'), act: () => restartTab(tab.id) }
       )
@@ -317,15 +317,15 @@ export default function LeafPane({
       head.push({
         label: t('copyUrl'),
         disabled: !tab.url || tab.url === 'https://',
-        act: () => void window.ade.clipboard.write(tab.url)
+        act: () => void window.mahas.clipboard.write(tab.url)
       })
     } else if (tab.kind === 'file') {
       if (tab.preview) head.push({ label: t('keepOpen'), act: () => keepTab(tab.id) })
       if (tab.path)
         head.push(
-          { label: t('copyPath'), act: () => void window.ade.clipboard.write(tab.path) },
-          { label: t('copyRelPath'), act: () => void window.ade.clipboard.write(rel) },
-          { label: t('reveal'), act: () => window.ade.fs.reveal(tab.path) }
+          { label: t('copyPath'), act: () => void window.mahas.clipboard.write(tab.path) },
+          { label: t('copyRelPath'), act: () => void window.mahas.clipboard.write(rel) },
+          { label: t('reveal'), act: () => window.mahas.fs.reveal(tab.path) }
         )
     }
     return [

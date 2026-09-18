@@ -4,7 +4,7 @@ let manifest: Record<string, AgentProviderInfo> = {}
 
 export async function loadAgentManifest(): Promise<Record<string, AgentProviderInfo>> {
   try {
-    manifest = await window.ade.agents.manifest()
+    manifest = await window.mahas.agents.manifest()
   } catch {
     manifest = {}
   }
@@ -38,7 +38,7 @@ const iconCache = new Map<string, Promise<string | null>>()
 export function agentIcon(id: string): Promise<string | null> {
   let p = iconCache.get(id)
   if (!p) {
-    p = window.ade.agents.icon?.(id).catch(() => null) ?? Promise.resolve(null)
+    p = window.mahas.agents.icon?.(id).catch(() => null) ?? Promise.resolve(null)
     iconCache.set(id, p)
   }
   return p

@@ -1,6 +1,6 @@
 # Architecture
 
-ade is an Electron app: one main process, one or more renderer windows (React 19
+mahas is an Electron app: one main process, one or more renderer windows (React 19
 with a zustand store), a separate **system-Node** child process that owns every
 pty session, and `<webview>` guests inside the renderers. The main window's
 zustand store is the single source of truth; detached-pane windows run their own
@@ -16,7 +16,7 @@ renderer + store and sync back up.
 │     ├─► BrowserWindow "main"       frameless, webviewTag:true
 │     │      └─ renderer: App + zustand store (source of truth)
 │     │            └─ <webview> guests ── resources/webview-preload.cjs
-│     │                                 relays Alt+*/Ctrl+Tab → 'ade:key'
+│     │                                 relays Alt+*/Ctrl+Tab → 'mahas:key'
 │     │
 │     ├─► BrowserWindow "detached"   one per detached pane (?detached=ws:pane)
 │     │      └─ renderer: DetachedApp, own store ── pane:syncUp / pane:cmd
@@ -26,19 +26,19 @@ renderer + store and sync back up.
 │            └─ node-pty → shells → agent CLIs
 │                 └─ /proc poll (1.2 s): cwd changes + agent tree detect
 └──────────────────────────────────────────────────────────────────────
-   persists:   userData/ade-state.json     (main window only, debounced)
+   persists:   userData/mahas-state.json     (main window only, debounced)
    hook log:   userData/agent-events.log   (NDJSON tail → 'agent:event')
    icon cache: userData/agent-icons/
 ```
 
-`userData` resolves to `~/.config/ade` (`ADE_CONFIG_DIR`/`XDG_CONFIG_HOME`
+`userData` resolves to `~/.config/mahas` (`MAHAS_CONFIG_DIR`/`XDG_CONFIG_HOME`
 honored by `eventsFile.ts`).
 
 ## Electron main (`src/main/index.ts`)
 
 - `app.commandLine.appendSwitch('ozone-platform-hint', 'auto')` keeps the app
   on native Wayland — XWayland renders blurry text.
-- `process.env.ADE_SESSION ??= randomUUID()` — per-run session tag inherited by
+- `process.env.MAHAS_SESSION ??= randomUUID()` — per-run session tag inherited by
   pty-host → spawned shells → agent CLIs → hook scripts, which stamp it onto
   each event so the tailer can tell our terminals from foreign ones.
 - `createWindow()` — frameless `BrowserWindow` (min 480×320, clamped to the
@@ -58,7 +58,7 @@ honored by `eventsFile.ts`).
 | `fs:create/rename/trash/copy/move/exists/reveal`                                                                | file-tree ops (`src/main/fsops.ts`)                                                                                                                                                                                                             |
 | `dir:watch/unwatch` → `dir:changed`                                                                             | listing watch for expanded tree dirs (`src/main/dirwatch.ts`)                                                                                                                                                                                   |
 | `git:info`, `git:worktreeAdd/Remove`                                                                            | worktree support (`src/main/worktree.ts`)                                                                                                                                                                                                       |
-| `state:load`, `state:save`                                                                                      | `userData/ade-state.json`; **only the main window's webContents may save** (sender check) so detached renderers can't clobber it                                                                                                                |
+| `state:load`, `state:save`                                                                                      | `userData/mahas-state.json`; **only the main window's webContents may save** (sender check) so detached renderers can't clobber it                                                                                                                |
 | `notify:show` → `notify:clicked`                                                                                | OS `Notification`; a click focuses the main window and forwards `{workspaceId, paneId, tabId}`                                                                                                                                                  |
 | `agents:manifest/icon`, `agents:config`                                                                         | `resources/agents/manifest.json`; `icon` fetches the provider domain's favicon (google s2 → site `/favicon.ico`), mime-sniffs, disk-caches to `userData/agent-icons/<id>.img`, returns a data URL; `config` pushes match patterns into pty-host |
 | `hooks:status/install/test/emit` → `agent:event`                                                                | per-harness hook management (`src/main/hooks.ts` + `hookInstallers.ts`); `test`/`emit` write through the real event file                                                                                                                        |
@@ -88,7 +88,7 @@ Electron 39 (ABI 140) can't load
 `startPtyHost()` spawns `<node> pty-host.cjs` and speaks newline-delimited
 JSON over stdio (stderr inherited into the main process's console).
 
-**Node binary resolution** (`nodeBinary()`): `ADE_NODE` env → `NODE_BINARY`
+**Node binary resolution** (`nodeBinary()`): `MAHAS_NODE` env → `NODE_BINARY`
 env → `node --version` PATH probe → fixed paths (`/usr/bin/node`,
 `/usr/local/bin/node`, `/snap/bin/node`, linuxbrew, `~/.volta/bin/node`,
 `~/.local/bin/node`, `~/.asdf/shims/node`) → newest semver dir under
@@ -134,7 +134,7 @@ including background tabs.
 
 ## Preload (`src/preload/index.ts`)
 
-`contextBridge` exposes `window.ade` (plus `window.electron`):
+`contextBridge` exposes `window.mahas` (plus `window.electron`):
 
 - `pty` — `spawn`, `attach` (resolves `false` when the session is gone),
   `write`, `resize`, `kill`, `onEvent`
@@ -232,7 +232,7 @@ Pane presentation flags:
 ### Shortcuts
 
 `applyShortcut` (`shortcuts.ts`) is the single dispatch for both the window
-keydown listener and `ade:key` ipc-messages relayed from
+keydown listener and `mahas:key` ipc-messages relayed from
 `resources/webview-preload.cjs` inside every `<webview>` guest — a focused
 guest keeps its own keydowns, which would otherwise kill every app shortcut
 while typing in a browser pane. User bindings live in `settings.bindings`
@@ -247,8 +247,8 @@ clicking either jumps to workspace/pane/tab):
 1. **Process detection** — pty-host `{t:'agent'}` events; an agent→idle
    transition fires `agentFinished` (the completion proxy).
 2. **Harness hooks** — installed per-provider hooks append NDJSON to
-   `~/.config/ade/agent-events.log`; the main-process tailer stamps `ours`
-   (`adeSession === ADE_SESSION`) and forwards `agent:event`. Renderer policy:
+   `~/.config/mahas/agent-events.log`; the main-process tailer stamps `ours`
+   (`mahasSession === MAHAS_SESSION`) and forwards `agent:event`. Renderer policy:
    `turn-complete`/`needs-input`/`error` notify, and only for `ours` events —
-   foreign sessions (agents launched outside ade; hooks are global) are
+   foreign sessions (agents launched outside mahas; hooks are global) are
    dropped before they can notify.

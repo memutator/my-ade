@@ -174,7 +174,7 @@ export default function SettingsPage(): React.JSX.Element | null {
   useEffect(() => {
     if (!open) return
     loadAgentManifest().then(setProviders)
-    window.ade.hooks?.status().then(setHooks)
+    window.mahas.hooks?.status().then(setHooks)
   }, [open])
 
   useEffect(() => {
@@ -431,9 +431,9 @@ export default function SettingsPage(): React.JSX.Element | null {
                       <button
                         className="sbtn"
                         onClick={() =>
-                          window.ade.hooks
+                          window.mahas.hooks
                             .install(h.id)
-                            .then(() => window.ade.hooks.status().then(setHooks))
+                            .then(() => window.mahas.hooks.status().then(setHooks))
                             // the attention policy keys off which providers own
                             // a real hook — process-idle goes silent for them
                             .then(() => refreshHookInstalled())
@@ -443,7 +443,7 @@ export default function SettingsPage(): React.JSX.Element | null {
                       </button>
                     )}
                     {h.installed && (
-                      <button className="sbtn" onClick={() => window.ade.hooks.test(h.id)}>
+                      <button className="sbtn" onClick={() => window.mahas.hooks.test(h.id)}>
                         {t('test')}
                       </button>
                     )}

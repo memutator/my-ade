@@ -138,7 +138,7 @@ export default function FileView({
     // save guard: refuse to silently clobber a file that changed on disk
     // since we loaded/saved it (or that vanished — offer to recreate)
     if (!force) {
-      const st = await window.ade.file.stat(path)
+      const st = await window.mahas.file.stat(path)
       const diskChanged =
         !st.ok || !st.exists || mtimeRef.current === null || st.mtimeMs !== mtimeRef.current
       if (diskChanged) {
@@ -155,7 +155,7 @@ export default function FileView({
       }
     }
     dropBanner()
-    const r = await window.ade.file.write(path, contentRef.current)
+    const r = await window.mahas.file.write(path, contentRef.current)
     if (r.ok) {
       // eslint-disable-next-line react-hooks/purity -- async event context, not render
       lastWriteRef.current = Date.now()
@@ -189,7 +189,7 @@ export default function FileView({
   // apply a file:read result to the buffer. useDraft restores the session
   // draft on mount; reloads pass false to discard it and take disk contents.
   const applyRead = useCallback(
-    (r: Awaited<ReturnType<typeof window.ade.file.read>>, useDraft: boolean): void => {
+    (r: Awaited<ReturnType<typeof window.mahas.file.read>>, useDraft: boolean): void => {
       mtimeRef.current = r.mtimeMs ?? null
       const bytes = fromBase64(r.data!)
       const meta = `${r.name} · ${(r.size! / 1024).toFixed(1)} KB`
@@ -233,7 +233,7 @@ export default function FileView({
   // explicit via the conflict banner for dirty ones)
   const reloadFromDisk = useCallback(
     async (flash = false): Promise<void> => {
-      const r = await window.ade.file.read(path)
+      const r = await window.mahas.file.read(path)
       if (!r.ok) {
         mtimeRef.current = null
         setDiskDeleted(true)
@@ -269,7 +269,7 @@ export default function FileView({
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const r = await window.ade.file.read(path)
+      const r = await window.mahas.file.read(path)
       if (cancelled) return
       if (!r.ok) {
         setLoaded({ kind: 'text', error: r.error })
@@ -286,8 +286,8 @@ export default function FileView({
   const isLoaded = loaded !== null
   useEffect(() => {
     if (!isLoaded) return
-    void window.ade.file.watch(path)
-    const off = window.ade.file.onChanged((e) => {
+    void window.mahas.file.watch(path)
+    const off = window.mahas.file.onChanged((e) => {
       if (e.path !== path) return
       if (e.deleted) {
         mtimeRef.current = null
@@ -319,7 +319,7 @@ export default function FileView({
     })
     return () => {
       off()
-      void window.ade.file.unwatch(path)
+      void window.mahas.file.unwatch(path)
     }
   }, [path, isLoaded, reloadFromDisk, showBanner, t])
 

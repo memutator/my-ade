@@ -121,7 +121,7 @@ export default function PaneFrame({
               <button
                 className="pbtn"
                 onClick={() =>
-                  window.ade.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
+                  window.mahas.win.paneCmd({ action: 'closePane', wsId, paneId: pane.id })
                 }
               >
                 <X />
@@ -145,7 +145,7 @@ export default function PaneFrame({
               <button
                 className="pact-item"
                 onClick={() => {
-                  window.ade.win.detach(wsId, pane.id, pane)
+                  window.mahas.win.detach(wsId, pane.id, pane)
                   detachPane(pane.id, wsId)
                 }}
               >

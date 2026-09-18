@@ -73,9 +73,9 @@
     "color": "#FF5543"
   },
   "fake": {
-    "match": ["ade-fake"],
+    "match": ["mahas-fake"],
     "label": "Fake",
     "color": "#8A8A8A",
-    "resume": { "cmd": "node", "args": ["tools/ade-fake.mjs", "--resume"] }
+    "resume": { "cmd": "node", "args": ["tools/mahas-fake.mjs", "--resume"] }
   }
 }

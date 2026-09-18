@@ -227,7 +227,7 @@ export interface AgentHookEvent {
    *  attribution, beats cwd/registry guessing */
   paneId?: string
   tabId?: string
-  /** true when the event came from an ade-spawned terminal session */
+  /** true when the event came from a mahas-spawned terminal session */
   ours?: boolean
   /** session-rename payload: the new session name */
   name?: string

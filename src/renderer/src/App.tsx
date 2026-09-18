@@ -81,7 +81,7 @@ export default function App(): React.JSX.Element {
     for (const [id, info] of Object.entries(manifest)) {
       if (settings.providers[id] !== false && info.match?.length) patterns[id] = info.match
     }
-    if (Object.keys(patterns).length) window.ade.agents.configure?.(patterns)
+    if (Object.keys(patterns).length) window.mahas.agents.configure?.(patterns)
   }, [settings.providers])
 
   // persist state (debounced) + a synchronous flush on unload — the pending
@@ -105,13 +105,13 @@ export default function App(): React.JSX.Element {
       agentsScope: s.agentsScope
     })
     const flush = (): void => {
-      window.ade.state.saveNow?.(snapshot(useStore.getState()))
+      window.mahas.state.saveNow?.(snapshot(useStore.getState()))
     }
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsub = useStore.subscribe((s) => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        void window.ade.state.save(snapshot(s))
+        void window.mahas.state.save(snapshot(s))
       }, 400)
     })
     window.addEventListener('beforeunload', flush)
@@ -124,7 +124,7 @@ export default function App(): React.JSX.Element {
 
   // OS notification click → jump to workspace/pane/tab
   useEffect(() => {
-    return window.ade.notify.onClicked((m) => {
+    return window.mahas.notify.onClicked((m) => {
       const st = useStore.getState()
       if (m.workspaceId && st.workspaces.some((w) => w.id === m.workspaceId)) {
         st.activateWorkspace(m.workspaceId)
@@ -132,7 +132,7 @@ export default function App(): React.JSX.Element {
           const target = st.workspaces.find((w) => w.id === m.workspaceId)?.panes[m.paneId]
           // detached panes live in their own OS window — bring it forward
           if (target?.detached) {
-            window.ade.win.focusDetached(m.workspaceId, m.paneId)
+            window.mahas.win.focusDetached(m.workspaceId, m.paneId)
           } else {
             st.focusPane(m.paneId, m.workspaceId)
           }
@@ -151,8 +151,8 @@ export default function App(): React.JSX.Element {
   // Policy lives in attention.ts — one choke point for every agent signal.
   useEffect(() => {
     void refreshHookInstalled()
-    if (!window.ade.hooks?.onEvent) return
-    return window.ade.hooks.onEvent((ev) => void handleHookEvent(ev))
+    if (!window.mahas.hooks?.onEvent) return
+    return window.mahas.hooks.onEvent((ev) => void handleHookEvent(ev))
   }, [])
 
   // live-session bookkeeping for restart-resume (pty exit / agent loss drop
@@ -160,8 +160,11 @@ export default function App(): React.JSX.Element {
   useEffect(() => initResumeTracking(), [])
 
   // window.open from this renderer (markdown link tooltips) arrives as
-  // 'open-url' — open it as an in-app browser pane, ADE-first
-  useEffect(() => window.ade.win.onOpenUrl((url) => useStore.getState().openUrlInBrowser(url)), [])
+  // 'open-url' — open it as an in-app browser pane, Mahas-first
+  useEffect(
+    () => window.mahas.win.onOpenUrl((url) => useStore.getState().openUrlInBrowser(url)),
+    []
+  )
 
   // read-on-view: unread pings for whatever the user is attending clear
   // without a click. Runs on store changes (workspace switch, tab activate,
@@ -181,17 +184,17 @@ export default function App(): React.JSX.Element {
     const st = useStore.getState()
     for (const w of st.workspaces) {
       for (const p of Object.values(w.panes)) {
-        if (p.detached) window.ade.win.detach(w.id, p.id)
+        if (p.detached) window.mahas.win.detach(w.id, p.id)
       }
     }
   }, [])
 
   // detached-pane window coordination
   useEffect(() => {
-    const offReattach = window.ade.win.onPaneReattach?.((m) => {
+    const offReattach = window.mahas.win.onPaneReattach?.((m) => {
       useStore.getState().attachPane(m.paneId, m.wsId)
     })
-    const offCmd = window.ade.win.onPaneCmd?.((m) => {
+    const offCmd = window.mahas.win.onPaneCmd?.((m) => {
       if (m.action === 'closePane') useStore.getState().closePane(m.paneId, m.wsId)
       // a detached terminal saw its agent process leave — relay into the main
       // store's attention policy (the detached store's notifications are
@@ -205,7 +208,7 @@ export default function App(): React.JSX.Element {
       // main store's workspace
       if (m.action === 'openUrl' && m.url) useStore.getState().openUrlInBrowser(m.url, m.wsId)
     })
-    const offSync = window.ade.win.onPaneSync?.((m) => {
+    const offSync = window.mahas.win.onPaneSync?.((m) => {
       const st = useStore.getState()
       const cur = st.workspaces.find((w) => w.id === m.wsId)?.panes[m.paneId]
       if (!cur || !m.pane || typeof m.pane !== 'object') return

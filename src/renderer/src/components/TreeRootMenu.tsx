@@ -33,7 +33,7 @@ export default function TreeRootMenu({
     if (p !== root) onPick(p)
   }
   const browse = async (): Promise<void> => {
-    const p = await withNativeDialog(window.ade.fs.pickDirectory())
+    const p = await withNativeDialog(window.mahas.fs.pickDirectory())
     if (p) pick(p)
   }
 

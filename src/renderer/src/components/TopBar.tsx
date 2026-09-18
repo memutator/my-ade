@@ -9,7 +9,7 @@ import NotificationBell from './NotificationBell'
 import PaneDock from './PaneDock'
 import FileTree from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
-import AdeLogo from './AdeLogo'
+import MahasLogo from './MahasLogo'
 
 // peek overlay tree — the header is a root picker (recents → projects →
 // browse). It shares the sidebar's per-project root so the peek and the
@@ -73,7 +73,7 @@ export default function TopBar(): React.JSX.Element {
             setSidebarOpen(!sidebarOpen)
           }}
         >
-          <AdeLogo />
+          <MahasLogo />
         </button>
         {treeOverlay && activeProject && (
           <div className="tree-overlay" onMouseLeave={closeOverlay}>
@@ -102,7 +102,7 @@ export default function TopBar(): React.JSX.Element {
 
       <div className="spacer" />
       <PaneDock />
-      {window.ade.dev && <span className="dev-badge">dev</span>}
+      {window.mahas.dev && <span className="dev-badge">dev</span>}
       <NotificationBell />
       <Tooltip label={t('settingsTooltip')}>
         <button className="tbtn" onClick={() => setSettingsOpen(true)}>
@@ -112,17 +112,17 @@ export default function TopBar(): React.JSX.Element {
       {/* theme toggle lives in the settings page (Alt+M shortcut still works) */}
       <div className="win-controls">
         <Tooltip label={t('minimize')}>
-          <button className="tbtn" onClick={() => window.ade.win.minimize()}>
+          <button className="tbtn" onClick={() => window.mahas.win.minimize()}>
             <Minus />
           </button>
         </Tooltip>
         <Tooltip label={t('maximize')}>
-          <button className="tbtn" onClick={() => window.ade.win.maximize()}>
+          <button className="tbtn" onClick={() => window.mahas.win.maximize()}>
             <Square />
           </button>
         </Tooltip>
         <Tooltip label={t('close')}>
-          <button className="tbtn" onClick={() => window.ade.win.close()}>
+          <button className="tbtn" onClick={() => window.mahas.win.close()}>
             <X />
           </button>
         </Tooltip>

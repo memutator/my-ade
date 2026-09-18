@@ -1,5 +1,5 @@
 {
-  "name": "ade",
+  "name": "mahas",
   "version": "0.3.1",
   "description": "Minimal tiling shell for terminals, browsers, and file views",
   "main": "./out/main/index.js",
@@ -64,5 +64,5 @@
     "electron-winstaller@5.4.0": true,
     "@homebridge/node-pty-prebuilt-multiarch@0.14.1": true
   },
-  "desktopName": "ade"
+  "desktopName": "mahas"
 }

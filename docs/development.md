@@ -51,9 +51,9 @@ npm run dev -- --remote-debugging-port=9222
 
 Talk CDP against `http://localhost:9222/json` — `Page.captureScreenshot`
 (screenshots are physical pixels; `devicePixelRatio` is 1 on this machine) and
-`Runtime.evaluate`. The zustand store is exposed as `window.__ade` for
-inspection and poking (`__ade.getState()`,
-`__ade.getState().newPane('terminal')`, …). VS Code has matching launch
+`Runtime.evaluate`. The zustand store is exposed as `window.__mahas` for
+inspection and poking (`__mahas.getState()`,
+`__mahas.getState().newPane('terminal')`, …). VS Code has matching launch
 configs (`Debug Main Process` / attach on 9222).
 
 Main-process logs go to the terminal that ran `npm run dev`; pty-host stderr is
@@ -94,7 +94,7 @@ CDP (evaluate store state, screenshot panes, simulate flows).
   clamps into the viewport.
 - **`<webview>` quirks** — `loadURL` throws before `dom-ready` (BrowserPane
   retries via a ready flag); guest keydowns for app shortcuts arrive as
-  `ade:key` ipc-messages → `applyShortcut`, not window keydown.
+  `mahas:key` ipc-messages → `applyShortcut`, not window keydown.
 - **No node-gyp dependencies** — build tools aren't guaranteed on target
   machines; prefer prebuilt binaries (node-pty itself runs in the system-Node
   pty-host for this reason).

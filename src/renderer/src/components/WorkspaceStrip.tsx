@@ -84,7 +84,7 @@ function AddWorkspaceButton({
     let on = true
     for (const p of projects) {
       if (p.id in repos) continue
-      void window.ade.git.info(p.path).then((i) => {
+      void window.mahas.git.info(p.path).then((i) => {
         if (on) setRepos((r) => (p.id in r ? r : { ...r, [p.id]: !!i.isRepo }))
       })
     }
@@ -95,7 +95,7 @@ function AddWorkspaceButton({
   }, [open, projects])
 
   const pickDirectory = async (): Promise<void> => {
-    const dir = await window.ade.fs.pickDirectory()
+    const dir = await window.mahas.fs.pickDirectory()
     if (!dir) return
     const proj = addProject(dir)
     createWorkspace(proj.id, t('workspace'))

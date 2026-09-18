@@ -20,7 +20,7 @@ function hostScriptPath(): string {
 // version-manager installs (nvm/volta/fnm/mise/…) disappear. Probe PATH first,
 // then scan well-known install locations.
 function nodeBinary(): string {
-  if (process.env.ADE_NODE) return process.env.ADE_NODE
+  if (process.env.MAHAS_NODE) return process.env.MAHAS_NODE
   if (process.env.NODE_BINARY) return process.env.NODE_BINARY
   if (!spawnSync('node', ['--version'], { stdio: 'ignore' }).error) return 'node'
   const home = homedir()
@@ -89,7 +89,7 @@ export function startPtyHost(): void {
   const bin = nodeBinary()
   host = spawn(bin, [script], {
     stdio: ['pipe', 'pipe', 'inherit'],
-    env: { ...process.env, ADE_PTY_HOST: '1' }
+    env: { ...process.env, MAHAS_PTY_HOST: '1' }
   })
   host.on('error', (err) => {
     // e.g. node not found anywhere — keep the app alive, terminals just stay dead
@@ -135,7 +135,7 @@ export function startPtyHost(): void {
   })
 }
 
-// Kill the host on app quit. Otherwise it outlives ade as an orphan (its
+// Kill the host on app quit. Otherwise it outlives mahas as an orphan (its
 // poll timers keep the event loop alive even after stdin EOF) — and the
 // orphaned shells keep their agents running as zombies, so a restart would
 // offer to "resume" sessions that are still alive somewhere invisible.
