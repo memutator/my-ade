@@ -1,0 +1,225 @@
+{
+  "stepId": "s1-fault-injection",
+  "at": 1789747661992,
+  "checks": [
+    {
+      "name": "1a throw propagates",
+      "ok": true,
+      "expected": "injected error",
+      "observed": "Error: injected-failure-after-writes"
+    },
+    {
+      "name": "1a all writes rolled back",
+      "ok": true,
+      "expected": "0 content_blobs + 0 principals",
+      "observed": "0/0"
+    },
+    {
+      "name": "1a getContentBlob misses",
+      "ok": true,
+      "expected": "null",
+      "observed": "null"
+    },
+    {
+      "name": "1b savepoint: outer kept, inner rolled back",
+      "ok": true,
+      "expected": "A present B absent",
+      "observed": "A=true B=false"
+    },
+    {
+      "name": "1c unit commits atomically",
+      "ok": true,
+      "expected": "1 each of principal/receipt/event/intent/outbox",
+      "observed": "1/1/1/1/1 observed=true"
+    },
+    {
+      "name": "1c write-stage failure throws",
+      "ok": true,
+      "expected": "error",
+      "observed": "Error: insertReceipt: receipt must carry `operation` (non-empty string) — the idempotency key is (principalScope, operat"
+    },
+    {
+      "name": "1c fault rolls back mutate+writes together",
+      "ok": true,
+      "expected": "pc2/dgc/agg2/eff-2/op-c2 all absent",
+      "observed": "0/0/0/0/0"
+    },
+    {
+      "name": "1d publish throws on PK conflict",
+      "ok": true,
+      "expected": "SQLITE_CONSTRAINT",
+      "observed": "Error: UNIQUE constraint failed: rdd_boundaries.model_version, rdd_boundaries.id"
+    },
+    {
+      "name": "1d CAS reverted — active pointer still mv_base",
+      "ok": true,
+      "expected": "mv_base",
+      "observed": "mv_base"
+    },
+    {
+      "name": "1d no partial version payload",
+      "ok": true,
+      "expected": "mv_new+its boundaries absent",
+      "observed": "mv=0 bounds=0"
+    },
+    {
+      "name": "1d base not superseded",
+      "ok": true,
+      "expected": "published",
+      "observed": "published"
+    },
+    {
+      "name": "1d change not committed",
+      "ok": true,
+      "expected": "prepared",
+      "observed": "prepared"
+    },
+    {
+      "name": "1d no ModelPublished event",
+      "ok": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "name": "1e dispatch surfaced the failure",
+      "ok": true,
+      "expected": "throw or rejected",
+      "observed": "threw=Error: INJECTED: fsync/event-sink failure after inserts status=undefined"
+    },
+    {
+      "name": "1e message+deliveries rolled back atomically",
+      "ok": true,
+      "expected": "0 messages 0 deliveries",
+      "observed": "m=0 d=0"
+    },
+    {
+      "name": "1e no orphan event",
+      "ok": true,
+      "expected": "0 domain_events",
+      "observed": "0"
+    },
+    {
+      "name": "1e no receipt persisted",
+      "ok": true,
+      "expected": "0 receipts",
+      "observed": "0"
+    },
+    {
+      "name": "1f dispatch surfaced the failure",
+      "ok": true,
+      "expected": "throw or rejected",
+      "observed": "threw=Error: INJECTED: event-sink failure inside ack boundary status=undefined"
+    },
+    {
+      "name": "1f original delivery still outstanding rev1",
+      "ok": true,
+      "expected": "outstanding/1",
+      "observed": "outstanding/1"
+    },
+    {
+      "name": "1f no reply message persisted",
+      "ok": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "name": "1f no extra deliveries",
+      "ok": true,
+      "expected": "1 (original only)",
+      "observed": "1"
+    },
+    {
+      "name": "1f no ack event",
+      "ok": true,
+      "expected": "1 (only message.sent)",
+      "observed": "1"
+    },
+    {
+      "name": "1f no receipt persisted",
+      "ok": true,
+      "expected": "1 (send receipt only)",
+      "observed": "1"
+    },
+    {
+      "name": "1g dispatch failed under rival writer",
+      "ok": true,
+      "expected": "BUSY error",
+      "observed": "threw= status=rejected waited=5004ms"
+    },
+    {
+      "name": "1g no partial rows from blocked dispatch",
+      "ok": true,
+      "expected": "0 messages 0 deliveries",
+      "observed": "m=0 d=0"
+    },
+    {
+      "name": "1h child reached uncommitted state",
+      "ok": true,
+      "expected": "marker",
+      "observed": "BASELINE-COMMITTED|UNCOMMITTED-READY"
+    },
+    {
+      "name": "1h committed baseline survived crash",
+      "ok": true,
+      "expected": "warm+baseline present",
+      "observed": "warm=1 pbase=1"
+    },
+    {
+      "name": "1h uncommitted rows absent after crash",
+      "ok": true,
+      "expected": "0",
+      "observed": "0",
+      "extra": {
+        "walExisted": true
+      }
+    },
+    {
+      "name": "1h db writable after recovery",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "1i read-only connection refuses write tx",
+      "ok": true,
+      "expected": "SQLITE error",
+      "observed": "Error: attempt to write a readonly database"
+    },
+    {
+      "name": "1i no phantom write",
+      "ok": true,
+      "expected": "1 principal",
+      "observed": "1"
+    },
+    {
+      "name": "1i openControlDb fails on unwritable db",
+      "ok": false,
+      "expected": "error",
+      "observed": ""
+    },
+    {
+      "name": "1j task.report registered",
+      "ok": true,
+      "expected": "false (gap)",
+      "observed": "false"
+    },
+    {
+      "name": "1j outcome.decide registered",
+      "ok": true,
+      "expected": "false (gap)",
+      "observed": "false"
+    },
+    {
+      "name": "1j task.report dispatch → UNAVAILABLE_OPERATION",
+      "ok": true,
+      "expected": "rejected/UNAVAILABLE_OPERATION",
+      "observed": "rejected/UNAVAILABLE_OPERATION"
+    },
+    {
+      "name": "1j outcome+settlement rows rolled back together",
+      "ok": true,
+      "expected": "0 outcomes 0 settlements",
+      "observed": "0/0"
+    }
+  ]
+}

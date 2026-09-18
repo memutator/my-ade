@@ -1,0 +1,54 @@
+{
+  "stepId": "s0-smoke",
+  "at": 1789747656745,
+  "checks": [
+    {
+      "name": "seed committed",
+      "ok": true,
+      "expected": "no throw",
+      "observed": "ok"
+    },
+    {
+      "name": "message.send committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed"
+    },
+    {
+      "name": "2 deliveries",
+      "ok": true,
+      "expected": "2",
+      "observed": "2"
+    },
+    {
+      "name": "1 message",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "replay committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed"
+    },
+    {
+      "name": "replay no dup",
+      "ok": true,
+      "expected": "1 msg/2 dlv",
+      "observed": "1/2"
+    },
+    {
+      "name": "same fingerprint",
+      "ok": true,
+      "expected": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b",
+      "observed": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b"
+    },
+    {
+      "name": "conflict rejected OPERATION_CONFLICT",
+      "ok": true,
+      "expected": "rejected/OPERATION_CONFLICT",
+      "observed": "rejected/OPERATION_CONFLICT"
+    }
+  ]
+}

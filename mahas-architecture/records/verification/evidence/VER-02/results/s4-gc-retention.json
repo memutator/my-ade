@@ -1,0 +1,159 @@
+{
+  "stepId": "s4-gc-retention",
+  "at": 1789747677324,
+  "checks": [
+    {
+      "name": "4p delivery pin resolves to deliveries.id",
+      "ok": true,
+      "expected": "resolvable+exists",
+      "observed": "{\"resolvable\":true,\"exists\":true,\"table\":\"deliveries\",\"keyColumn\":\"id\"}"
+    },
+    {
+      "name": "4p unknown target_kind unresolvable (conservative)",
+      "ok": true,
+      "expected": "resolvable=false",
+      "observed": "{\"resolvable\":false,\"exists\":false,\"detail\":\"unknown target_kind 'no_such_kind'\"}"
+    },
+    {
+      "name": "4p isTargetPinned content_blob",
+      "ok": true,
+      "expected": "true",
+      "observed": "true"
+    },
+    {
+      "name": "4p envelope body referenced",
+      "ok": true,
+      "expected": "referenced",
+      "observed": "{\"referenced\":true,\"by\":\"work_envelopes.body_digest\"}"
+    },
+    {
+      "name": "4d free inline blob collectable",
+      "ok": true,
+      "expected": "collectable",
+      "observed": "[\"unreferenced_content_blobs:ac0549d55da6\",\"unreferenced_content_blobs:11640d486f36\",\"orphan_external_blob_files:11\",\"orphan_external_blob_files:aa\",\"orphan_external_blob_files:d5\"]"
+    },
+    {
+      "name": "4d free external blob collectable",
+      "ok": true,
+      "expected": "collectable",
+      "observed": "see ids"
+    },
+    {
+      "name": "4d pinned inline skipped",
+      "ok": true,
+      "expected": "absent",
+      "observed": "see ids"
+    },
+    {
+      "name": "4d pinned external skipped",
+      "ok": true,
+      "expected": "absent",
+      "observed": "see ids"
+    },
+    {
+      "name": "4d referenced envelope-body skipped",
+      "ok": true,
+      "expected": "absent",
+      "observed": "see ids"
+    },
+    {
+      "name": "4d no domain rows ever candidates",
+      "ok": true,
+      "expected": "content-only candidates",
+      "observed": "[\"unreferenced_content_blobs\",\"unreferenced_content_blobs\",\"orphan_external_blob_files\",\"orphan_external_blob_files\",\"orphan_external_blob_files\"]"
+    },
+    {
+      "name": "4d protectedCounts reports live/unknown executions + outstanding deliveries",
+      "ok": true,
+      "expected": ">=1 each",
+      "observed": "{\"published_model_versions\":1,\"published_role_implementations\":1,\"live_or_unknown_executions\":3,\"outstanding_deliveries\":1,\"accepted_outcomes\":0,\"retention_pins\":3}"
+    },
+    {
+      "name": "4d orphan enumeration behavior on shard dirs",
+      "ok": true,
+      "expected": "recorded",
+      "observed": "candidates=[\"unreferenced_content_blobs:ac0549d55da6d07679499f7a21e6e888f9bbbfa491c3149df8a3256be4f3a242\",\"unreferenced_content_blobs:11640d486f36801ebea751969798f74ffbe7102634cbc4013e0467c0d0dfd9e9\",\"orphan_external_blob_files:11\",\"orphan_external_blob_files:aa\",\"orphan_external_blob_files:d5\"] shardHits=3",
+      "extra": {
+        "orphanFilePresentAt": "aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "4r unreferenced inline blob deleted",
+      "ok": true,
+      "expected": "row deleted",
+      "observed": "exists=false"
+    },
+    {
+      "name": "4r pinned inline survives",
+      "ok": true,
+      "expected": "survives",
+      "observed": "exists=true"
+    },
+    {
+      "name": "4r referenced envelope-body survives",
+      "ok": true,
+      "expected": "survives",
+      "observed": "exists=true"
+    },
+    {
+      "name": "4r free external blob row deleted",
+      "ok": true,
+      "expected": "deleted",
+      "observed": "exists=false"
+    },
+    {
+      "name": "4r free external blob file unlinked",
+      "ok": true,
+      "expected": "absent",
+      "observed": "exists=false"
+    },
+    {
+      "name": "4r pinned external file survives",
+      "ok": true,
+      "expected": "exists",
+      "observed": "exists=true"
+    },
+    {
+      "name": "4r pinned external row survives",
+      "ok": true,
+      "expected": "survives",
+      "observed": "exists=true"
+    },
+    {
+      "name": "4r outstanding delivery untouched",
+      "ok": true,
+      "expected": "outstanding",
+      "observed": "outstanding"
+    },
+    {
+      "name": "4r unknown-state execution untouched",
+      "ok": true,
+      "expected": "unverifiable",
+      "observed": "unverifiable"
+    },
+    {
+      "name": "4r GC residue recorded for failed deletions",
+      "ok": true,
+      "expected": "recorded",
+      "observed": "residues=[{\"kind\":\"orphan_external_blob_files\",\"id\":\"11\",\"reason\":\"EISDIR: illegal operation on a directory, unlink '/tmp/mahas-ver-02/s4/blobs/11'\",\"retryable\":true},{\"kind\":\"orphan_external_blob_files\",\"id\":\"aa\",\"reason\":\"EISDIR: illegal operation on a directory, unlink '/tmp/mahas-ver-02/s4/blobs/aa'\",\"retryable\":true},{\"kind\":\"orphan_external_blob_files\",\"id\":\"d5\",\"reason\":\"EISDIR: illegal operation on a directory, unlink '/tmp/mahas-ver-02/s4/blobs/d5'\",\"retryable\":true}]"
+    },
+    {
+      "name": "4r residue persisted as unknown effect intents",
+      "ok": true,
+      "expected": "3",
+      "observed": "3"
+    },
+    {
+      "name": "4r orphan file under shard dir (recorded behavior)",
+      "ok": true,
+      "expected": "recorded",
+      "observed": "fileExists=true"
+    },
+    {
+      "name": "4i second GC run is idempotent",
+      "ok": true,
+      "expected": "re-runnable",
+      "observed": "collected=0 residues=3"
+    }
+  ]
+}

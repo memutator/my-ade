@@ -1,0 +1,102 @@
+{
+  "stepId": "s3-blob-durability",
+  "at": 1789747677225,
+  "checks": [
+    {
+      "name": "3a file at content-addressed path",
+      "ok": true,
+      "expected": "exists",
+      "observed": "true",
+      "extra": {
+        "path": "b5/b52ace473c21e13cbe43d978d35bd96b910735dc1c4282fa0de0ce5359a86dcc"
+      }
+    },
+    {
+      "name": "3a manifest row verified=1 external",
+      "ok": true,
+      "expected": "verified=1 ref=b5/b52ace473c21e13cbe43d978d35bd96b910735dc1c4282fa0de0ce5359a86dcc",
+      "observed": "v=1 ref=b5/b52ace473c21e13cbe43d978d35bd96b910735dc1c4282fa0de0ce5359a86dcc"
+    },
+    {
+      "name": "3a read-back returns exact bytes",
+      "ok": true,
+      "expected": "exact",
+      "observed": "external blob payload — VER-02"
+    },
+    {
+      "name": "3b partial tmp file never served (no manifest)",
+      "ok": true,
+      "expected": "null",
+      "observed": "null"
+    },
+    {
+      "name": "3b no manifest row",
+      "ok": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "name": "3b .tmp residue not a collectable candidate",
+      "ok": true,
+      "expected": "0 candidates",
+      "observed": "0",
+      "extra": {
+        "collectable": [
+          "orphan_external_blob_files:1d",
+          "orphan_external_blob_files:b5"
+        ]
+      }
+    },
+    {
+      "name": "3c orphan final-path file never served (no manifest)",
+      "ok": true,
+      "expected": "null",
+      "observed": "null"
+    },
+    {
+      "name": "3c corrupt content detected at read",
+      "ok": true,
+      "expected": "ARTIFACT_MISMATCH",
+      "observed": "ARTIFACT_MISMATCH"
+    },
+    {
+      "name": "3d artifact.publish committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed/undefined"
+    },
+    {
+      "name": "3d artifact+blob+pin landed atomically",
+      "ok": true,
+      "expected": "artifact row + verified blob + 1 pin",
+      "observed": "art=true blob=1 pins=1",
+      "extra": {
+        "pin": [
+          {
+            "target_kind": "content-blob",
+            "target_id": "ef5ee9c593ca7c81fca4fe30474ed551a443bc9b5581f0df15102598c2e2a6ee",
+            "holder_kind": "artifact"
+          }
+        ]
+      }
+    },
+    {
+      "name": "3d artifact.read returns bytes",
+      "ok": true,
+      "expected": "bytes",
+      "observed": "committed/bytes"
+    },
+    {
+      "name": "3d digest-mismatch publish rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH",
+      "observed": "rejected/ARTIFACT_MISMATCH"
+    },
+    {
+      "name": "3d no partial artifact row",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    }
+  ]
+}

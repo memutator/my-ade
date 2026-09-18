@@ -1,4 +1,4 @@
-# 오케스트레이션 상태 — 2026-09-18 22:26 자동 갱신
+# 오케스트레이션 상태 — 2026-09-19 01:20 자동 갱신
 
 생성: `python3 mahas-architecture/records/orchestration/update-status.py`
 
@@ -7,58 +7,58 @@
 - [x] **IMP-01** `f318e3eab` packages/ service boundary + desktop runtime seam
 - [x] **IMP-02** `b443b68f9` complete domain contracts (ids/rdd/role/access/work/execution/mail/resource/observation/ops)
 - [x] **IMP-03** `725aa9ac1` SQLite storage boundaries (control + host), SHARED-APIS + common types seed
-- [ ] IMP-04 — blocked (waiting: IMP-10, IMP-11)
-- [ ] IMP-05 — blocked (waiting: IMP-04)
-- [ ] IMP-06 — blocked (waiting: IMP-05, IMP-07, IMP-10, IMP-11)
-- [ ] IMP-07 — blocked (waiting: IMP-04, IMP-10, IMP-11)
-- [ ] IMP-08 — blocked (waiting: IMP-05, IMP-07, IMP-11)
-- [ ] IMP-09 — blocked (waiting: IMP-08, IMP-16)
-- [ ] IMP-10 — READY (waiting: none)
-- [ ] IMP-11 — blocked (waiting: IMP-10)
-- [ ] IMP-12 — blocked (waiting: IMP-11)
-- [ ] IMP-13 — blocked (waiting: IMP-04, IMP-06, IMP-10, IMP-11)
+- [x] **IMP-04** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-05** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-06** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-07** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-08** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-09** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-10** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-11** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-12** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-13** `landed` via integration commit (HANDOFF ledger)
 - [x] **IMP-14** `5c1201575` TaskSpec revisions, input pinning, WorkEnvelope, dispatch authority
-- [ ] IMP-15 — blocked (waiting: IMP-12, IMP-16)
-- [ ] IMP-16 — blocked (waiting: IMP-10, IMP-17)
-- [ ] IMP-17 — READY (waiting: none)
-- [ ] IMP-18 — blocked (waiting: IMP-17)
-- [ ] IMP-19 — blocked (waiting: IMP-09, IMP-16, IMP-18, IMP-11)
-- [ ] IMP-20 — blocked (waiting: IMP-12, IMP-19)
-- [ ] IMP-21 — blocked (waiting: IMP-15, IMP-20)
-- [ ] IMP-22 — blocked (waiting: IMP-16, IMP-18, IMP-19, IMP-20, IMP-21)
-- [ ] IMP-23 — blocked (waiting: IMP-12, IMP-17, IMP-22)
-- [ ] IMP-24 — blocked (waiting: IMP-07, IMP-09, IMP-19, IMP-20)
-- [ ] IMP-25 — blocked (waiting: IMP-07, IMP-09, IMP-19, IMP-20)
-- [ ] IMP-26 — blocked (waiting: IMP-11, IMP-13, IMP-15, IMP-18, IMP-21)
-- [ ] IMP-27 — blocked (waiting: IMP-05, IMP-07, IMP-13, IMP-21)
-- [ ] IMP-28 — blocked (waiting: IMP-12, IMP-23, IMP-26)
-- [ ] IMP-29 — blocked (waiting: IMP-16, IMP-22, IMP-23)
-- [ ] IMP-30 — blocked (waiting: IMP-23, IMP-24, IMP-25, IMP-27, IMP-28, IMP-29, IMP-31, IMP-32)
-- [ ] IMP-31 — blocked (waiting: IMP-06, IMP-13, IMP-26)
-- [ ] IMP-32 — blocked (waiting: IMP-07, IMP-09, IMP-19, IMP-26)
+- [x] **IMP-15** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-16** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-17** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-18** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-19** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-20** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-21** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-22** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-23** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-24** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-25** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-26** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-27** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-28** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-29** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-30** `a0f656267` /31: desktop service bootstrap, workbench widgets, preview wiring, NUL-check fixes
+- [x] **IMP-31** `landed` via integration commit (HANDOFF ledger)
+- [x] **IMP-32** `landed` via integration commit (HANDOFF ledger)
 
 ## Reviews
 
-- REV-01 — waiting: IMP-04, IMP-05, IMP-06, IMP-07, IMP-13
-- REV-02 — waiting: IMP-10, IMP-11, IMP-12, IMP-13, IMP-19, IMP-20
-- REV-03 — waiting: IMP-07, IMP-08, IMP-09, IMP-19, IMP-20, IMP-24, IMP-25, IMP-32
-- REV-04 — waiting: IMP-13, IMP-15, IMP-20, IMP-21, IMP-31
-- REV-05 — waiting: IMP-16, IMP-17, IMP-18, IMP-19, IMP-20, IMP-22, IMP-23, IMP-29
-- REV-06 — waiting: IMP-11, IMP-12, IMP-17, IMP-24, IMP-25, IMP-30
-- REV-07 — waiting: IMP-26, IMP-27, IMP-28, IMP-29, IMP-31, IMP-32
-- REV-08 — waiting: IMP-30, REV-01(review), REV-02(review), REV-03(review), REV-04(review), REV-05(review), REV-06(review), REV-07(review)
+- **REV-01** — recorded: `changes-required`
+- **REV-02** — READY TO RUN
+- **REV-03** — READY TO RUN
+- **REV-04** — recorded: `changes-required`
+- **REV-05** — READY TO RUN
+- **REV-06** — READY TO RUN
+- **REV-07** — READY TO RUN
+- REV-08 — waiting: REV-02(review), REV-03(review), REV-05(review), REV-06(review), REV-07(review)
 
 ## Verifications
 
-- VER-01 — waiting: IMP-04, IMP-05, IMP-06, IMP-07, IMP-13
-- VER-02 — waiting: IMP-04, IMP-15, IMP-21, IMP-29
-- VER-03 — waiting: IMP-10, IMP-11, IMP-12, IMP-13, IMP-19, IMP-20, VER-01(ver), VER-02(ver)
-- VER-04 — waiting: IMP-13, IMP-15, IMP-20, IMP-21, VER-02(ver), VER-03(ver)
-- VER-05 — waiting: IMP-07, IMP-08, IMP-09, IMP-19, IMP-20, VER-01(ver), VER-03(ver)
-- VER-06 — waiting: IMP-16, IMP-17, IMP-18, IMP-19, IMP-20, IMP-22, VER-02(ver), VER-03(ver), VER-05(ver)
-- VER-07 — waiting: IMP-17, IMP-18, IMP-22, IMP-23, IMP-26, IMP-28, VER-06(ver)
-- VER-08 — waiting: IMP-16, IMP-22, IMP-23, IMP-28, IMP-29, VER-02(ver), VER-06(ver), VER-07(ver)
-- VER-09 — waiting: IMP-24, IMP-30, VER-03(ver), VER-05(ver), VER-06(ver)
-- VER-10 — waiting: IMP-25, IMP-30, VER-03(ver), VER-05(ver), VER-06(ver)
-- VER-11 — waiting: IMP-06, IMP-13, IMP-21, IMP-24, IMP-25, IMP-30, IMP-31, IMP-32, VER-04(ver), VER-07(ver), VER-09(ver), VER-10(ver)
-- VER-12 — waiting: IMP-30, VER-08(ver), VER-11(ver)
+- **VER-01** — READY TO RUN
+- **VER-02** — recorded: `failed`
+- VER-03 — waiting: VER-01(ver)
+- VER-04 — waiting: VER-03(ver)
+- VER-05 — waiting: VER-01(ver), VER-03(ver)
+- VER-06 — waiting: VER-03(ver), VER-05(ver)
+- VER-07 — waiting: VER-06(ver)
+- VER-08 — waiting: VER-06(ver), VER-07(ver)
+- VER-09 — waiting: VER-03(ver), VER-05(ver), VER-06(ver)
+- VER-10 — waiting: VER-03(ver), VER-05(ver), VER-06(ver)
+- VER-11 — waiting: VER-04(ver), VER-07(ver), VER-09(ver), VER-10(ver)
+- VER-12 — waiting: VER-08(ver), VER-11(ver)

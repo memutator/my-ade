@@ -1,0 +1,150 @@
+{
+  "stepId": "s2-idempotency",
+  "at": 1789747677102,
+  "checks": [
+    {
+      "name": "2s findReceipt returns stored receipt",
+      "ok": true,
+      "expected": "op-s1/fp-aaa",
+      "observed": "op-s1/fp-aaa"
+    },
+    {
+      "name": "2s same-fingerprint re-insert allowed",
+      "ok": true,
+      "expected": "no throw",
+      "observed": "no throw"
+    },
+    {
+      "name": "2s stored fingerprint unchanged",
+      "ok": true,
+      "expected": "fp-aaa",
+      "observed": "fp-aaa"
+    },
+    {
+      "name": "2s different fingerprint → OPERATION_CONFLICT",
+      "ok": true,
+      "expected": "OPERATION_CONFLICT",
+      "observed": "OPERATION_CONFLICT"
+    },
+    {
+      "name": "2s original receipt not overwritten",
+      "ok": true,
+      "expected": "fp-aaa",
+      "observed": "fp-aaa"
+    },
+    {
+      "name": "2s conflict probe: differing fingerprint → stored receipt",
+      "ok": true,
+      "expected": "fp-aaa",
+      "observed": "fp-aaa"
+    },
+    {
+      "name": "2s conflict probe: same fingerprint → null",
+      "ok": true,
+      "expected": "null",
+      "observed": "null"
+    },
+    {
+      "name": "2s conflict probe: absent key → null",
+      "ok": true,
+      "expected": "null",
+      "observed": "null"
+    },
+    {
+      "name": "2s key is (scope,operation,operationId)",
+      "ok": true,
+      "expected": "fp-other",
+      "observed": "fp-other"
+    },
+    {
+      "name": "2s receipt missing `operation` refused",
+      "ok": true,
+      "expected": "throw",
+      "observed": "Error: insertReceipt: receipt must carry `operation` (non-empty string) — the idempotency key is (pr"
+    },
+    {
+      "name": "2d replay returns committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed"
+    },
+    {
+      "name": "2d replay identical fingerprint",
+      "ok": true,
+      "expected": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b",
+      "observed": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b"
+    },
+    {
+      "name": "2d replay same result (stored receipt)",
+      "ok": true,
+      "expected": "msg_d5178542-1a4e-4680-89a3-7498e6be6317",
+      "observed": "msg_d5178542-1a4e-4680-89a3-7498e6be6317"
+    },
+    {
+      "name": "2d replay no duplicate effects",
+      "ok": true,
+      "expected": "1/2/1",
+      "observed": "1/2/1"
+    },
+    {
+      "name": "2d replay no second receipt row",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "2d key-order variant replays (canonical fingerprint)",
+      "ok": true,
+      "expected": "committed/667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b",
+      "observed": "committed/667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b"
+    },
+    {
+      "name": "2d conflict → rejected",
+      "ok": true,
+      "expected": "rejected",
+      "observed": "rejected"
+    },
+    {
+      "name": "2d conflict code",
+      "ok": true,
+      "expected": "OPERATION_CONFLICT",
+      "observed": "OPERATION_CONFLICT"
+    },
+    {
+      "name": "2d conflict no writes",
+      "ok": true,
+      "expected": "1/2",
+      "observed": "1/2"
+    },
+    {
+      "name": "2d stored receipt keeps original fingerprint",
+      "ok": true,
+      "expected": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b",
+      "observed": "667c7ce8375d65c51c8da227398c8dd09b3da61427ae294ef520701b7ee04f1b"
+    },
+    {
+      "name": "2d rejected op replays its verdict",
+      "ok": true,
+      "expected": "rejected/SCOPE_DENIED",
+      "observed": "rejected/SCOPE_DENIED"
+    },
+    {
+      "name": "2d rejected receipt NOT persisted (same-op retry may re-execute)",
+      "ok": true,
+      "expected": "0 (admission.ts:23-26 design)",
+      "observed": "0"
+    },
+    {
+      "name": "2d corrected retry under same operationId commits",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed/undefined"
+    },
+    {
+      "name": "2d other principal scope unaffected",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed"
+    }
+  ]
+}

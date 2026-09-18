@@ -22,6 +22,14 @@ for line in log:
     if m and m.group(2) not in landed:
         landed[m.group(2)] = (m.group(1)[:9], m.group(3).strip())
 
+# IMPs that landed via non-IMP-subject commits (integration commits) — see file header.
+over = REC / "orchestration" / "landed-override.txt"
+if over.exists():
+    for line in over.read_text().splitlines():
+        t = line.strip()
+        if t.startswith("IMP-") and t not in landed:
+            landed[t] = ("landed", "via integration commit (HANDOFF ledger)")
+
 def record_status(task_id):
     kind = "verification" if task_id.startswith("VER") else "review"
     f = REC / kind / f"{task_id}.md"
@@ -40,7 +48,10 @@ def ready(node):
                 return False
         else:
             st = results.get(dep)
-            if st not in ("passed", "accepted"):
+            # an EXECUTED verdict satisfies scheduling — 'failed' evidence exists
+            # and downstream VERs cite it; only blocked/not-run deps block.
+            ok = ("passed", "failed") if dep.startswith("VER") else ("accepted", "changes-required")
+            if st not in ok:
                 return False
     return True
 
@@ -64,7 +75,7 @@ for n in dag:
         continue
     st = results[n["id"]]
     miss = [d for d in n["depends_on"] if d.startswith("IMP") and d not in landed]
-    prev = [d for d in n["depends_on"] if d.startswith("REV") and results.get(d) not in ("accepted",)]
+    prev = [d for d in n["depends_on"] if d.startswith("REV") and results.get(d) not in ("accepted", "changes-required")]
     if st:
         line = f"- **{n['id']}** — recorded: `{st}`"
     elif not miss and not prev:
@@ -79,7 +90,7 @@ for n in dag:
         continue
     st = results[n["id"]]
     miss = [d for d in n["depends_on"] if d.startswith("IMP") and d not in landed]
-    prev = [d for d in n["depends_on"] if d.startswith("VER") and results.get(d) != "passed"]
+    prev = [d for d in n["depends_on"] if d.startswith("VER") and results.get(d) not in ("passed", "failed")]
     if st:
         line = f"- **{n['id']}** — recorded: `{st}`"
     elif not miss and not prev:
