@@ -1,0 +1,120 @@
+{
+  "projectId": "prj_00e2ff8a-0b92-4f37-9f5a-a2bbd1d82d96",
+  "mv0": "mv_c360cc11-d449-4de5-a8aa-aba692cd3978",
+  "mv1": "mv_225d509b-3603-4a2f-8f35-689faf014999",
+  "runId1": "run_61c9aef8-c294-4a33-868f-7f4d7ebb133c",
+  "ifaceDigest": {
+    "r-lead": "e087c9b84ad994b0e266da7b59aac93f943df372efb5dc094a5e07949cae3edc",
+    "r-auth": "d8ff5700568a0832a08d5caf5fe4bf652775160cc03035238571e064154f264b",
+    "r-users": "d79a3d3793a011765d5eff3f85ac80539eb15f830bcb04f33ba8fb047554564c",
+    "r-web": "2541eb61dc330ffdb2592d6a5fe4a979bed8c9b27c83f1e3eba72f261f091577",
+    "r-alt": "d004ecb02e904845aa56830ec76d9c2becdfab95203066eb5b6881a3f5388b4d",
+    "r-lib": "8a41f51b344d6fdf9387aceff55a2ff1a7cd1c2ee2a490399243d1ee9b68d9cb"
+  },
+  "impls": {
+    "r-lead": {
+      "implId": "impl-980a4f15-46e9-4b13-a5e8-a00d25d2b76a",
+      "revision": 1
+    },
+    "r-auth": {
+      "implId": "impl-78961325-9859-46ae-aec8-3d3a9396b454",
+      "revision": 1
+    },
+    "r-web": {
+      "implId": "impl-0d2aadd5-8912-4d19-8e1b-0eaef0073e40",
+      "revision": 1
+    },
+    "r-alt": {
+      "implId": "impl-05de1bc8-8dcb-4eff-85c3-f0b1f61b7b73",
+      "revision": 1
+    },
+    "r-users": {
+      "implId": "impl-fb6f6ac2-7586-4326-9ec5-0170a7355dee",
+      "revision": 1
+    }
+  },
+  "hpMainRev": 2,
+  "hpDocRev": 2,
+  "provAll": {
+    "grantId": "grt_bdb9a29c-b292-4520-bceb-0363562787cb",
+    "revision": 1
+  },
+  "provRestricted": {
+    "grantId": "grt_42a3b7a9-99fb-4b35-a751-a6f6197bb88e",
+    "revision": 1
+  },
+  "roleIds": [
+    "r-lead",
+    "r-auth",
+    "r-users",
+    "r-web",
+    "r-alt",
+    "r-lib"
+  ],
+  "tokByRole": {
+    "r-auth": "eyJ2IjoxLCJ0b2tlbklkIjoiNWE0MGE5NTg1MDhiOTI2ZDc2OTYwMjdlZmZlNzA2NzIiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici1hdXRoIiwicm9sZURpZ2VzdCI6IjRlOGVlZTU3ODZjYTU2YmQ0ZWFjMjlkOThjN2ZkNDllMTA2ZTljMmFlMWQ1Y2VlNzJkYWZmYzJmMTQ3ZTJiNzYiLCJpbnRlcmZhY2VEaWdlc3QiOiJkOGZmNTcwMDU2OGEwODMyYTA4ZDVjYWY1ZmU0YmY2NTI3NzUxNjBjYzAzMDM1MjM4NTcxZTA2NDE1NGYyNjRiIiwiaXNzdWVkQXQiOjE3ODk3NTI2NTY3MDYsImtleUlkIjoibG9jYWwtMSJ9.EG_UfemHmk1jECUWA7DYRT5LGpy5YuSnIIDyLNHF4mE",
+    "r-users": "eyJ2IjoxLCJ0b2tlbklkIjoiYTQ0MTEzNjlkYzlmZTViYWVjOTI1ZDIxZTI1MjM2MDkiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici11c2VycyIsInJvbGVEaWdlc3QiOiIwMjc0MTgxN2U0MDZmMjBiMTYzYzUzNDZhZjkzNzNiNWU4MDJmM2E4ZGZmMWU4ODgyMmRiYjJkMTFjNjAzZDljIiwiaW50ZXJmYWNlRGlnZXN0IjoiZDc5YTNkMzc5M2EwMTE3NjVkNWVmZjNmODVhYzgwNTM5ZWIxNWY4MzBiY2IwNGYzM2JhOGZiMDQ3NTU0NTY0YyIsImlzc3VlZEF0IjoxNzg5NzUyNjU2NzA2LCJrZXlJZCI6ImxvY2FsLTEifQ.XdGYIPxip7HMdOkxSm9lusSGmEcA2uyx-uRfcb8zzhg",
+    "r-alt": "eyJ2IjoxLCJ0b2tlbklkIjoiOGEwYzQ2MDA2MTVhYzIxMTk0ZWVjMzMwNzA4MDI2MGMiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici1hbHQiLCJyb2xlRGlnZXN0IjoiODE1YTRjMmY5MjM4ODE3NjYxNTA1YzY2Y2E1OTFjYWZkZGI0MTE2ODc1NjIxYjE4MzExYjM1MmJhM2QwZGJiYiIsImludGVyZmFjZURpZ2VzdCI6ImQwMDRlY2IwMmU5MDQ4NDVhYTU2ODMwZWM3NmQ5YzJiZWNkZmFiOTUyMDMwNjZlYjViNjg4MWEzZjUzODhiNGQiLCJpc3N1ZWRBdCI6MTc4OTc1MjY1NjcwNiwia2V5SWQiOiJsb2NhbC0xIn0.vjFpYMZtGqrSSBxf5SGEWEIyBJifY1xzUQN7kaBlkds",
+    "r-lib": "eyJ2IjoxLCJ0b2tlbklkIjoiNTllNjJiNzE5ZDA0OTlmMmU1MzAxZmUwZTdjMjY4NzgiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici1saWIiLCJyb2xlRGlnZXN0IjoiYzdjNmJkYzU1NjhmNTBkODAxMmI3YzQxMTY4MGZiY2Y2M2E5MTc5YTZlMjIxZmM4ZjU3MWFlMDQwYTYwOGNiMiIsImludGVyZmFjZURpZ2VzdCI6IjhhNDFmNTFiMzQ0ZDZmZGY5Mzg3YWNlZmY1NWEyZmYxYTdjZDFjMmVlMmE0OTAzOTkyNDNkMWVlOWI2OGQ5Y2IiLCJpc3N1ZWRBdCI6MTc4OTc1MjY1NjcwNiwia2V5SWQiOiJsb2NhbC0xIn0.Pzy5R66DXoJsWx7QEdk9hPZuMNLn6OlsEVX9saOzAh4",
+    "r-lead": "eyJ2IjoxLCJ0b2tlbklkIjoiZmNhZGMwOTNiYmQ4YzM5MjI3OTI2N2Q1MTFlZThhMzAiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici1sZWFkIiwicm9sZURpZ2VzdCI6ImIyOGY2ODZlM2Q5MWM5NWFjN2U4MjA3ZjZlOWNiMmU1Y2Q5OTQxMTUyYzBjYjYwOWNiMTAyZjQ1OWMwZDE5YWUiLCJpbnRlcmZhY2VEaWdlc3QiOiJlMDg3YzliODRhZDk5NGIwZTI2NmRhN2I1OWFhYzkzZjk0M2RmMzcyZWZiNWRjMDk0YTVlMDc5NDljYWUzZWRjIiwiaXNzdWVkQXQiOjE3ODk3NTI2NTY3MDYsImtleUlkIjoibG9jYWwtMSJ9.v92B26mGpcfkgQroCqjaQanbC4ExkJ_gbSoONRTvONg",
+    "r-web": "eyJ2IjoxLCJ0b2tlbklkIjoiNTRlOGQyZDZmMzBjMmNlODU1YzRiZGY4NjgyYTIwNWQiLCJwcm9qZWN0SWQiOiJwcmpfMDBlMmZmOGEtMGI5Mi00ZjM3LTlmNWEtYTJiYmQxZDgyZDk2IiwibW9kZWxWZXJzaW9uIjoibXZfMjI1ZDUwOWItMzYwMy00YTJmLThmMzUtNjg5ZmFmMDE0OTk5Iiwicm9sZUlkIjoici13ZWIiLCJyb2xlRGlnZXN0IjoiYWYyZjUyYTQ0MTAzNzk5MWE3NTQ0Mjc0MjkxZjc0NTZmYWNiMjY0MWJiZGYxMDkxMDdkMzEzNGQ4YjAwMmZiYyIsImludGVyZmFjZURpZ2VzdCI6IjI1NDFlYjYxZGMzMzBmZmRiMjU5MmQ2YTVmZTRhOTc5YmVkOGM5YjI3YzgzZjFlM2ViYTcyZjI2MWYwOTE1NzciLCJpc3N1ZWRBdCI6MTc4OTc1MjY1NjcwNiwia2V5SWQiOiJsb2NhbC0xIn0.G1OCsv5H6XmHSZ3PtNEOHKZS_RAOPtLoG0wgb41f0aM"
+  },
+  "authTokenClaims": {
+    "v": 1,
+    "tokenId": "5a40a958508b926d7696027effe70672",
+    "projectId": "prj_00e2ff8a-0b92-4f37-9f5a-a2bbd1d82d96",
+    "modelVersion": "mv_225d509b-3603-4a2f-8f35-689faf014999",
+    "roleId": "r-auth",
+    "roleDigest": "4e8eee5786ca56bd4eac29d98c7fd49e106e9c2ae1d5cee72daffc2f147e2b76",
+    "interfaceDigest": "d8ff5700568a0832a08d5caf5fe4bf652775160cc03035238571e064154f264b",
+    "issuedAt": 1789752656706,
+    "keyId": "local-1"
+  },
+  "provWide": {
+    "grantId": "grt_ee809f58-783c-43e5-9564-bd17191a1fd3",
+    "revision": 1
+  },
+  "provRestricted2": {
+    "grantId": "grt_b9069d0b-c29a-4a06-bdcb-a10cf235b214",
+    "revision": 1
+  },
+  "memLead": "mem_2b3fc0bf-8b1d-4200-813c-f562f41018de",
+  "asgLead": "asg_a25a7c73-85af-4892-86bd-e5f43627a35b",
+  "memAuth": "mem_25f2ef42-2066-49aa-87b2-b98a2a09d2fa",
+  "memWeb": "mem_dc76db95-a2d7-4074-89e4-e7be39f8afd8",
+  "mv2": "mv_1355a652-6c4b-470c-9417-67e080417c01",
+  "runId2": "run_64127983-0c49-49cf-9a82-00f999821a52",
+  "mv3": "mv_941ba5cd-e63f-4cb9-9dee-0ee3b19cad04",
+  "mv4": "mv_67341fa5-717e-4719-8366-986c63a05690",
+  "mv5": "mv_d2f6e1a9-d3c7-4e83-a458-5ec8320ef381",
+  "mv6": "mv_10c83819-543a-4629-a343-bcfd14d35ee8",
+  "mv7": "mv_5e48c7eb-2e4a-40b6-9901-976b8f37aaff",
+  "activeMv": "mv_5e48c7eb-2e4a-40b6-9901-976b8f37aaff",
+  "runId3": "run_533a4d44-aa94-492b-abeb-02f5d4e3835a",
+  "impl7": {
+    "r-lead": {
+      "implId": "impl-d89f059b-1f12-4180-b557-e917fe358964",
+      "revision": 1
+    },
+    "r-auth": {
+      "implId": "impl-13d9c6d9-0302-4d28-96e2-582c01e36c3b",
+      "revision": 1
+    },
+    "r-web": {
+      "implId": "impl-ad06230e-703e-43e8-a18f-7491ea4d516a",
+      "revision": 1
+    }
+  },
+  "tok7captured": [
+    "r-lead",
+    "r-auth",
+    "r-web"
+  ],
+  "memA3": "mem_effea351-e349-4e4e-958a-e9d0c952ec7b",
+  "memW3": "mem_e88069ac-3041-4a45-9a63-0fb9df77bb9e",
+  "memC3": "mem_677f2de1-5c91-4a8c-ae6d-3e9d1a700412",
+  "provMem": {
+    "grantId": "grt_f780128f-f45a-4f06-8a5c-2c7ac6e48131",
+    "revision": 1
+  }
+}
