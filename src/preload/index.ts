@@ -57,6 +57,31 @@ export interface FileStatResult {
   error?: string
 }
 
+/** C-ACCESS command envelope forwarded over the desktop runtime attachment */
+export interface ExecOpRequest {
+  operation: string
+  operationId?: string
+  payload?: unknown
+  expectedRevisions?: Record<string, number>
+}
+
+/** C-OBSERVATION runtime.subscribe request (epoch/cursor based) */
+export interface RuntimeSubscribeRequest {
+  scope?: unknown
+  epoch: number
+  afterSequence: number
+  visibilityDigest?: string
+}
+
+/** one pushed runtime event relayed from the control plane */
+export interface RuntimeEventMessage {
+  subscriptionId: string
+  sequence: number
+  kind?: string
+  entity?: unknown
+  snapshotRequired?: boolean
+}
+
 export interface FileChangedEvent {
   path: string
   mtimeMs?: number
@@ -189,7 +214,23 @@ const mahas = {
     bindView: (req: BindViewRequest): Promise<ControlResult<ClientViewBinding>> =>
       ipcRenderer.invoke('exec:bindView', req),
     unbindView: (req: UnbindViewRequest): Promise<ControlResult<null>> =>
-      ipcRenderer.invoke('exec:unbindView', req)
+      ipcRenderer.invoke('exec:unbindView', req),
+    // generic command route (the workbench/CLI share one operation registry);
+    // the main process owns the authenticated session, the renderer never
+    // touches the daemon socket (IMP-01 §4.3, IMP-28)
+    op: (req: ExecOpRequest): Promise<ControlResult<unknown>> => ipcRenderer.invoke('exec:op', req),
+    // C-OBSERVATION runtime.subscribe — resolves a subscription id, or
+    // CONTROL_UNAVAILABLE when no streaming transport is negotiated (the UI
+    // degrades to snapshot refresh; events are never required for correctness)
+    subscribe: (req: RuntimeSubscribeRequest): Promise<ControlResult<string>> =>
+      ipcRenderer.invoke('exec:subscribe', req),
+    unsubscribe: (subscriptionId: string): Promise<ControlResult<null>> =>
+      ipcRenderer.invoke('exec:unsubscribe', subscriptionId),
+    onEvent: (cb: (e: RuntimeEventMessage) => void): (() => void) => {
+      const handler = (_: unknown, m: RuntimeEventMessage): void => cb(m)
+      ipcRenderer.on('exec:event', handler)
+      return () => ipcRenderer.removeListener('exec:event', handler)
+    }
   },
   runtime: {
     // honest readiness of the control-plane endpoint — 'degraded' means a

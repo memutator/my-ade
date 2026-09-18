@@ -28,8 +28,11 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { bootstrapRuntime } from '../../packages/mahas-runtime/src/index.ts'
 import type { RuntimeHandle } from '../../packages/mahas-runtime/src/index.ts'
+import { connectRpc } from '../../packages/mahas-runtime/src/rpc/index.ts'
+import type { RpcClient } from '../../packages/mahas-runtime/src/rpc/index.ts'
 import type {
   BindViewRequest,
+  CommandReceipt,
   ControlError,
   ControlResult,
   CreateExecutionRequest,
@@ -41,8 +44,61 @@ import type {
   ShutdownRequest,
   UnbindViewRequest
 } from '../../packages/mahas-contracts/src/index.ts'
+import type { ExecOpRequest, RuntimeSubscribeRequest } from '../preload/index.ts'
 
 let handle: RuntimeHandle | null = null
+
+/**
+ * The desktop's generic command session (IMP-30 wiring). The renderer's
+ * workbench routes every domain op here; the main process owns the single
+ * authenticated RPC connection to mahasd. A failed connect/call drops the
+ * cached client so the next call retries the handshake — a lost socket is
+ * never remembered as a dead service forever, and no call is auto-resent
+ * (REQ-14: the operationId reconciles via operation.get).
+ */
+let rpc: RpcClient | null = null
+let rpcConnecting: Promise<RpcClient | null> | null = null
+
+async function rpcClient(): Promise<RpcClient | null> {
+  if (rpc) return rpc
+  if (rpcConnecting) return rpcConnecting
+  rpcConnecting = (async () => {
+    if (!handle) return null
+    try {
+      const client = await connectRpc(handle.endpoint.address, { kind: 'operator' })
+      rpc = client
+      return client
+    } catch {
+      return null
+    } finally {
+      rpcConnecting = null
+    }
+  })()
+  return rpcConnecting
+}
+
+function dropRpc(): void {
+  try {
+    rpc?.close()
+  } catch {
+    /* already gone */
+  }
+  rpc = null
+}
+
+function receiptToControl(receipt: CommandReceipt): ControlResult<unknown> {
+  if (receipt.status === 'committed') return { ok: true, value: receipt.result }
+  const code = (receipt.error?.code ?? 'UNKNOWN') as ControlError['code']
+  const retry = receipt.error?.retry
+  return {
+    ok: false,
+    error: {
+      code,
+      message: receipt.error?.message ?? `operation ended with status ${receipt.status}`,
+      retryable: retry === 'same-operation' || retry === 'reconcile'
+    }
+  }
+}
 
 // daemon sockets namespace with the same config dir the hook/event channel
 // uses (MAHAS_CONFIG_DIR; dev runs already get mahas-dev — see index.ts)
@@ -153,5 +209,52 @@ export function registerRuntimeIpc(): void {
     }
     if (!handle) return refuse('runtime not bootstrapped')
     return handle.client.unbindView(req)
+  })
+
+  // ── generic command route (workbench / 임의 domain op) ──────────────────
+  // The renderer never opens a socket: this handler forwards the envelope
+  // through the authenticated RPC session and returns the receipt verdict
+  // unwrapped, keeping rejected/unknown/pending distinct (common.md §2).
+  ipcMain.handle('exec:op', async (_e, req: ExecOpRequest): Promise<ControlResult<unknown>> => {
+    if (!req || typeof req.operation !== 'string' || !req.operation) {
+      return invalid('exec:op requires an operation name')
+    }
+    if (!handle) return refuse('runtime not bootstrapped')
+    const client = await rpcClient()
+    if (!client) return refuse(`mahasd at ${handle.endpoint.address} is unavailable`)
+    try {
+      const receipt = await client.call(req.operation, req.payload, {
+        operationId: req.operationId,
+        expectedRevisions: req.expectedRevisions
+      })
+      return receiptToControl(receipt)
+    } catch (err) {
+      // transport-level failure — session is no longer trustworthy
+      dropRpc()
+      const message = err instanceof Error ? err.message : String(err)
+      return refuse(`mahasd call ${req.operation} failed: ${message}`)
+    }
+  })
+
+  // ── C-OBSERVATION runtime.subscribe ─────────────────────────────────────
+  // The versioned RPC transport is request/response — no push channel exists
+  // yet, so this answers honestly. The workbench falls back to snapshot
+  // refresh; events are a convenience, never required for correctness.
+  ipcMain.handle(
+    'exec:subscribe',
+    (_e, req: RuntimeSubscribeRequest): Promise<ControlResult<string>> => {
+      if (!req || typeof req.epoch !== 'number' || typeof req.afterSequence !== 'number') {
+        return invalid('exec:subscribe requires {epoch, afterSequence}')
+      }
+      return refuse(
+        'event streaming is not negotiated over this transport yet — poll runtime.snapshot'
+      )
+    }
+  )
+  // unsubscribe is a no-op locally (no server-side subscription was opened);
+  // success is honest here because nothing remains to detach.
+  ipcMain.handle('exec:unsubscribe', (_e, subscriptionId: string): ControlResult<null> => {
+    void subscriptionId
+    return { ok: true, value: null }
   })
 }

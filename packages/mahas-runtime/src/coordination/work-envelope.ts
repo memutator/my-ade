@@ -62,12 +62,21 @@ function storeEnvelope(
 ): StoredEnvelope {
   const bodyBytes = new TextEncoder().encode(canonicalJson(body))
   const bodyRef = putContentBlob(db, bodyBytes, ENVELOPE_MEDIA_TYPE)
-  const digest = sha256Hex(canonicalJson({ kind, assignmentId, assignmentRevision, bodyDigest: bodyRef.digest, bindings }))
+  const digest = sha256Hex(
+    canonicalJson({ kind, assignmentId, assignmentRevision, bodyDigest: bodyRef.digest, bindings })
+  )
   db.prepare(
     'INSERT OR IGNORE INTO work_envelopes (digest, assignment_id, assignment_revision, kind, body_digest, bindings_json)' +
       ' VALUES (?, ?, ?, ?, ?, ?)'
   ).run(digest, assignmentId, assignmentRevision, kind, bodyRef.digest, canonicalJson(bindings))
-  appendDomainEvent(db, digest, 1, 'envelope.pinned', { kind, assignmentId, assignmentRevision }, { bodyDigest: bodyRef.digest })
+  appendDomainEvent(
+    db,
+    digest,
+    1,
+    'envelope.pinned',
+    { kind, assignmentId, assignmentRevision },
+    { bodyDigest: bodyRef.digest }
+  )
   return {
     digest,
     kind,
@@ -128,15 +137,25 @@ export function buildTaskEnvelope(
     input.assignmentRevision
   )
   if (!arow) {
-    fail('INVALID_TRANSITION', `assignment ${input.assignmentId}@${input.assignmentRevision} does not exist`, 'none', {
-      assignmentId: input.assignmentId
-    })
+    fail(
+      'INVALID_TRANSITION',
+      `assignment ${input.assignmentId}@${input.assignmentRevision} does not exist`,
+      'none',
+      {
+        assignmentId: input.assignmentId
+      }
+    )
   }
   const assignment = toAssignment(arow!)
   if ((assignment.kind as unknown as string) !== 'task') {
-    fail('INVALID_TRANSITION', `assignment ${input.assignmentId}@${input.assignmentRevision} is kind '${assignment.kind}', not 'task'`, 'none', {
-      assignmentId: input.assignmentId
-    })
+    fail(
+      'INVALID_TRANSITION',
+      `assignment ${input.assignmentId}@${input.assignmentRevision} is kind '${assignment.kind}', not 'task'`,
+      'none',
+      {
+        assignmentId: input.assignmentId
+      }
+    )
   }
   if (
     (assignment.taskId as unknown as string | undefined) !== input.taskId ||
@@ -155,18 +174,33 @@ export function buildTaskEnvelope(
       }
     )
   }
-  const mrow = one(db, 'SELECT * FROM members WHERE id = ?', assignment.memberId as unknown as string)
-  if (!mrow) fail('INVALID_TRANSITION', `member ${assignment.memberId} does not exist`, 'none', { memberId: assignment.memberId })
+  const mrow = one(
+    db,
+    'SELECT * FROM members WHERE id = ?',
+    assignment.memberId as unknown as string
+  )
+  if (!mrow)
+    fail('INVALID_TRANSITION', `member ${assignment.memberId} does not exist`, 'none', {
+      memberId: assignment.memberId
+    })
   const member = toMember(mrow!)
 
   const task = getTask(db, input.taskId)
-  if (!task) fail('INVALID_TRANSITION', `task ${input.taskId} does not exist`, 'none', { taskId: input.taskId })
+  if (!task)
+    fail('INVALID_TRANSITION', `task ${input.taskId} does not exist`, 'none', {
+      taskId: input.taskId
+    })
   const spec = getTaskSpec(db, input.taskId, input.taskRevision)
   if (!spec) {
-    fail('STALE_REVISION', `task ${input.taskId} has no spec revision ${input.taskRevision}`, 'none', {
-      taskId: input.taskId,
-      taskRevision: input.taskRevision
-    })
+    fail(
+      'STALE_REVISION',
+      `task ${input.taskId} has no spec revision ${input.taskRevision}`,
+      'none',
+      {
+        taskId: input.taskId,
+        taskRevision: input.taskRevision
+      }
+    )
   }
   const inputs = pinInputs(db, (specField(spec, 'inputs', 'inputBindings') as unknown[]) ?? [], {
     overrides: input.inputOverrides
@@ -213,15 +247,30 @@ export function buildCoordinationEnvelope(
   input: {
     assignmentId: string
     assignmentRevision: number
-    roleContext: { roleId: string; implementationId: string; implementationRevision: number; interfaceDigest?: string }
+    roleContext: {
+      roleId: string
+      implementationId: string
+      implementationRevision: number
+      interfaceDigest?: string
+    }
     peers?: PeerRef[]
   }
 ): StoredEnvelope {
-  const arow = one(db, 'SELECT * FROM assignments WHERE id = ? AND revision = ?', input.assignmentId, input.assignmentRevision)
+  const arow = one(
+    db,
+    'SELECT * FROM assignments WHERE id = ? AND revision = ?',
+    input.assignmentId,
+    input.assignmentRevision
+  )
   if (!arow) {
-    fail('INVALID_TRANSITION', `assignment ${input.assignmentId}@${input.assignmentRevision} does not exist`, 'none', {
-      assignmentId: input.assignmentId
-    })
+    fail(
+      'INVALID_TRANSITION',
+      `assignment ${input.assignmentId}@${input.assignmentRevision} does not exist`,
+      'none',
+      {
+        assignmentId: input.assignmentId
+      }
+    )
   }
   const assignment = toAssignment(arow!)
   if ((assignment.kind as unknown as string) !== 'coordination') {
@@ -232,10 +281,21 @@ export function buildCoordinationEnvelope(
       { assignmentId: input.assignmentId }
     )
   }
-  const mrow = one(db, 'SELECT * FROM members WHERE id = ?', assignment.memberId as unknown as string)
-  if (!mrow) fail('INVALID_TRANSITION', `member ${assignment.memberId} does not exist`, 'none', { memberId: assignment.memberId })
+  const mrow = one(
+    db,
+    'SELECT * FROM members WHERE id = ?',
+    assignment.memberId as unknown as string
+  )
+  if (!mrow)
+    fail('INVALID_TRANSITION', `member ${assignment.memberId} does not exist`, 'none', {
+      memberId: assignment.memberId
+    })
   const member = toMember(mrow!)
-  const runRow = one(db, 'SELECT goal_text FROM runs WHERE id = ?', member.runId as unknown as string)
+  const runRow = one(
+    db,
+    'SELECT goal_text FROM runs WHERE id = ?',
+    member.runId as unknown as string
+  )
 
   const body: Record<string, unknown> = {
     kind: 'coordination',
@@ -255,7 +315,14 @@ export function buildCoordinationEnvelope(
     roleContext: input.roleContext,
     peers: input.peers ?? []
   }
-  return storeEnvelope(db, 'coordination', input.assignmentId, input.assignmentRevision, body, bindings)
+  return storeEnvelope(
+    db,
+    'coordination',
+    input.assignmentId,
+    input.assignmentRevision,
+    body,
+    bindings
+  )
 }
 
 /** Envelope row + pinned body, or null. */
@@ -269,7 +336,9 @@ export function getWorkEnvelope(db: DatabaseSync, digest: string): StoredEnvelop
   const blob = one(db, 'SELECT body FROM content_blobs WHERE digest = ?', row.body_digest as string)
   const raw = blob?.body
   const body =
-    raw instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(raw)) as Record<string, unknown>) : {}
+    raw instanceof Uint8Array
+      ? (JSON.parse(new TextDecoder().decode(raw)) as Record<string, unknown>)
+      : {}
   const bindings = JSON.parse(row.bindings_json as string) as Record<string, unknown>
   return {
     digest: row.digest as string,

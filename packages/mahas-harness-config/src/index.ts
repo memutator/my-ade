@@ -59,3 +59,81 @@ export function resumeCommand(
   const quoted = `'${sessionId.replace(/'/g, `'\\''`)}'`
   return [spec.cmd, ...(spec.args ?? []), quoted].join(' ')
 }
+
+/* ---------------------------------------------------------------- IMP-24
+ * File-based harness realization — the claude-code profile: component
+ * lowering (role/components/* + plugin), the S-INJECTION §5 argv recipe,
+ * and the settings/write policy. Consumers: IMP-09 materialization,
+ * IMP-19 worker.prepare LaunchPlan, IMP-30 role-implementation tooling.
+ */
+
+export {
+  COMPONENT_KINDS,
+  CLAUDE_LAYOUT,
+  planComponents,
+  pluginManifestJson,
+  readFrontmatter
+} from './claude/components.ts'
+export type {
+  ComponentBinding,
+  ComponentContent,
+  ComponentKind,
+  ComponentPlan,
+  Frontmatter,
+  InjectionRouteEntry,
+  PlannedFile,
+  SkillDelivery,
+  SubagentRole
+} from './claude/components.ts'
+
+export {
+  MAX_ARGV_TOTAL_BYTES,
+  MAX_ARG_STRLEN_BYTES,
+  MAHAS_ENV,
+  attachRouteIndices,
+  buildClaudeArgv,
+  buildClaudeLaunch,
+  buildClaudeResumeArgv,
+  launchInputFromPlan
+} from './claude/recipe.ts'
+export type {
+  ClaudeLaunch,
+  ClaudeLaunchInput,
+  ClaudePermissionMode,
+  ClaudeResumeInput
+} from './claude/recipe.ts'
+
+export {
+  EXECUTION_SETTINGS_KEYS,
+  FORBIDDEN_ENV_PATTERN,
+  FORBIDDEN_SETTINGS_KEYS,
+  assertExecutionScoped,
+  buildExecutionSettings,
+  claudeInheritedLoadPaths,
+  claudeSharedRoots,
+  executionSettingsPath,
+  probeInheritedPaths
+} from './claude/settings-policy.ts'
+export type { ExecutionSettingsResult, InheritedLoadPath } from './claude/settings-policy.ts'
+
+export {
+  CLAUDE_PERMISSION_MODES,
+  CLAUDE_PROFILE_ID,
+  CLAUDE_PROFILE_REVISION,
+  SUPPORTED_COMPONENT_KINDS,
+  claudeProfileDraft,
+  resolveClaudeExecutable
+} from './claude/profile.ts'
+export type {
+  ExecutableResolution,
+  HarnessProfileDraft,
+  HarnessProfileState
+} from './claude/profile.ts'
+
+// IMP-25 — config-body harness realization for Codex CLI (spec/injection.md
+// §6 path B): TOML developer_instructions emission, .agents/skills catalog
+// materialization, scoped-CLI env port, launch/resume recipe, and the
+// settingsPolicy + profile revision registered via harness.profile.register.
+export * from './codex/components.ts'
+export * from './codex/settings-policy.ts'
+export * from './codex/recipe.ts'

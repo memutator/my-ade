@@ -56,13 +56,24 @@ export function getDispatch(db: DatabaseSync, dispatchId: string): Dispatch | nu
 
 /** the ONE authoritative attempt on a task (partial unique index) */
 export function getActiveDispatchForTask(db: DatabaseSync, taskId: string): Dispatch | null {
-  const r = one(db, "SELECT * FROM dispatches WHERE task_id = ? AND authority_state = 'active'", taskId)
+  const r = one(
+    db,
+    "SELECT * FROM dispatches WHERE task_id = ? AND authority_state = 'active'",
+    taskId
+  )
   return r ? toDispatch(r) : null
 }
 
 /** the ONE authoritative attempt hosted by an execution (partial unique index) */
-export function getActiveDispatchForExecution(db: DatabaseSync, executionId: string): Dispatch | null {
-  const r = one(db, "SELECT * FROM dispatches WHERE execution_id = ? AND authority_state = 'active'", executionId)
+export function getActiveDispatchForExecution(
+  db: DatabaseSync,
+  executionId: string
+): Dispatch | null {
+  const r = one(
+    db,
+    "SELECT * FROM dispatches WHERE execution_id = ? AND authority_state = 'active'",
+    executionId
+  )
   return r ? toDispatch(r) : null
 }
 
@@ -92,7 +103,10 @@ export interface ReserveDispatchInput {
  */
 export function reserveDispatch(db: DatabaseSync, input: ReserveDispatchInput): Dispatch {
   const task = getTask(db, input.taskId)
-  if (!task) fail('INVALID_TRANSITION', `task ${input.taskId} does not exist`, 'none', { taskId: input.taskId })
+  if (!task)
+    fail('INVALID_TRANSITION', `task ${input.taskId} does not exist`, 'none', {
+      taskId: input.taskId
+    })
   const currentRevision = task!.currentRevision as unknown as number
   if (input.taskRevision !== currentRevision) {
     fail(
@@ -104,9 +118,15 @@ export function reserveDispatch(db: DatabaseSync, input: ReserveDispatchInput): 
   }
   const spec = getTaskSpec(db, input.taskId, input.taskRevision)
   if (!spec) {
-    fail('STALE_REVISION', `task ${input.taskId} has no spec revision ${input.taskRevision}`, 'none', input)
+    fail(
+      'STALE_REVISION',
+      `task ${input.taskId} has no spec revision ${input.taskRevision}`,
+      'none',
+      input
+    )
   }
-  const specAssignee = (spec as unknown as Record<string, unknown>).assignedMemberId as string | null | undefined
+  const specAssignee = (spec as unknown as Record<string, unknown>).assignedMemberId as
+    string | null | undefined
   if (specAssignee != null && specAssignee !== input.memberId) {
     fail(
       'SCOPE_DENIED',
@@ -117,7 +137,10 @@ export function reserveDispatch(db: DatabaseSync, input: ReserveDispatchInput): 
   }
 
   const member = one(db, 'SELECT id, run_id, state FROM members WHERE id = ?', input.memberId)
-  if (!member) fail('INVALID_TRANSITION', `member ${input.memberId} does not exist`, 'none', { memberId: input.memberId })
+  if (!member)
+    fail('INVALID_TRANSITION', `member ${input.memberId} does not exist`, 'none', {
+      memberId: input.memberId
+    })
   if (member!.run_id !== task!.runId) {
     fail(
       'SCOPE_DENIED',
@@ -127,39 +150,69 @@ export function reserveDispatch(db: DatabaseSync, input: ReserveDispatchInput): 
     )
   }
   if (member!.state === 'retired') {
-    fail('INVALID_TRANSITION', `member ${input.memberId} is retired`, 'none', { memberId: input.memberId })
+    fail('INVALID_TRANSITION', `member ${input.memberId} is retired`, 'none', {
+      memberId: input.memberId
+    })
   }
 
-  const execution = one(db, 'SELECT id, member_id, generation FROM executions WHERE id = ?', input.executionId)
-  if (!execution || execution.member_id !== input.memberId || execution.generation !== input.generation) {
+  const execution = one(
+    db,
+    'SELECT id, member_id, generation FROM executions WHERE id = ?',
+    input.executionId
+  )
+  if (
+    !execution ||
+    execution.member_id !== input.memberId ||
+    execution.generation !== input.generation
+  ) {
     fail(
       'STALE_EXECUTION',
       `execution ${input.executionId} generation ${input.generation} is not a current target for member ${input.memberId}`,
       'none',
-      { executionId: input.executionId, generation: input.generation, memberId: input.memberId, found: execution ?? null }
+      {
+        executionId: input.executionId,
+        generation: input.generation,
+        memberId: input.memberId,
+        found: execution ?? null
+      }
     )
   }
 
   const envelope = one(db, 'SELECT kind FROM work_envelopes WHERE digest = ?', input.envelopeDigest)
   if (!envelope || envelope.kind !== 'task') {
-    fail('ARTIFACT_MISMATCH', `work envelope ${input.envelopeDigest} does not exist or is not task-kind`, 'none', {
-      envelopeDigest: input.envelopeDigest
-    })
+    fail(
+      'ARTIFACT_MISMATCH',
+      `work envelope ${input.envelopeDigest} does not exist or is not task-kind`,
+      'none',
+      {
+        envelopeDigest: input.envelopeDigest
+      }
+    )
   }
 
   const onTask = getActiveDispatchForTask(db, input.taskId)
   if (onTask) {
-    fail('OPERATION_CONFLICT', `task ${input.taskId} already has active dispatch ${onTask.id}`, 'none', {
-      taskId: input.taskId,
-      activeDispatchId: onTask.id
-    })
+    fail(
+      'OPERATION_CONFLICT',
+      `task ${input.taskId} already has active dispatch ${onTask.id}`,
+      'none',
+      {
+        taskId: input.taskId,
+        activeDispatchId: onTask.id
+      }
+    )
   }
   const onExecution = getActiveDispatchForExecution(db, input.executionId)
   if (onExecution) {
-    fail('OPERATION_CONFLICT', `execution ${input.executionId} already hosts active dispatch ${onExecution.id}`, 'none', {
-      executionId: input.executionId,
-      activeDispatchId: onExecution.id
-    })
+    fail(
+      'OPERATION_CONFLICT',
+      `execution ${input.executionId} already hosts active dispatch ${onExecution.id}`,
+      'none',
+      {
+        executionId: input.executionId,
+        activeDispatchId: onExecution.id
+      }
+    )
   }
 
   run(
@@ -183,7 +236,11 @@ export function reserveDispatch(db: DatabaseSync, input: ReserveDispatchInput): 
     1,
     'dispatch.reserved',
     { taskId: input.taskId, executionId: input.executionId },
-    { taskRevision: input.taskRevision, memberId: input.memberId, envelopeDigest: input.envelopeDigest }
+    {
+      taskRevision: input.taskRevision,
+      memberId: input.memberId,
+      envelopeDigest: input.envelopeDigest
+    }
   )
   return getDispatch(db, input.dispatchId)!
 }
@@ -197,7 +254,12 @@ export function linkAssignmentDelivery(
 ): Dispatch {
   const d = mustGet(db, dispatchId)
   casRevision(d, expectedRevision)
-  run(db, 'UPDATE dispatches SET assignment_delivery_id = ?, revision = revision + 1 WHERE id = ?', deliveryId, dispatchId)
+  run(
+    db,
+    'UPDATE dispatches SET assignment_delivery_id = ?, revision = revision + 1 WHERE id = ?',
+    deliveryId,
+    dispatchId
+  )
   return getDispatch(db, dispatchId)!
 }
 
@@ -216,10 +278,21 @@ export function advanceDispatchPhase(
   const from = d.phase as DispatchPhase
   if (from === to) return d
   if (!PHASE_TRANSITIONS[from].includes(to)) {
-    fail('INVALID_TRANSITION', `dispatch ${dispatchId} cannot move ${from} → ${to}`, 'none', { dispatchId, from, to })
+    fail('INVALID_TRANSITION', `dispatch ${dispatchId} cannot move ${from} → ${to}`, 'none', {
+      dispatchId,
+      from,
+      to
+    })
   }
   run(db, 'UPDATE dispatches SET phase = ?, revision = revision + 1 WHERE id = ?', to, dispatchId)
-  appendDomainEvent(db, dispatchId, d.revision + 1, 'dispatch.phase', { taskId: d.taskId }, { from, to })
+  appendDomainEvent(
+    db,
+    dispatchId,
+    d.revision + 1,
+    'dispatch.phase',
+    { taskId: d.taskId },
+    { from, to }
+  )
   return getDispatch(db, dispatchId)!
 }
 
@@ -232,7 +305,12 @@ export function advanceDispatchPhase(
 export function acceptDispatch(
   db: DatabaseSync,
   dispatchId: string,
-  check?: { taskRevision?: number; executionId?: string; generation?: number; envelopeDigest?: string }
+  check?: {
+    taskRevision?: number
+    executionId?: string
+    generation?: number
+    envelopeDigest?: string
+  }
 ): Dispatch {
   checkAttemptAuthority(db, { dispatchId, ...check })
   return advanceDispatchPhase(db, dispatchId, 'running')
@@ -253,14 +331,21 @@ export function fenceDispatch(
   casRevision(d, input?.expectedRevision)
   if (d.authorityState === 'revoked') return d
   if (d.authorityState === 'settled') {
-    fail('INVALID_TRANSITION', `dispatch ${dispatchId} is settled and cannot be fenced`, 'none', { dispatchId })
+    fail('INVALID_TRANSITION', `dispatch ${dispatchId} is settled and cannot be fenced`, 'none', {
+      dispatchId
+    })
   }
   run(
     db,
     "UPDATE dispatches SET authority_state = 'revoked', phase = 'revoked', revision = revision + 1 WHERE id = ?",
     dispatchId
   )
-  run(db, 'UPDATE tasks SET current_dispatch_id = NULL WHERE id = ? AND current_dispatch_id = ?', d.taskId as string, dispatchId)
+  run(
+    db,
+    'UPDATE tasks SET current_dispatch_id = NULL WHERE id = ? AND current_dispatch_id = ?',
+    d.taskId as string,
+    dispatchId
+  )
   appendDomainEvent(
     db,
     dispatchId,
@@ -277,7 +362,11 @@ export function fenceDispatch(
  * phase → 'settled', task pointer cleared. Idempotent re-settle returns the
  * row unchanged; settling before 'reported' is INVALID_TRANSITION.
  */
-export function settleDispatch(db: DatabaseSync, dispatchId: string, expectedRevision?: number): Dispatch {
+export function settleDispatch(
+  db: DatabaseSync,
+  dispatchId: string,
+  expectedRevision?: number
+): Dispatch {
   const d = mustGet(db, dispatchId)
   casRevision(d, expectedRevision)
   if (d.authorityState === 'settled') return d
@@ -294,7 +383,12 @@ export function settleDispatch(db: DatabaseSync, dispatchId: string, expectedRev
     "UPDATE dispatches SET authority_state = 'settled', phase = 'settled', revision = revision + 1 WHERE id = ?",
     dispatchId
   )
-  run(db, 'UPDATE tasks SET current_dispatch_id = NULL WHERE id = ? AND current_dispatch_id = ?', d.taskId as string, dispatchId)
+  run(
+    db,
+    'UPDATE tasks SET current_dispatch_id = NULL WHERE id = ? AND current_dispatch_id = ?',
+    d.taskId as string,
+    dispatchId
+  )
   appendDomainEvent(db, dispatchId, d.revision + 1, 'dispatch.settled', { taskId: d.taskId }, null)
   return getDispatch(db, dispatchId)!
 }
@@ -330,7 +424,10 @@ export function checkAttemptAuthority(
   check: AttemptCheck
 ): { dispatch: Dispatch; task: Task; spec: TaskSpec } {
   const d = getDispatch(db, check.dispatchId)
-  if (!d) fail('STALE_REVISION', `dispatch ${check.dispatchId} does not exist`, 'none', { dispatchId: check.dispatchId })
+  if (!d)
+    fail('STALE_REVISION', `dispatch ${check.dispatchId} does not exist`, 'none', {
+      dispatchId: check.dispatchId
+    })
 
   const authority = (d as unknown as { authorityState: string }).authorityState
   if (authority !== 'active') {
@@ -343,11 +440,19 @@ export function checkAttemptAuthority(
   }
 
   const task = getTask(db, d!.taskId as unknown as string)
-  if (!task || (task.currentDispatchId as unknown as string | null | undefined) !== check.dispatchId) {
-    fail('INVALID_TRANSITION', `dispatch ${check.dispatchId} is not the task's current attempt pointer`, 'none', {
-      dispatchId: check.dispatchId,
-      taskCurrentDispatchId: task?.currentDispatchId ?? null
-    })
+  if (
+    !task ||
+    (task.currentDispatchId as unknown as string | null | undefined) !== check.dispatchId
+  ) {
+    fail(
+      'INVALID_TRANSITION',
+      `dispatch ${check.dispatchId} is not the task's current attempt pointer`,
+      'none',
+      {
+        dispatchId: check.dispatchId,
+        taskCurrentDispatchId: task?.currentDispatchId ?? null
+      }
+    )
   }
 
   const dispatchRevision = d!.taskRevision as unknown as number
@@ -356,11 +461,18 @@ export function checkAttemptAuthority(
       'STALE_REVISION',
       `dispatch ${check.dispatchId} pins task revision ${dispatchRevision}, caller claimed ${check.taskRevision}`,
       'none',
-      { dispatchId: check.dispatchId, dispatchTaskRevision: dispatchRevision, claimedTaskRevision: check.taskRevision }
+      {
+        dispatchId: check.dispatchId,
+        dispatchTaskRevision: dispatchRevision,
+        claimedTaskRevision: check.taskRevision
+      }
     )
   }
 
-  if (check.executionId !== undefined && check.executionId !== (d!.executionId as unknown as string)) {
+  if (
+    check.executionId !== undefined &&
+    check.executionId !== (d!.executionId as unknown as string)
+  ) {
     fail(
       'STALE_EXECUTION',
       `dispatch ${check.dispatchId} belongs to execution ${d!.executionId}, not ${check.executionId}`,
@@ -373,11 +485,19 @@ export function checkAttemptAuthority(
       'STALE_EXECUTION',
       `dispatch ${check.dispatchId} pins execution generation ${d!.generation}, caller claimed ${check.generation}`,
       'none',
-      { dispatchId: check.dispatchId, dispatchGeneration: d!.generation, claimedGeneration: check.generation }
+      {
+        dispatchId: check.dispatchId,
+        dispatchGeneration: d!.generation,
+        claimedGeneration: check.generation
+      }
     )
   }
   // paranoid cross-check: the execution row still exists at the pinned generation
-  const execution = one(db, 'SELECT generation FROM executions WHERE id = ?', d!.executionId as unknown as string)
+  const execution = one(
+    db,
+    'SELECT generation FROM executions WHERE id = ?',
+    d!.executionId as unknown as string
+  )
   if (!execution || execution.generation !== (d!.generation as unknown as number)) {
     fail(
       'STALE_EXECUTION',
@@ -387,7 +507,10 @@ export function checkAttemptAuthority(
     )
   }
 
-  if (check.envelopeDigest !== undefined && check.envelopeDigest !== (d!.envelopeDigest as unknown as string)) {
+  if (
+    check.envelopeDigest !== undefined &&
+    check.envelopeDigest !== (d!.envelopeDigest as unknown as string)
+  ) {
     fail(
       'ARTIFACT_MISMATCH',
       `dispatch ${check.dispatchId} pins envelope ${d!.envelopeDigest}, caller claimed ${check.envelopeDigest}`,
@@ -419,10 +542,15 @@ function mustGet(db: DatabaseSync, dispatchId: string): Dispatch {
 function casRevision(d: Dispatch, expectedRevision?: number): void {
   const current = (d as unknown as { revision: number }).revision
   if (expectedRevision !== undefined && expectedRevision !== current) {
-    fail('STALE_REVISION', `dispatch ${d.id} is at revision ${current}, expected ${expectedRevision}`, 'none', {
-      dispatchId: d.id,
-      revision: current,
-      expectedRevision
-    })
+    fail(
+      'STALE_REVISION',
+      `dispatch ${d.id} is at revision ${current}, expected ${expectedRevision}`,
+      'none',
+      {
+        dispatchId: d.id,
+        revision: current,
+        expectedRevision
+      }
+    )
   }
 }

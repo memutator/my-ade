@@ -4,66 +4,54 @@
 // execution.md). It must not die when a UI disconnects; mahasd reattaches
 // to the same processes after a control-plane restart.
 //
-// IMP-01 delivers the ENTRYPOINT SHELL only — honest about what exists:
-//   real:  argv/config-dir handling, host identity (hostId + fresh
-//          incarnation per process), a unix-socket listener answering one
-//          `hello` op, NDJSON lifecycle lines on stdout (same convention as
-//          resources/pty-host.cjs), and clean shutdown on signal/stdin-end.
-//   absent: process/PTY managers, spawn/stop/input primitives, Controller-
-//          Lease verification (D-EXEC §3), execution-host.sqlite receipts.
-//          IMP-17–IMP-23 inject those behind this socket; every unhandled
-//          op answers {t:'error', code:'UNIMPLEMENTED'} — never a fake ok.
+// IMP-17 turned the IMP-01 entrypoint shell into the real bootstrap:
+//   real:  argv/config-dir handling, exclusive endpoint claim (a live host
+//          is never killed/adopted — only a verifiably-dead endpoint is
+//          taken over), execution-host.sqlite open, host identity
+//          publication (hostId + fresh incarnation + birth evidence +
+//          launchNonce + endpointIncarnation) via temp+atomic rename, an
+//          authenticated NDJSON RPC socket serving host.hello / acquire /
+//          inventory / effect.get, and identity-matched cleanup on exit.
+//   absent: process/PTY managers and workspace ops — IMP-18/IMP-16
+//          register them through host.ts's registerHostOp() seam.
+//
+// Lifecycle lines on stdout follow the resources/pty-host.cjs convention.
 
-import { createServer, type Server, type Socket } from 'node:net'
-import { createInterface } from 'node:readline'
-import { existsSync, unlinkSync } from 'node:fs'
-import { hostname } from 'node:os'
-import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
-
-/** wire-format version of the ExecutionHost RPC — IMP-16+ owns its bumps */
-const EXECUTION_HOST_PROTOCOL_VERSION = 0
-
-interface HostIdentity {
-  service: 'mahas-execution-host'
-  hostId: string
-  /** fresh per process — reattach equality is (hostId, incarnation) */
-  hostIncarnation: string
-  protocolVersion: number
-  pid: number
-  startedAt: number
-}
-
-const identity: HostIdentity = {
-  service: 'mahas-execution-host',
-  hostId: hostname(),
-  hostIncarnation: randomUUID(),
-  protocolVersion: EXECUTION_HOST_PROTOCOL_VERSION,
-  pid: process.pid,
-  startedAt: Date.now()
-}
+import { mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { bootstrapHost, type HostService } from './host.ts'
+import { HostOpError } from './lease.ts'
+import { registerProcessOps, type ProcessOpsHandle } from './process-manager.ts'
+import { registerWorkspaceHostOps } from './workspaces/mod.ts'
+import type { WorkspaceOpEnvelope } from './workspaces/common.ts'
 
 function usage(): never {
   process.stderr.write(
-    'usage: mahas-execution-host [--endpoint <path>] [--config-dir <dir>] [--help]\n' +
-      '  socket defaults to <config-dir>/execution-host.sock; config dir\n' +
-      '  defaults to $MAHAS_CONFIG_DIR or ~/.config/mahas\n'
+    'usage: mahas-execution-host [--endpoint <path>] [--config-dir <dir>] [--db <path>] [--help]\n' +
+      '  socket defaults to <config-dir>/execution-host.sock; db to\n' +
+      '  <config-dir>/execution-host.sqlite; config dir defaults to\n' +
+      '  $MAHAS_CONFIG_DIR or ~/.config/mahas\n'
   )
   process.exit(2)
 }
 
-function parseArgs(argv: string[]): { endpoint: string } {
+function parseArgs(argv: string[]): { endpoint: string; dbPath: string } {
   const configDir =
     process.env.MAHAS_CONFIG_DIR ?? join(process.env.HOME ?? '/', '.config', 'mahas')
   let endpoint = join(configDir, 'execution-host.sock')
+  let dbPath = join(configDir, 'execution-host.sqlite')
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--endpoint' && argv[i + 1]) endpoint = argv[++i]
-    else if (a === '--config-dir' && argv[i + 1]) endpoint = join(argv[++i], 'execution-host.sock')
+    else if (a === '--config-dir' && argv[i + 1]) {
+      const dir = argv[++i]
+      endpoint = join(dir, 'execution-host.sock')
+      dbPath = join(dir, 'execution-host.sqlite')
+    } else if (a === '--db' && argv[i + 1]) dbPath = argv[++i]
     else if (a === '--help' || a === '-h') usage()
     else usage()
   }
-  return { endpoint }
+  return { endpoint, dbPath }
 }
 
 function send(msg: object): void {
@@ -74,78 +62,85 @@ function send(msg: object): void {
   }
 }
 
-const { endpoint } = parseArgs(process.argv.slice(2))
-let server: Server | null = null
-const conns = new Set<Socket>()
+const { endpoint, dbPath } = parseArgs(process.argv.slice(2))
+let service: HostService | null = null
+let processOps: ProcessOpsHandle | null = null
 let stopping = false
 
-// One op exists: `hello` → host identity. Anything else is honestly refused
-// — accepting an op and silently doing nothing would be the lie REQ-14/27
-// forbid. The line protocol matches the desktop's pty-host conventions so
-// IMP-17 can grow it rather than replace it.
-function onLine(conn: Socket, line: string): void {
-  let m: { t?: string }
-  try {
-    m = JSON.parse(line)
-  } catch {
-    conn.write(JSON.stringify({ t: 'error', code: 'BAD_JSON' }) + '\n')
-    return
-  }
-  if (m.t === 'hello') {
-    conn.write(JSON.stringify({ t: 'hello', ...identity }) + '\n')
-    return
-  }
-  if (m.t === 'quit') {
-    conn.write(JSON.stringify({ t: 'bye' }) + '\n')
-    shutdown(0)
-    return
-  }
-  conn.write(JSON.stringify({ t: 'error', code: 'UNIMPLEMENTED', op: m.t ?? null }) + '\n')
-}
-
-function onConn(conn: Socket): void {
-  conns.add(conn)
-  conn.on('close', () => conns.delete(conn))
-  const rl = createInterface({ input: conn, terminal: false })
-  rl.on('line', (line) => onLine(conn, line))
-}
-
-// refuse a live endpoint — never unlink someone else's socket to take over
-function start(path: string): void {
-  if (existsSync(path)) {
-    send({ t: 'error', code: 'ENDPOINT_IN_USE', endpoint: path })
-    process.exit(1)
-  }
-  server = createServer(onConn)
-  server.on('error', (err) => {
-    send({ t: 'error', code: 'LISTEN_FAILED', msg: String(err.message ?? err) })
-    process.exit(1)
-  })
-  server.listen(path, () => {
-    send({ t: 'ready', ...identity, endpoint: path })
-  })
-}
-
-function shutdown(code: number): void {
+async function shutdown(code: number): Promise<void> {
   if (stopping) return
   stopping = true
-  send({ t: 'stopping', ...identity })
-  for (const c of conns) c.destroy()
-  server?.close(() => {
-    try {
-      if (existsSync(endpoint)) unlinkSync(endpoint)
-    } catch {
-      /* next start probes existence again */
-    }
-    process.exit(code)
-  })
-  // a wedged listener must not hold the exit forever
-  setTimeout(() => process.exit(code), 1500).unref()
+  if (service) {
+    send({
+      t: 'stopping',
+      hostId: service.identity.hostId,
+      hostIncarnation: service.identity.hostIncarnation
+    })
+    // drop subscriptions/timers; owned processes stay alive for reattach —
+    // killing them is a drain-and-stop decision the controller makes
+    processOps?.dispose()
+    await service.close()
+  }
+  process.exit(code)
 }
 
-start(endpoint)
-process.on('SIGTERM', () => shutdown(0))
-process.on('SIGINT', () => shutdown(0))
-// stdin closing = launcher gone — the daemon exits like pty-host does today;
-// IMP-17 revisits this once the service-manager path exists
-process.stdin.on('end', () => shutdown(0))
+async function main(): Promise<void> {
+  for (const p of [dirname(endpoint), dbPath === ':memory:' ? null : dirname(dbPath)]) {
+    if (p) mkdirSync(p, { recursive: true })
+  }
+  try {
+    service = await bootstrapHost({ endpoint, dbPath })
+  } catch (err) {
+    // refusal is honest — a live host or unverifiable takeover is reported,
+    // never worked around (no kill, no adopt, no parallel second daemon).
+    const code = err instanceof HostOpError ? err.code : 'BOOTSTRAP_FAILED'
+    send({ t: 'error', code, msg: err instanceof Error ? err.message : String(err), endpoint })
+    process.exit(1)
+  }
+  const { identity } = service
+  // Owned primitives registered into the daemon's op table (IMP-16/18):
+  // process/PTY + terminal stream ops, and the workspace.* primitives.
+  processOps = registerProcessOps(service.registerHostOp, {
+    db: service.db,
+    hostId: identity.hostId,
+    hostIncarnation: identity.hostIncarnation,
+    pushEvent: (connectionId, event) => {
+      service!.pushEvent({ connectionId, event } as never)
+    },
+    assertMutationAllowed: (op, ctx) => service!.assertMutationAllowed(op, ctx)
+  })
+  registerWorkspaceHostOps(
+    (spec, handler) =>
+      service!.registerHostOp(
+        spec.name,
+        (payload, ctx) =>
+          handler(
+            {
+              db: ctx.db,
+              envelope: ctx.envelope as unknown as WorkspaceOpEnvelope
+            },
+            payload
+          ),
+        { mutation: spec.mutation }
+      ),
+    {}
+  )
+  send({
+    t: 'ready',
+    hostId: identity.hostId,
+    hostIncarnation: identity.hostIncarnation,
+    protocolVersion: identity.protocolVersion,
+    endpoint,
+    endpointFile: service.endpointFile,
+    dbPath,
+    pid: identity.processIdentity.pid,
+    endpointIncarnation: identity.processIdentity.endpointIncarnation
+  })
+}
+
+void main()
+process.on('SIGTERM', () => void shutdown(0))
+process.on('SIGINT', () => void shutdown(0))
+// stdin closing = launcher gone. The daemon exits like pty-host does today;
+// the service-manager path (which owns a no-stdin lifetime) is IMP-23's.
+process.stdin.on('end', () => void shutdown(0))

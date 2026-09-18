@@ -33,7 +33,13 @@ import {
   reqInt,
   reqStr
 } from './internal.ts'
-import { getTaskSpec, getCurrentTaskSpec, createTask, putTaskSpecRevision } from './task-spec.ts'
+import {
+  getTaskSpec,
+  getCurrentTaskSpec,
+  createTask,
+  putTaskSpecRevision,
+  type TaskSpecContent
+} from './task-spec.ts'
 import { pinInputs, resolveInputs } from './input-resolver.ts'
 import {
   buildCoordinationEnvelope,
@@ -118,7 +124,11 @@ export interface CreateDispatchResult {
   inputs?: unknown
 }
 
-export function createDispatch(db: DatabaseSync, input: CreateDispatchInput, deps?: DispatchServiceDeps): CreateDispatchResult {
+export function createDispatch(
+  db: DatabaseSync,
+  input: CreateDispatchInput,
+  deps?: DispatchServiceDeps
+): CreateDispatchResult {
   const dispatchId = input.dispatchId ?? deps?.makeId?.('dispatch') ?? newId('dsp')
 
   let envelope: StoredEnvelope
@@ -139,15 +149,25 @@ export function createDispatch(db: DatabaseSync, input: CreateDispatchInput, dep
   } else if (input.envelopeDigest !== undefined) {
     const stored = getWorkEnvelope(db, input.envelopeDigest)
     if (!stored || stored.kind !== 'task') {
-      fail('ARTIFACT_MISMATCH', `envelope ${input.envelopeDigest} is not a pinned task envelope`, 'none', {
-        envelopeDigest: input.envelopeDigest
-      })
+      fail(
+        'ARTIFACT_MISMATCH',
+        `envelope ${input.envelopeDigest} is not a pinned task envelope`,
+        'none',
+        {
+          envelopeDigest: input.envelopeDigest
+        }
+      )
     }
     envelope = stored
   } else {
-    fail('MODEL_INVALID', 'createDispatch needs envelopeDigest or an envelope build input', 'none', {
-      taskId: input.taskId
-    })
+    fail(
+      'MODEL_INVALID',
+      'createDispatch needs envelopeDigest or an envelope build input',
+      'none',
+      {
+        taskId: input.taskId
+      }
+    )
   }
 
   const dispatch = reserveDispatch(db, {
@@ -167,7 +187,7 @@ export function createDispatch(db: DatabaseSync, input: CreateDispatchInput, dep
 
 type Payload = Record<string, unknown>
 
-function specContent(p: Payload, op: string) {
+function specContent(p: Payload, op: string): TaskSpecContent {
   return {
     title: reqStr(p, 'title', op),
     requirementText: reqStr(p, 'requirementText', op),
@@ -196,35 +216,42 @@ export function registerDispatchOps(registry: OperationRegistry, deps?: Dispatch
     return getCurrentTaskSpec(txn.db, reqStr(p, 'taskId', op))
   })
 
-  registry.register({ name: DISPATCH_OPS.taskSpecCreate, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.taskSpecCreate
-    const p = asObject(payload, op)
-    return createTask(txn.db, {
-      taskId: optStr(p, 'taskId', op) ?? deps?.makeId?.('task') ?? newId('task'),
-      runId: reqStr(p, 'runId', op),
-      ...specContent(p, op)
-    })
-  })
-
-  registry.register({ name: DISPATCH_OPS.taskSpecRevise, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.taskSpecRevise
-    const p = asObject(payload, op)
-    const revised = putTaskSpecRevision(txn.db, reqStr(p, 'taskId', op), {
-      ...specContent(p, op),
-      expectedCurrentRevision: optInt(p, 'expectedCurrentRevision', op)
-    })
-    // explicit attempt disposition travels with the revision — 'fence' closes
-    // the kept attempt's authority in the same transaction so its result can
-    // never be adopted by the new requirement revision.
-    const disposition = optStr(p, 'activeAttemptDisposition', op)
-    if (disposition === 'fence') {
-      const active = getActiveDispatchForTask(txn.db, revised.task.id as unknown as string)
-      if (active) fenceDispatch(txn.db, active.id as unknown as string, { reason: 'taskSpec superseded' })
-    } else if (disposition !== undefined && disposition !== 'keep') {
-      badInput(`${op}: activeAttemptDisposition must be 'keep' or 'fence'`)
+  registry.register(
+    { name: DISPATCH_OPS.taskSpecCreate, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.taskSpecCreate
+      const p = asObject(payload, op)
+      return createTask(txn.db, {
+        taskId: optStr(p, 'taskId', op) ?? deps?.makeId?.('task') ?? newId('task'),
+        runId: reqStr(p, 'runId', op),
+        ...specContent(p, op)
+      })
     }
-    return revised
-  })
+  )
+
+  registry.register(
+    { name: DISPATCH_OPS.taskSpecRevise, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.taskSpecRevise
+      const p = asObject(payload, op)
+      const revised = putTaskSpecRevision(txn.db, reqStr(p, 'taskId', op), {
+        ...specContent(p, op),
+        expectedCurrentRevision: optInt(p, 'expectedCurrentRevision', op)
+      })
+      // explicit attempt disposition travels with the revision — 'fence' closes
+      // the kept attempt's authority in the same transaction so its result can
+      // never be adopted by the new requirement revision.
+      const disposition = optStr(p, 'activeAttemptDisposition', op)
+      if (disposition === 'fence') {
+        const active = getActiveDispatchForTask(txn.db, revised.task.id as unknown as string)
+        if (active)
+          fenceDispatch(txn.db, active.id as unknown as string, { reason: 'taskSpec superseded' })
+      } else if (disposition !== undefined && disposition !== 'keep') {
+        badInput(`${op}: activeAttemptDisposition must be 'keep' or 'fence'`)
+      }
+      return revised
+    }
+  )
 
   registry.register({ name: DISPATCH_OPS.inputsPin, ...svc, mutation: false }, (txn, payload) => {
     const op = DISPATCH_OPS.inputsPin
@@ -234,34 +261,45 @@ export function registerDispatchOps(registry: OperationRegistry, deps?: Dispatch
     return { inputs: pinInputs(txn.db, bindings) }
   })
 
-  registry.register({ name: DISPATCH_OPS.envelopeCreateTask, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.envelopeCreateTask
-    const p = asObject(payload, op)
-    return buildTaskEnvelope(txn.db, {
-      assignmentId: reqStr(p, 'assignmentId', op),
-      assignmentRevision: reqInt(p, 'assignmentRevision', op),
-      taskId: reqStr(p, 'taskId', op),
-      taskRevision: reqInt(p, 'taskRevision', op),
-      dispatchId: optStr(p, 'dispatchId', op),
-      peers: Array.isArray(p.peers) ? (p.peers as PeerRef[]) : [],
-      inputOverrides: p.inputOverrides as Record<string, ArtifactRef> | undefined
-    })
-  })
+  registry.register(
+    { name: DISPATCH_OPS.envelopeCreateTask, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.envelopeCreateTask
+      const p = asObject(payload, op)
+      return buildTaskEnvelope(txn.db, {
+        assignmentId: reqStr(p, 'assignmentId', op),
+        assignmentRevision: reqInt(p, 'assignmentRevision', op),
+        taskId: reqStr(p, 'taskId', op),
+        taskRevision: reqInt(p, 'taskRevision', op),
+        dispatchId: optStr(p, 'dispatchId', op),
+        peers: Array.isArray(p.peers) ? (p.peers as PeerRef[]) : [],
+        inputOverrides: p.inputOverrides as Record<string, ArtifactRef> | undefined
+      })
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.envelopeCreateCoordination, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.envelopeCreateCoordination
-    const p = asObject(payload, op)
-    const roleContext = optObj(p, 'roleContext', op) as
-      | { roleId: string; implementationId: string; implementationRevision: number; interfaceDigest?: string }
-      | undefined
-    if (!roleContext) badInput(`${op}: 'roleContext' is required`)
-    return buildCoordinationEnvelope(txn.db, {
-      assignmentId: reqStr(p, 'assignmentId', op),
-      assignmentRevision: reqInt(p, 'assignmentRevision', op),
-      roleContext: roleContext!,
-      peers: Array.isArray(p.peers) ? (p.peers as PeerRef[]) : []
-    })
-  })
+  registry.register(
+    { name: DISPATCH_OPS.envelopeCreateCoordination, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.envelopeCreateCoordination
+      const p = asObject(payload, op)
+      const roleContext = optObj(p, 'roleContext', op) as
+        | {
+            roleId: string
+            implementationId: string
+            implementationRevision: number
+            interfaceDigest?: string
+          }
+        | undefined
+      if (!roleContext) badInput(`${op}: 'roleContext' is required`)
+      return buildCoordinationEnvelope(txn.db, {
+        assignmentId: reqStr(p, 'assignmentId', op),
+        assignmentRevision: reqInt(p, 'assignmentRevision', op),
+        roleContext: roleContext!,
+        peers: Array.isArray(p.peers) ? (p.peers as PeerRef[]) : []
+      })
+    }
+  )
 
   registry.register({ name: DISPATCH_OPS.envelopeGet, ...svc, mutation: false }, (txn, payload) => {
     const op = DISPATCH_OPS.envelopeGet
@@ -269,33 +307,37 @@ export function registerDispatchOps(registry: OperationRegistry, deps?: Dispatch
     return getWorkEnvelope(txn.db, reqStr(p, 'digest', op))
   })
 
-  registry.register({ name: DISPATCH_OPS.dispatchCreate, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchCreate
-    const p = asObject(payload, op)
-    const envelopeInput = optObj(p, 'envelope', op)
-    return createDispatch(
-      txn.db,
-      {
-        taskId: reqStr(p, 'taskId', op),
-        taskRevision: reqInt(p, 'taskRevision', op),
-        memberId: reqStr(p, 'memberId', op),
-        executionId: reqStr(p, 'executionId', op),
-        generation: reqInt(p, 'generation', op),
-        envelopeDigest: optStr(p, 'envelopeDigest', op),
-        envelope: envelopeInput
-          ? {
-              assignmentId: reqStr(envelopeInput, 'assignmentId', op),
-              assignmentRevision: reqInt(envelopeInput, 'assignmentRevision', op),
-              peers: Array.isArray(envelopeInput.peers) ? (envelopeInput.peers as PeerRef[]) : [],
-              inputOverrides: envelopeInput.inputOverrides as Record<string, ArtifactRef> | undefined
-            }
-          : undefined,
-        dispatchId: optStr(p, 'dispatchId', op),
-        assignmentDeliveryId: optStr(p, 'assignmentDeliveryId', op)
-      },
-      deps
-    )
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchCreate, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchCreate
+      const p = asObject(payload, op)
+      const envelopeInput = optObj(p, 'envelope', op)
+      return createDispatch(
+        txn.db,
+        {
+          taskId: reqStr(p, 'taskId', op),
+          taskRevision: reqInt(p, 'taskRevision', op),
+          memberId: reqStr(p, 'memberId', op),
+          executionId: reqStr(p, 'executionId', op),
+          generation: reqInt(p, 'generation', op),
+          envelopeDigest: optStr(p, 'envelopeDigest', op),
+          envelope: envelopeInput
+            ? {
+                assignmentId: reqStr(envelopeInput, 'assignmentId', op),
+                assignmentRevision: reqInt(envelopeInput, 'assignmentRevision', op),
+                peers: Array.isArray(envelopeInput.peers) ? (envelopeInput.peers as PeerRef[]) : [],
+                inputOverrides: envelopeInput.inputOverrides as
+                  Record<string, ArtifactRef> | undefined
+              }
+            : undefined,
+          dispatchId: optStr(p, 'dispatchId', op),
+          assignmentDeliveryId: optStr(p, 'assignmentDeliveryId', op)
+        },
+        deps
+      )
+    }
+  )
 
   registry.register({ name: DISPATCH_OPS.dispatchGet, ...svc, mutation: false }, (txn, payload) => {
     const op = DISPATCH_OPS.dispatchGet
@@ -303,73 +345,94 @@ export function registerDispatchOps(registry: OperationRegistry, deps?: Dispatch
     return getDispatch(txn.db, reqStr(p, 'dispatchId', op))
   })
 
-  registry.register({ name: DISPATCH_OPS.dispatchActive, ...svc, mutation: false }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchActive
-    const p = asObject(payload, op)
-    const taskId = optStr(p, 'taskId', op)
-    const executionId = optStr(p, 'executionId', op)
-    if (taskId) return getActiveDispatchForTask(txn.db, taskId)
-    if (executionId) return getActiveDispatchForExecution(txn.db, executionId)
-    badInput(`${op}: payload needs 'taskId' or 'executionId'`)
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchActive, ...svc, mutation: false },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchActive
+      const p = asObject(payload, op)
+      const taskId = optStr(p, 'taskId', op)
+      const executionId = optStr(p, 'executionId', op)
+      if (taskId) return getActiveDispatchForTask(txn.db, taskId)
+      if (executionId) return getActiveDispatchForExecution(txn.db, executionId)
+      badInput(`${op}: payload needs 'taskId' or 'executionId'`)
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchCheckAttempt, ...svc, mutation: false }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchCheckAttempt
-    const p = asObject(payload, op)
-    return checkAttemptAuthority(txn.db, {
-      dispatchId: reqStr(p, 'dispatchId', op),
-      taskRevision: optInt(p, 'taskRevision', op),
-      executionId: optStr(p, 'executionId', op),
-      generation: optInt(p, 'generation', op),
-      envelopeDigest: optStr(p, 'envelopeDigest', op)
-    })
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchCheckAttempt, ...svc, mutation: false },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchCheckAttempt
+      const p = asObject(payload, op)
+      return checkAttemptAuthority(txn.db, {
+        dispatchId: reqStr(p, 'dispatchId', op),
+        taskRevision: optInt(p, 'taskRevision', op),
+        executionId: optStr(p, 'executionId', op),
+        generation: optInt(p, 'generation', op),
+        envelopeDigest: optStr(p, 'envelopeDigest', op)
+      })
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchAccept, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchAccept
-    const p = asObject(payload, op)
-    return acceptDispatch(txn.db, reqStr(p, 'dispatchId', op), {
-      taskRevision: optInt(p, 'taskRevision', op),
-      executionId: optStr(p, 'executionId', op),
-      generation: optInt(p, 'generation', op),
-      envelopeDigest: optStr(p, 'envelopeDigest', op)
-    })
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchAccept, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchAccept
+      const p = asObject(payload, op)
+      return acceptDispatch(txn.db, reqStr(p, 'dispatchId', op), {
+        taskRevision: optInt(p, 'taskRevision', op),
+        executionId: optStr(p, 'executionId', op),
+        generation: optInt(p, 'generation', op),
+        envelopeDigest: optStr(p, 'envelopeDigest', op)
+      })
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchAdvancePhase, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchAdvancePhase
-    const p = asObject(payload, op)
-    return advanceDispatchPhase(
-      txn.db,
-      reqStr(p, 'dispatchId', op),
-      reqStr(p, 'phase', op) as DispatchPhase,
-      optInt(p, 'expectedRevision', op)
-    )
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchAdvancePhase, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchAdvancePhase
+      const p = asObject(payload, op)
+      return advanceDispatchPhase(
+        txn.db,
+        reqStr(p, 'dispatchId', op),
+        reqStr(p, 'phase', op) as DispatchPhase,
+        optInt(p, 'expectedRevision', op)
+      )
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchFence, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchFence
-    const p = asObject(payload, op)
-    return fenceDispatch(txn.db, reqStr(p, 'dispatchId', op), {
-      reason: optStr(p, 'reason', op),
-      expectedRevision: optInt(p, 'expectedRevision', op)
-    })
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchFence, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchFence
+      const p = asObject(payload, op)
+      return fenceDispatch(txn.db, reqStr(p, 'dispatchId', op), {
+        reason: optStr(p, 'reason', op),
+        expectedRevision: optInt(p, 'expectedRevision', op)
+      })
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchSettle, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchSettle
-    const p = asObject(payload, op)
-    return settleDispatch(txn.db, reqStr(p, 'dispatchId', op), optInt(p, 'expectedRevision', op))
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchSettle, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchSettle
+      const p = asObject(payload, op)
+      return settleDispatch(txn.db, reqStr(p, 'dispatchId', op), optInt(p, 'expectedRevision', op))
+    }
+  )
 
-  registry.register({ name: DISPATCH_OPS.dispatchLinkDelivery, ...svc, mutation: true }, (txn, payload) => {
-    const op = DISPATCH_OPS.dispatchLinkDelivery
-    const p = asObject(payload, op)
-    return linkAssignmentDelivery(
-      txn.db,
-      reqStr(p, 'dispatchId', op),
-      reqStr(p, 'deliveryId', op),
-      optInt(p, 'expectedRevision', op)
-    )
-  })
+  registry.register(
+    { name: DISPATCH_OPS.dispatchLinkDelivery, ...svc, mutation: true },
+    (txn, payload) => {
+      const op = DISPATCH_OPS.dispatchLinkDelivery
+      const p = asObject(payload, op)
+      return linkAssignmentDelivery(
+        txn.db,
+        reqStr(p, 'dispatchId', op),
+        reqStr(p, 'deliveryId', op),
+        optInt(p, 'expectedRevision', op)
+      )
+    }
+  )
 }

@@ -8,6 +8,7 @@
     "mahas-execution-host": "./src/main.ts"
   },
   "dependencies": {
+    "@homebridge/node-pty-prebuilt-multiarch": "^0.14.1",
     "mahas-contracts": "*"
   }
 }

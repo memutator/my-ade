@@ -38,7 +38,10 @@ export function getTaskSpec(db: DatabaseSync, taskId: string, revision: number):
 }
 
 /** Task joined with its CURRENT TaskSpec revision — convenience for services. */
-export function getCurrentTaskSpec(db: DatabaseSync, taskId: string): { task: Task; spec: TaskSpec } | null {
+export function getCurrentTaskSpec(
+  db: DatabaseSync,
+  taskId: string
+): { task: Task; spec: TaskSpec } | null {
   const task = getTask(db, taskId)
   if (!task) return null
   const spec = getTaskSpec(db, taskId, task.currentRevision as unknown as number)
@@ -70,11 +73,25 @@ export function createTask(
   input: { taskId: string; runId: string } & TaskSpecContent
 ): { task: Task; spec: TaskSpec } {
   if (getTask(db, input.taskId)) {
-    fail('OPERATION_CONFLICT', `task ${input.taskId} already exists`, 'none', { taskId: input.taskId })
+    fail('OPERATION_CONFLICT', `task ${input.taskId} already exists`, 'none', {
+      taskId: input.taskId
+    })
   }
-  run(db, 'INSERT INTO tasks (id, run_id, current_revision, current_dispatch_id) VALUES (?, ?, 1, NULL)', input.taskId, input.runId)
+  run(
+    db,
+    'INSERT INTO tasks (id, run_id, current_revision, current_dispatch_id) VALUES (?, ?, 1, NULL)',
+    input.taskId,
+    input.runId
+  )
   insertSpecRow(db, input.taskId, 1, input)
-  appendDomainEvent(db, input.taskId, 1, 'task.created', { runId: input.runId }, { revision: 1, title: input.title })
+  appendDomainEvent(
+    db,
+    input.taskId,
+    1,
+    'task.created',
+    { runId: input.runId },
+    { revision: 1, title: input.title }
+  )
   return { task: getTask(db, input.taskId)!, spec: getTaskSpec(db, input.taskId, 1)! }
 }
 
@@ -98,20 +115,37 @@ export function putTaskSpecRevision(
   if (!task) fail('INVALID_TRANSITION', `task ${taskId} does not exist`, 'none', { taskId })
   const current = task.currentRevision as unknown as number
   if (input.expectedCurrentRevision !== undefined && input.expectedCurrentRevision !== current) {
-    fail('STALE_REVISION', `task ${taskId} current revision is ${current}, expected ${input.expectedCurrentRevision}`, 'none', {
-      taskId,
-      currentRevision: current,
-      expectedCurrentRevision: input.expectedCurrentRevision
-    })
+    fail(
+      'STALE_REVISION',
+      `task ${taskId} current revision is ${current}, expected ${input.expectedCurrentRevision}`,
+      'none',
+      {
+        taskId,
+        currentRevision: current,
+        expectedCurrentRevision: input.expectedCurrentRevision
+      }
+    )
   }
   const next = current + 1
   insertSpecRow(db, taskId, next, input)
   run(db, 'UPDATE tasks SET current_revision = ? WHERE id = ?', next, taskId)
-  appendDomainEvent(db, taskId, next, 'taskSpec.revised', { runId: task.runId }, { revision: next, supersedes: current })
+  appendDomainEvent(
+    db,
+    taskId,
+    next,
+    'taskSpec.revised',
+    { runId: task.runId },
+    { revision: next, supersedes: current }
+  )
   return { task: getTask(db, taskId)!, spec: getTaskSpec(db, taskId, next)! }
 }
 
-function insertSpecRow(db: DatabaseSync, taskId: string, revision: number, c: TaskSpecContent): void {
+function insertSpecRow(
+  db: DatabaseSync,
+  taskId: string,
+  revision: number,
+  c: TaskSpecContent
+): void {
   run(
     db,
     'INSERT INTO task_specs (task_id, revision, title, requirement_text, owner_role_id,' +
