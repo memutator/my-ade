@@ -1,0 +1,491 @@
+{
+  "version": 1,
+  "kind": "review",
+  "nodes": [
+    {
+      "id": "REV-01",
+      "kind": "review",
+      "title": "전체 도메인·SQLite 정본·모델 변경 검토",
+      "owner_role": "도메인/저장 검토자",
+      "instruction": "review-plan/tasks/REV-01/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-02",
+          "artifact": "handoff:IMP-02"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-05",
+          "artifact": "handoff:IMP-05"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-06",
+          "artifact": "handoff:IMP-06"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/rdd.md",
+        "spec/domains/role-realization.md",
+        "spec/domains/work.md",
+        "spec/storage.md",
+        "spec/contracts/discovery-assignment.md"
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-03",
+        "REQ-04",
+        "REQ-05",
+        "REQ-17",
+        "REQ-22"
+      ],
+      "output": "review:REV-01"
+    },
+    {
+      "id": "REV-02",
+      "kind": "review",
+      "title": "명령 비노출·권한·위임 경계 검토",
+      "owner_role": "권한 검토자",
+      "instruction": "review-plan/tasks/REV-02/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/access.md",
+        "spec/contracts/access-cli.md",
+        "spec/contracts/discovery-assignment.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-09",
+        "REQ-10",
+        "REQ-14",
+        "REQ-15"
+      ],
+      "output": "review:REV-02"
+    },
+    {
+      "id": "REV-03",
+      "kind": "review",
+      "title": "role + context 구현과 정보 해상도 검토",
+      "owner_role": "역할 구성 검토자",
+      "instruction": "review-plan/tasks/REV-03/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-08",
+          "artifact": "handoff:IMP-08"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-24",
+          "artifact": "handoff:IMP-24"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-25",
+          "artifact": "handoff:IMP-25"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-32",
+          "artifact": "handoff:IMP-32"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/role-realization.md",
+        "spec/injection.md",
+        "spec/contracts/realization.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-21",
+        "REQ-22"
+      ],
+      "output": "review:REV-03"
+    },
+    {
+      "id": "REV-04",
+      "kind": "review",
+      "title": "협업·DAG·전달·정산 의미 검토",
+      "owner_role": "협업 계약 검토자",
+      "instruction": "review-plan/tasks/REV-04/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-15",
+          "artifact": "handoff:IMP-15"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-31",
+          "artifact": "handoff:IMP-31"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/work.md",
+        "spec/domains/messaging-outcomes.md",
+        "spec/contracts/work.md",
+        "spec/contracts/mail-artifacts.md"
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-17",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20"
+      ],
+      "output": "review:REV-04"
+    },
+    {
+      "id": "REV-05",
+      "kind": "review",
+      "title": "실행 계층·소유권·재부착·복구 검토",
+      "owner_role": "실행 아키텍처 검토자",
+      "instruction": "review-plan/tasks/REV-05/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-29",
+          "artifact": "handoff:IMP-29"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/execution.md",
+        "spec/contracts/execution-host.md",
+        "spec/contracts/launch.md",
+        "spec/contracts/recovery-operations.md",
+        "spec/execution-lifecycle.md"
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-12",
+        "REQ-13",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16",
+        "REQ-27"
+      ],
+      "output": "review:REV-05"
+    },
+    {
+      "id": "REV-06",
+      "kind": "review",
+      "title": "공통 API·CLI·하네스 의존 경계 검토",
+      "owner_role": "프로토콜 검토자",
+      "instruction": "review-plan/tasks/REV-06/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-02",
+          "artifact": "handoff:IMP-02"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-24",
+          "artifact": "handoff:IMP-24"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-25",
+          "artifact": "handoff:IMP-25"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        }
+      ],
+      "required_reads": [
+        "spec/common.md",
+        "spec/operations.md",
+        "spec/contracts/access-cli.md",
+        "spec/contracts/execution-host.md",
+        "spec/injection.md"
+      ],
+      "requirements": [
+        "REQ-08",
+        "REQ-09",
+        "REQ-14",
+        "REQ-25",
+        "REQ-28"
+      ],
+      "output": "review:REV-06"
+    },
+    {
+      "id": "REV-07",
+      "kind": "review",
+      "title": "작업대·운영·유지 흐름 검토",
+      "owner_role": "운영/UX 검토자",
+      "instruction": "review-plan/tasks/REV-07/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-26",
+          "artifact": "handoff:IMP-26"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-27",
+          "artifact": "handoff:IMP-27"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-28",
+          "artifact": "handoff:IMP-28"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-29",
+          "artifact": "handoff:IMP-29"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-31",
+          "artifact": "handoff:IMP-31"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-32",
+          "artifact": "handoff:IMP-32"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/client-terminal.md",
+        "spec/contracts/observation-client.md",
+        "spec/domains/resources-observation.md",
+        "spec/contracts/recovery-operations.md"
+      ],
+      "requirements": [
+        "REQ-04",
+        "REQ-06",
+        "REQ-21",
+        "REQ-23",
+        "REQ-24",
+        "REQ-27"
+      ],
+      "output": "review:REV-07"
+    },
+    {
+      "id": "REV-08",
+      "kind": "review",
+      "title": "경계 간 결합과 최종 아키텍처 검토",
+      "owner_role": "전체 결합 책임자",
+      "instruction": "review-plan/tasks/REV-08/instruction.md",
+      "depends_on": [
+        "REV-01",
+        "REV-02",
+        "REV-03",
+        "REV-04",
+        "REV-05",
+        "REV-06",
+        "REV-07"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        }
+      ],
+      "required_reads": [
+        "requirements.md",
+        "acceptance.md",
+        "spec/architecture.md",
+        "spec/contracts/README.md"
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-02",
+        "REQ-03",
+        "REQ-04",
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09",
+        "REQ-10",
+        "REQ-11",
+        "REQ-12",
+        "REQ-13",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16",
+        "REQ-17",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20",
+        "REQ-21",
+        "REQ-22",
+        "REQ-23",
+        "REQ-24",
+        "REQ-25",
+        "REQ-26",
+        "REQ-27",
+        "REQ-28"
+      ],
+      "output": "review:REV-08"
+    }
+  ]
+}

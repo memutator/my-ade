@@ -1,0 +1,616 @@
+{
+  "version": 1,
+  "kind": "cross-plan-handoffs",
+  "nodes": [
+    {
+      "id": "IMP-01",
+      "kind": "implementation",
+      "depends_on": [],
+      "instruction": "implementation-plan/tasks/IMP-01/instruction.md"
+    },
+    {
+      "id": "IMP-02",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-01"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-02/instruction.md"
+    },
+    {
+      "id": "IMP-03",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-02"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-03/instruction.md"
+    },
+    {
+      "id": "IMP-04",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-03",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-04/instruction.md"
+    },
+    {
+      "id": "IMP-05",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-04"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-05/instruction.md"
+    },
+    {
+      "id": "IMP-06",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-06/instruction.md"
+    },
+    {
+      "id": "IMP-07",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-04",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-07/instruction.md"
+    },
+    {
+      "id": "IMP-08",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-08/instruction.md"
+    },
+    {
+      "id": "IMP-09",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-08",
+        "IMP-16"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-09/instruction.md"
+    },
+    {
+      "id": "IMP-10",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-03"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-10/instruction.md"
+    },
+    {
+      "id": "IMP-11",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-02",
+        "IMP-10"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-11/instruction.md"
+    },
+    {
+      "id": "IMP-12",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-11",
+        "IMP-03"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-12/instruction.md"
+    },
+    {
+      "id": "IMP-13",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-04",
+        "IMP-06",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-13/instruction.md"
+    },
+    {
+      "id": "IMP-14",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-13",
+        "IMP-08"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-14/instruction.md"
+    },
+    {
+      "id": "IMP-15",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-12",
+        "IMP-14",
+        "IMP-16"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-15/instruction.md"
+    },
+    {
+      "id": "IMP-16",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-03",
+        "IMP-10",
+        "IMP-17"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-16/instruction.md"
+    },
+    {
+      "id": "IMP-17",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-01",
+        "IMP-02",
+        "IMP-03"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-17/instruction.md"
+    },
+    {
+      "id": "IMP-18",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-17"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-18/instruction.md"
+    },
+    {
+      "id": "IMP-19",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-09",
+        "IMP-14",
+        "IMP-16",
+        "IMP-18",
+        "IMP-11"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-19/instruction.md"
+    },
+    {
+      "id": "IMP-20",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-12",
+        "IMP-19"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-20/instruction.md"
+    },
+    {
+      "id": "IMP-21",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-15",
+        "IMP-20"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-21/instruction.md"
+    },
+    {
+      "id": "IMP-22",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-16",
+        "IMP-18",
+        "IMP-19",
+        "IMP-20",
+        "IMP-21"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-22/instruction.md"
+    },
+    {
+      "id": "IMP-23",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-01",
+        "IMP-12",
+        "IMP-17",
+        "IMP-22"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-23/instruction.md"
+    },
+    {
+      "id": "IMP-24",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-24/instruction.md"
+    },
+    {
+      "id": "IMP-25",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-25/instruction.md"
+    },
+    {
+      "id": "IMP-26",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-11",
+        "IMP-13",
+        "IMP-15",
+        "IMP-18",
+        "IMP-21"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-26/instruction.md"
+    },
+    {
+      "id": "IMP-27",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-13",
+        "IMP-21"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-27/instruction.md"
+    },
+    {
+      "id": "IMP-28",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-12",
+        "IMP-23",
+        "IMP-26"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-28/instruction.md"
+    },
+    {
+      "id": "IMP-29",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-03",
+        "IMP-16",
+        "IMP-22",
+        "IMP-23"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-29/instruction.md"
+    },
+    {
+      "id": "IMP-30",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-23",
+        "IMP-24",
+        "IMP-25",
+        "IMP-27",
+        "IMP-28",
+        "IMP-29",
+        "IMP-31",
+        "IMP-32"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-30/instruction.md"
+    },
+    {
+      "id": "IMP-31",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-06",
+        "IMP-13",
+        "IMP-26"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-31/instruction.md"
+    },
+    {
+      "id": "IMP-32",
+      "kind": "implementation",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-26"
+      ],
+      "instruction": "implementation-plan/tasks/IMP-32/instruction.md"
+    },
+    {
+      "id": "REV-01",
+      "kind": "review",
+      "depends_on": [
+        "IMP-02",
+        "IMP-03",
+        "IMP-04",
+        "IMP-05",
+        "IMP-06",
+        "IMP-07",
+        "IMP-13",
+        "IMP-14"
+      ],
+      "instruction": "review-plan/tasks/REV-01/instruction.md"
+    },
+    {
+      "id": "REV-02",
+      "kind": "review",
+      "depends_on": [
+        "IMP-10",
+        "IMP-11",
+        "IMP-12",
+        "IMP-13",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "instruction": "review-plan/tasks/REV-02/instruction.md"
+    },
+    {
+      "id": "REV-03",
+      "kind": "review",
+      "depends_on": [
+        "IMP-07",
+        "IMP-08",
+        "IMP-09",
+        "IMP-14",
+        "IMP-19",
+        "IMP-20",
+        "IMP-24",
+        "IMP-25",
+        "IMP-32"
+      ],
+      "instruction": "review-plan/tasks/REV-03/instruction.md"
+    },
+    {
+      "id": "REV-04",
+      "kind": "review",
+      "depends_on": [
+        "IMP-13",
+        "IMP-14",
+        "IMP-15",
+        "IMP-20",
+        "IMP-21",
+        "IMP-31"
+      ],
+      "instruction": "review-plan/tasks/REV-04/instruction.md"
+    },
+    {
+      "id": "REV-05",
+      "kind": "review",
+      "depends_on": [
+        "IMP-16",
+        "IMP-17",
+        "IMP-18",
+        "IMP-19",
+        "IMP-20",
+        "IMP-22",
+        "IMP-23",
+        "IMP-29"
+      ],
+      "instruction": "review-plan/tasks/REV-05/instruction.md"
+    },
+    {
+      "id": "REV-06",
+      "kind": "review",
+      "depends_on": [
+        "IMP-02",
+        "IMP-11",
+        "IMP-12",
+        "IMP-17",
+        "IMP-24",
+        "IMP-25",
+        "IMP-30"
+      ],
+      "instruction": "review-plan/tasks/REV-06/instruction.md"
+    },
+    {
+      "id": "REV-07",
+      "kind": "review",
+      "depends_on": [
+        "IMP-26",
+        "IMP-27",
+        "IMP-28",
+        "IMP-29",
+        "IMP-31",
+        "IMP-32"
+      ],
+      "instruction": "review-plan/tasks/REV-07/instruction.md"
+    },
+    {
+      "id": "REV-08",
+      "kind": "review",
+      "depends_on": [
+        "REV-01",
+        "REV-02",
+        "REV-03",
+        "REV-04",
+        "REV-05",
+        "REV-06",
+        "REV-07",
+        "IMP-30"
+      ],
+      "instruction": "review-plan/tasks/REV-08/instruction.md"
+    },
+    {
+      "id": "VER-01",
+      "kind": "verification",
+      "depends_on": [
+        "IMP-04",
+        "IMP-05",
+        "IMP-06",
+        "IMP-07",
+        "IMP-13"
+      ],
+      "instruction": "verification-plan/tasks/VER-01/instruction.md"
+    },
+    {
+      "id": "VER-02",
+      "kind": "verification",
+      "depends_on": [
+        "IMP-03",
+        "IMP-04",
+        "IMP-15",
+        "IMP-21",
+        "IMP-29"
+      ],
+      "instruction": "verification-plan/tasks/VER-02/instruction.md"
+    },
+    {
+      "id": "VER-03",
+      "kind": "verification",
+      "depends_on": [
+        "VER-01",
+        "VER-02",
+        "IMP-10",
+        "IMP-11",
+        "IMP-12",
+        "IMP-13",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "instruction": "verification-plan/tasks/VER-03/instruction.md"
+    },
+    {
+      "id": "VER-04",
+      "kind": "verification",
+      "depends_on": [
+        "VER-02",
+        "VER-03",
+        "IMP-13",
+        "IMP-14",
+        "IMP-15",
+        "IMP-20",
+        "IMP-21"
+      ],
+      "instruction": "verification-plan/tasks/VER-04/instruction.md"
+    },
+    {
+      "id": "VER-05",
+      "kind": "verification",
+      "depends_on": [
+        "VER-01",
+        "VER-03",
+        "IMP-07",
+        "IMP-08",
+        "IMP-09",
+        "IMP-14",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "instruction": "verification-plan/tasks/VER-05/instruction.md"
+    },
+    {
+      "id": "VER-06",
+      "kind": "verification",
+      "depends_on": [
+        "VER-02",
+        "VER-03",
+        "VER-05",
+        "IMP-16",
+        "IMP-17",
+        "IMP-18",
+        "IMP-19",
+        "IMP-20",
+        "IMP-22"
+      ],
+      "instruction": "verification-plan/tasks/VER-06/instruction.md"
+    },
+    {
+      "id": "VER-07",
+      "kind": "verification",
+      "depends_on": [
+        "VER-06",
+        "IMP-17",
+        "IMP-18",
+        "IMP-22",
+        "IMP-23",
+        "IMP-26",
+        "IMP-28"
+      ],
+      "instruction": "verification-plan/tasks/VER-07/instruction.md"
+    },
+    {
+      "id": "VER-08",
+      "kind": "verification",
+      "depends_on": [
+        "VER-02",
+        "VER-06",
+        "VER-07",
+        "IMP-16",
+        "IMP-22",
+        "IMP-23",
+        "IMP-28",
+        "IMP-29"
+      ],
+      "instruction": "verification-plan/tasks/VER-08/instruction.md"
+    },
+    {
+      "id": "VER-09",
+      "kind": "verification",
+      "depends_on": [
+        "VER-03",
+        "VER-05",
+        "VER-06",
+        "IMP-24",
+        "IMP-30"
+      ],
+      "instruction": "verification-plan/tasks/VER-09/instruction.md"
+    },
+    {
+      "id": "VER-10",
+      "kind": "verification",
+      "depends_on": [
+        "VER-03",
+        "VER-05",
+        "VER-06",
+        "IMP-25",
+        "IMP-30"
+      ],
+      "instruction": "verification-plan/tasks/VER-10/instruction.md"
+    },
+    {
+      "id": "VER-11",
+      "kind": "verification",
+      "depends_on": [
+        "VER-04",
+        "VER-07",
+        "VER-09",
+        "VER-10",
+        "IMP-06",
+        "IMP-13",
+        "IMP-21",
+        "IMP-24",
+        "IMP-25",
+        "IMP-30",
+        "IMP-31",
+        "IMP-32"
+      ],
+      "instruction": "verification-plan/tasks/VER-11/instruction.md"
+    },
+    {
+      "id": "VER-12",
+      "kind": "verification",
+      "depends_on": [
+        "VER-08",
+        "VER-11",
+        "IMP-30",
+        "REV-08"
+      ],
+      "instruction": "verification-plan/tasks/VER-12/instruction.md"
+    },
+    {
+      "id": "RELEASE",
+      "kind": "acceptance",
+      "depends_on": [
+        "IMP-30",
+        "REV-08",
+        "VER-12"
+      ],
+      "instruction": "acceptance.md"
+    }
+  ]
+}
