@@ -1,4 +1,4 @@
-# 오케스트레이션 상태 — 2026-09-19 01:20 자동 갱신
+# 오케스트레이션 상태 — 2026-09-19 04:47 자동 갱신
 
 생성: `python3 mahas-architecture/records/orchestration/update-status.py`
 
@@ -40,25 +40,25 @@
 ## Reviews
 
 - **REV-01** — recorded: `changes-required`
-- **REV-02** — READY TO RUN
-- **REV-03** — READY TO RUN
+- **REV-02** — recorded: `changes-required`
+- **REV-03** — recorded: `changes-required`
 - **REV-04** — recorded: `changes-required`
-- **REV-05** — READY TO RUN
-- **REV-06** — READY TO RUN
-- **REV-07** — READY TO RUN
-- REV-08 — waiting: REV-02(review), REV-03(review), REV-05(review), REV-06(review), REV-07(review)
+- **REV-05** — recorded: `changes-required`
+- **REV-06** — recorded: `changes-required`
+- **REV-07** — recorded: `changes-required`
+- **REV-08** — recorded: `changes-required`
 
 ## Verifications
 
-- **VER-01** — READY TO RUN
+- **VER-01** — recorded: `failed`
 - **VER-02** — recorded: `failed`
-- VER-03 — waiting: VER-01(ver)
-- VER-04 — waiting: VER-03(ver)
-- VER-05 — waiting: VER-01(ver), VER-03(ver)
-- VER-06 — waiting: VER-03(ver), VER-05(ver)
+- **VER-03** — recorded: `failed`
+- **VER-04** — READY TO RUN
+- **VER-05** — READY TO RUN
+- VER-06 — waiting: VER-05(ver)
 - VER-07 — waiting: VER-06(ver)
 - VER-08 — waiting: VER-06(ver), VER-07(ver)
-- VER-09 — waiting: VER-03(ver), VER-05(ver), VER-06(ver)
-- VER-10 — waiting: VER-03(ver), VER-05(ver), VER-06(ver)
+- VER-09 — waiting: VER-05(ver), VER-06(ver)
+- VER-10 — waiting: VER-05(ver), VER-06(ver)
 - VER-11 — waiting: VER-04(ver), VER-07(ver), VER-09(ver), VER-10(ver)
 - VER-12 — waiting: VER-08(ver), VER-11(ver)
