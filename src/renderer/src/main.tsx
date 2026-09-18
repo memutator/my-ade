@@ -6,6 +6,7 @@ import { detachedKey, detachedWsId, detachedPaneId } from './detached'
 import { useStore } from './store'
 import { loadAgentManifest } from './agents'
 import './styles.css'
+import './workbench/workbench.css'
 
 // @ts-expect-error debugging handle (CDP / console poking)
 window.__mahas = useStore

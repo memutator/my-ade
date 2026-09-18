@@ -10,7 +10,10 @@ import {
   Plus,
   Puzzle,
   RotateCw,
-  TerminalSquare
+  Search,
+  TerminalSquare,
+  Users,
+  Workflow
 } from 'lucide-react'
 import type { BlockKind, EditorTab, PaneState, PaneTab, TerminalTab, WidgetKind } from '../types'
 import { useStore, patchTerminalTab } from '../store'
@@ -40,8 +43,13 @@ function BlockIcon({ tab }: { tab: PaneTab }): React.JSX.Element {
   if (tab.kind === 'term' && tab.agent) return <AgentIcon id={tab.agent} size={13} />
   if (tab.kind === 'web') return <Globe className="tab-kico" />
   if (tab.kind === 'file') return <FileGlyph name={tab.name || 'file'} />
-  if (tab.kind === 'widget')
-    return tab.widget === 'usage' ? <Gauge className="tab-kico" /> : <Bot className="tab-kico" />
+  if (tab.kind === 'widget') {
+    if (tab.widget === 'usage') return <Gauge className="tab-kico" />
+    if (tab.widget === 'responsibility') return <Search className="tab-kico" />
+    if (tab.widget === 'team') return <Users className="tab-kico" />
+    if (tab.widget === 'plan') return <Workflow className="tab-kico" />
+    return <Bot className="tab-kico" />
+  }
   return <TerminalSquare className="tab-kico" />
 }
 
@@ -456,6 +464,21 @@ export default function LeafPane({
                     <button className="pact-item" onClick={() => addTab('widget', 'usage')}>
                       <Gauge />
                       {t('widgetUsage')}
+                    </button>
+                    <button
+                      className="pact-item"
+                      onClick={() => addTab('widget', 'responsibility')}
+                    >
+                      <Search />
+                      {t('widgetResponsibility')}
+                    </button>
+                    <button className="pact-item" onClick={() => addTab('widget', 'team')}>
+                      <Users />
+                      {t('widgetTeam')}
+                    </button>
+                    <button className="pact-item" onClick={() => addTab('widget', 'plan')}>
+                      <Workflow />
+                      {t('widgetPlan')}
                     </button>
                   </Submenu>
                 </Dropdown>

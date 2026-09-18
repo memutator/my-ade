@@ -23,7 +23,9 @@
 // What is NOT here: daemon spawn, ControllerLease, DB — injected by
 // IMP-17/IMP-23 behind bootstrapRuntime's sessionFactory.
 
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import { closeSync, openSync } from 'fs'
+import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
 import { bootstrapRuntime } from '../../packages/mahas-runtime/src/index.ts'
@@ -120,10 +122,71 @@ function invalid<T>(message: string): Promise<ControlResult<T>> {
   return Promise.resolve({ ok: false, error })
 }
 
+/**
+ * Dev control-plane bootstrap (IMP-30): when nothing answers on the mahasd
+ * endpoint, spawn the daemons under the SYSTEM node (their entrypoints are
+ * TypeScript run via Node's type stripping; Electron's bundled Node is not
+ * used). Packaged builds deliberately skip this — the daemon sources are not
+ * shipped, and the desktop remains an honest client that reports
+ * CONTROL_UNAVAILABLE until an operator runs mahasd.
+ *
+ * stdin is /dev/zero, not 'ignore': the host treats stdin EOF as "launcher
+ * gone" and exits, which is correct for pty-host but wrong for a detached
+ * service that must survive UI closes (spec §5).
+ */
+async function ensureControlPlane(h: RuntimeHandle): Promise<void> {
+  if (process.env.MAHAS_TEST) return
+  if (app.isPackaged) return
+  const current = await h.refresh()
+  if (current.readiness === 'ready' || current.readiness === 'degraded') return
+
+  const rootPath = app.getAppPath()
+  const configDir = runtimeConfigDir()
+  const nodeBin = process.env.MAHAS_NODE ?? 'node'
+  let stdinFd: number | null = null
+  try {
+    stdinFd = openSync('/dev/zero', 'r')
+  } catch {
+    stdinFd = null
+  }
+  for (const script of [
+    'packages/mahas-execution-host/src/main.ts',
+    'packages/mahas-runtime/src/main.ts'
+  ]) {
+    try {
+      const child = spawn(nodeBin, [join(rootPath, script), '--config-dir', configDir], {
+        detached: true,
+        stdio: [stdinFd ?? 'ignore', 'ignore', 'ignore'],
+        env: { ...process.env, MAHAS_CONFIG_DIR: configDir }
+      })
+      child.unref()
+    } catch (err) {
+      console.warn(`[runtime] cannot spawn ${script}: ${String(err)}`)
+    }
+  }
+  if (stdinFd !== null) {
+    try {
+      closeSync(stdinFd)
+    } catch {
+      /* already closed */
+    }
+  }
+  // give the daemons a bounded window to publish + answer
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 300))
+    const s = await h.refresh()
+    if (s.readiness === 'ready' || s.readiness === 'degraded') return
+  }
+}
+
 /** called once from app.whenReady — composes the control-plane attachment */
 export function initDesktopRuntime(): void {
   if (handle) return
   handle = bootstrapRuntime({ configDir: runtimeConfigDir() })
+  const h = handle
+  void ensureControlPlane(h).catch(() => {
+    /* status stays honestly unavailable */
+  })
 }
 
 /** the composed handle — for main-process consumers (IMP-17/23 wiring) */

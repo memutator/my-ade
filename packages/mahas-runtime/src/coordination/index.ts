@@ -14,7 +14,7 @@ import type { OperationRegistry, OperationHandler } from '../api/registry.ts'
 import { mahasError } from '../api/handler-ports.ts'
 import { runCreate, runGet, runClose } from './run.ts'
 import { planPrepare, planCommit } from './plan.ts'
-import { teamAssign, teamRetire, taskDispatch } from './member.ts'
+import { assignmentPreview, teamAssign, teamRetire, taskDispatch } from './member.ts'
 import { registerDispatchOps } from './dispatch-ops.ts'
 
 /* ── selection token port (implemented by the composition root) ───────── */
@@ -27,7 +27,9 @@ export interface SelectionTokenPins {
   roleId: string
   /** the role row digest as shown (stale-model detection) */
   roleDigest?: string
-  implementationId: string
+  /** the implementation chosen by the caller (payload may carry it when the
+   *  token only pinned the role candidate set) */
+  implementationId?: string
   interfaceDigest?: string
   /** digest of the exact implementation candidate shown, when pinned */
   implementationCandidateDigest?: string
@@ -69,6 +71,8 @@ export function registerCoordinationOps(
     teamAssign(txn, payload, { verifySelectionToken: deps.verifySelectionToken })
   )
   memberOp('team.retire', true, teamRetire)
+  memberOp('assignment.preview', false, (txn, payload) =>
+    assignmentPreview(txn, payload, { verifySelectionToken: deps.verifySelectionToken }))
   memberOp('assignment.show', false, () => {
     // assignment.show is bootstrap/self-scoped; the concrete projection lives
     // with the launch boundary (IMP-20). Until wired, refuse honestly.
@@ -117,6 +121,7 @@ export {
   requiredActionsFor
 } from './member.ts'
 export type {
+  AssignmentPreviewResult,
   TeamAssignInput,
   TeamAssignResult,
   TeamRetireInput,

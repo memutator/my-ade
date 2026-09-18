@@ -45,6 +45,24 @@ const emptyForm: AssignForm = {
   expectedPlanRevision: ''
 }
 
+/** placement intent is an object on the wire ({hostId, kind, ...}); the
+ //  form takes either raw JSON or a bare host id for the common case */
+function parsePlacement(raw: string): Record<string, unknown> | undefined {
+  const v = raw.trim()
+  if (!v) return undefined
+  if (v.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(v) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      /* not JSON — treat as a host id */
+    }
+  }
+  return { hostId: v }
+}
+
 type Step =
   | { phase: 'form' }
   | { phase: 'previewing' }
@@ -86,12 +104,13 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
     return {
       runId,
       selectionToken: entry.card.selectionToken,
+      implementationId: implChoice.implementationId,
       implementationRevision: implChoice.implementationRevision,
       assignmentKind: form.assignmentKind,
       mandateText: form.mandateText,
       taskId: form.taskId || undefined,
       taskRevision: form.taskRevision ? Number(form.taskRevision) : undefined,
-      placementIntent: form.placementIntent || undefined,
+      placementIntent: parsePlacement(form.placementIntent),
       expectedPlanRevision: form.expectedPlanRevision
         ? Number(form.expectedPlanRevision)
         : undefined

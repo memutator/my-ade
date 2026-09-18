@@ -66,6 +66,10 @@ export type AssignmentKind = 'coordination' | 'task'
 export interface TeamAssignInput {
   runId: string
   selectionToken: string
+  /** explicit chosen implementation — required when the selection token pins
+   *  only the role candidate set (C-DISCOVERY tokens carry role/interface,
+   *  not the final implementation choice) */
+  implementationId?: string
   implementationRevision: number
   assignmentKind: AssignmentKind
   mandateText: string
@@ -235,7 +239,7 @@ export interface ImplementationCheck {
 /** current implementation row must exist, be live, and serve the token's role */
 export function recheckImplementation(
   db: DatabaseSync,
-  pins: SelectionTokenPins,
+  pins: SelectionTokenPins & { implementationId: string },
   implementationRevision: number,
   run: { modelVersion: unknown },
   op: string
@@ -447,6 +451,7 @@ export function teamAssign(
   const input: TeamAssignInput = {
     runId: reqStr(p, 'runId', op),
     selectionToken: reqStr(p, 'selectionToken', op),
+    implementationId: optStr(p, 'implementationId', op),
     implementationRevision: optInt(p, 'implementationRevision', op) ?? -1,
     assignmentKind: reqStr(p, 'assignmentKind', op) as AssignmentKind,
     mandateText: reqStr(p, 'mandateText', op),
@@ -482,9 +487,17 @@ export function teamAssign(
     )
   }
 
-  // 1) token pins + current model/implementation re-check
+  // 1) token pins + current model/implementation re-check. The chosen
+  // implementation may come from the payload (discovery tokens pin the role
+  // candidate set, not the final pick); selection-token pins win when both
+  // are present so a payload can never widen what was shown.
   const pins = decodeAndCheckToken(deps.verifySelectionToken, input.selectionToken, runRow, op)
-  const impl = recheckImplementation(txn.db, pins, input.implementationRevision, runRow, op)
+  const implementationId = (pins.implementationId ?? input.implementationId) as string | undefined
+  if (!implementationId) {
+    fail('MODEL_INVALID', `${op}: no implementation selected — payload or selection token must name one`, 'none')
+  }
+  const resolvedPins = { ...pins, implementationId }
+  const impl = recheckImplementation(txn.db, resolvedPins, input.implementationRevision, runRow, op)
   const roleRow = one(
     txn.db,
     'SELECT * FROM rdd_roles WHERE model_version=? AND id=?',
@@ -584,7 +597,7 @@ export function teamAssign(
     input.runId,
     runRow.modelVersion as string,
     pins.roleId,
-    pins.implementationId,
+    implementationId,
     input.implementationRevision
   )
   exec(
@@ -1124,4 +1137,154 @@ export function taskDispatch(txn: TxnContext, payload: unknown): TaskDispatchRes
   // NOTE: enqueue success is NOT task acceptance — the member reads the
   // envelope from its inbox and declares task.accept against this digest.
   return { dispatchId, envelopeDigest, messageId, deliveryId, accepted: false }
+}
+
+/* ------------------------------------------------------------------ */
+/* assignment.preview — the same checks as team.assign, zero writes      */
+/* ------------------------------------------------------------------ */
+
+export interface AssignmentPreviewResult {
+  /** proposed shapes only — no ids are minted, no row is written */
+  proposedMember: {
+    runId: string
+    roleId: string
+    implementationId: string
+    implementationRevision: number
+    state: 'pending'
+  }
+  proposedAssignment: {
+    kind: AssignmentKind
+    mandateText: string
+    taskId?: string
+    taskRevision?: number
+  }
+  requiredActions: string[]
+  grantCoverage: {
+    grantId: string | null
+    actions: string[]
+    policyId?: string
+    policyRevision?: number
+    missing: string[]
+  }
+  contextBlockers: string[]
+  resourceConditions: string[]
+}
+
+/**
+ * C-DISCOVERY `assignment.preview`: re-checks the selection token, the
+ * implementation revision and the caller's provisioning coverage on the
+ * CURRENT state, then returns the proposed assignment without creating a
+ * Member, Assignment, Grant, Dispatch or process (spec discovery-assignment
+ * §assignment.preview). The token is integrity evidence of what was shown —
+ * never the authorization basis.
+ */
+export function assignmentPreview(
+  txn: TxnContext,
+  payload: unknown,
+  deps: { verifySelectionToken?: VerifySelectionToken }
+): AssignmentPreviewResult {
+  const op = 'assignment.preview'
+  const p = asObject(payload, op)
+  const input: TeamAssignInput = {
+    runId: reqStr(p, 'runId', op),
+    selectionToken: reqStr(p, 'selectionToken', op),
+    implementationId: optStr(p, 'implementationId', op),
+    implementationRevision: optInt(p, 'implementationRevision', op) ?? -1,
+    assignmentKind: reqStr(p, 'assignmentKind', op) as AssignmentKind,
+    mandateText: reqStr(p, 'mandateText', op),
+    taskId: optStr(p, 'taskId', op),
+    taskRevision: optInt(p, 'taskRevision', op),
+    placementIntent: optObj(p, 'placementIntent', op)
+  }
+  if (input.assignmentKind !== 'coordination' && input.assignmentKind !== 'task') {
+    badInput(`${op}: assignmentKind must be coordination|task`)
+  }
+  if (input.implementationRevision < 1) badInput(`${op}: implementationRevision must be ≥1`)
+  if (input.assignmentKind === 'coordination' && input.taskId !== undefined) {
+    badInput(`${op}: a coordination assignment takes no Task (D-WORK §2)`)
+  }
+  if (input.taskId !== undefined && input.taskRevision === undefined) {
+    badInput(`${op}: taskRevision required with taskId`)
+  }
+
+  const at = nowMs()
+  recheckCallerGrants(txn.db, txn.ctx, at)
+  const runRow = loadRun(txn.db, input.runId)
+  authorize(txn.ctx, op, [{ kind: 'run', id: input.runId }])
+  requireOpenRun(runRow, op)
+
+  const pins = decodeAndCheckToken(deps.verifySelectionToken, input.selectionToken, runRow, op)
+  const implementationId = (pins.implementationId ?? input.implementationId) as string | undefined
+  if (!implementationId) {
+    fail('MODEL_INVALID', `${op}: no implementation selected — payload or selection token must name one`, 'none')
+  }
+  const resolvedPins = { ...pins, implementationId }
+  const impl = recheckImplementation(txn.db, resolvedPins, input.implementationRevision, runRow, op)
+  const roleRow = one(
+    txn.db,
+    'SELECT * FROM rdd_roles WHERE model_version=? AND id=?',
+    runRow.modelVersion as string,
+    pins.roleId
+  )
+  if (!roleRow) fail('MODEL_INVALID', `${op}: role ${pins.roleId} not in run model ${runRow.modelVersion}`)
+
+  const prov = checkProvisioning(
+    txn.db,
+    txn.ctx,
+    { id: runRow.id, purpose: runRow.purpose },
+    pins.roleId,
+    input.placementIntent,
+    input.assignmentKind,
+    impl,
+    at
+  )
+  if (prov.missing.length > 0 || !prov.coveringGrant) {
+    fail('REQUIRED_ACTION_DENIED', `${op}: provisioning coverage failed`, 'replan', {
+      missing: prov.missing
+    })
+  }
+
+  const required = requiredActionsFor(input.assignmentKind)
+  const actions = prov.ceilingActions !== null ? required.filter((a) => prov.ceilingActions!.includes(a)) : required
+
+  const contextBlockers: string[] = []
+  if (!impl.profileVerified) {
+    contextBlockers.push(`profile ${impl.profileId}@${impl.profileRevision} is not verified/admitted`)
+  }
+  const resourceConditions: string[] = []
+  const hostId = input.placementIntent?.hostId
+  if (typeof hostId === 'string') {
+    const host = one(txn.db, 'SELECT id, incarnation, state FROM execution_hosts WHERE id=?', hostId)
+    resourceConditions.push(
+      host
+        ? `host ${host.id as string}@${host.incarnation as string} state=${host.state as string}`
+        : `host ${hostId} has no control mirror`
+    )
+  }
+
+  return {
+    proposedMember: {
+      runId: input.runId,
+      roleId: pins.roleId,
+      implementationId,
+      implementationRevision: input.implementationRevision,
+      state: 'pending'
+    },
+    proposedAssignment: {
+      kind: input.assignmentKind,
+      mandateText: input.mandateText,
+      taskId: input.taskId,
+      taskRevision: input.taskRevision
+    },
+    requiredActions: actions,
+    grantCoverage: {
+      grantId: (prov.coveringGrant?.id as string) ?? null,
+      actions,
+      policyId: prov.policyPin.policyId,
+      policyRevision: prov.policyPin.policyRevision,
+      missing: prov.missing
+    },
+    contextBlockers,
+    resourceConditions
+  }
 }

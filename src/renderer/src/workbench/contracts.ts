@@ -264,12 +264,14 @@ export type AssignmentKind = 'coordination' | 'task'
 export interface PreviewRequest {
   runId: string
   selectionToken: string
+  /** the explicitly chosen implementation from role.implementations */
+  implementationId?: string
   implementationRevision: number
   assignmentKind: AssignmentKind
   mandateText: string
   taskId?: string
   taskRevision?: number
-  placementIntent?: string
+  placementIntent?: Record<string, unknown>
 }
 
 /** preview receipt — shows relations/feasibility BEFORE commit; no Member,

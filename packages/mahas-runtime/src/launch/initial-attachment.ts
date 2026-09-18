@@ -231,7 +231,7 @@ function fileBytes(ctx: ResolveContext, source: string): Uint8Array {
 
 /** TOML basic string escaping for config-override routes (S-INJECTION §6) */
 export function tomlBasicString(text: string): string {
-  if (text.includes('')) throw new ResolveFailure('NUL byte cannot enter a TOML basic string')
+  if (text.includes('\0')) throw new ResolveFailure('NUL byte cannot enter a TOML basic string')
   const escaped = text
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')

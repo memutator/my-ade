@@ -6,6 +6,9 @@ import { useT } from '../i18n'
 import { agentLabel, agentProviders } from '../agents'
 import AgentIcon from './AgentIcon'
 import AgentsPanel from './AgentsPanel'
+import ResponsibilityView from '../workbench/ResponsibilityView'
+import TeamView from '../workbench/TeamView'
+import PlanView from '../workbench/PlanView'
 import Tooltip from './Tooltip'
 import { Select } from './Menu'
 
@@ -187,6 +190,12 @@ export default function WidgetTabView({
     <div className="widget">
       {tab.widget === 'usage' ? (
         <UsageBody provider={tab.provider} onProvider={onProvider} />
+      ) : tab.widget === 'responsibility' ? (
+        <ResponsibilityView />
+      ) : tab.widget === 'team' ? (
+        <TeamView />
+      ) : tab.widget === 'plan' ? (
+        <PlanView />
       ) : (
         <AgentsPanel wsId={wsId} />
       )}

@@ -61,7 +61,7 @@ const bTarget = (id: string): TargetRef => ({ kind: 'boundary', id })
  */
 export function isValidAnchorPath(path: string): boolean {
   if (path.length === 0) return false
-  if (path.includes('')) return false
+  if (path.includes('\0')) return false
   if (path.startsWith('/') || path.startsWith('\\')) return false
   if (/^[A-Za-z]:[\\/]/.test(path)) return false
   const segments = path.split('/')

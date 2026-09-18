@@ -32,7 +32,7 @@ import * as accessBoundary from './access/authorize.ts'
 import { registerAccessOperations } from './access/operations.ts'
 import * as storage from './storage/db.ts'
 import { registerModelOps } from './model/ops.ts'
-import { registerDiscoveryOps } from './discovery/index.ts'
+import { registerDiscoveryOps, verifySelectionToken } from './discovery/index.ts'
 import { registerRealizationOps } from './realization/index.ts'
 import { registerContextOps } from './realization/compiler.ts'
 import { registerMaterializeOps } from './realization/effective-context.ts'
@@ -41,7 +41,8 @@ import {
   registerCoordinationOps,
   registerDispatchOps,
   buildTaskEnvelope,
-  buildCoordinationEnvelope
+  buildCoordinationEnvelope,
+  type VerifySelectionToken
 } from './coordination/index.ts'
 import { registerMailOps } from './mail/index.ts'
 import { registerLaunchOps, registerJoinOps } from './launch/index.ts'
@@ -148,14 +149,14 @@ function seedLocalOperator(db: DatabaseSync): void {
   const principalId = 'operator-local'
   const grantId = 'grant-operator-local'
   const existing = db.prepare('SELECT id FROM principals WHERE id=?').get(principalId) as
-    | { id: string }
-    | undefined
+    { id: string } | undefined
   if (!existing) {
-    db.prepare("INSERT INTO principals(id,kind,status) VALUES(?,'operator','active')").run(principalId)
+    db.prepare("INSERT INTO principals(id,kind,status) VALUES(?,'operator','active')").run(
+      principalId
+    )
   }
   const grant = db.prepare('SELECT id FROM grants WHERE id=?').get(grantId) as
-    | { id: string }
-    | undefined
+    { id: string } | undefined
   if (!grant) {
     db.prepare(
       `INSERT INTO grants(id, revision, kind, principal_id, parent_grant_id, policy_id, policy_revision, expires_at, revoked_at, scope_json, actions_json)
@@ -337,7 +338,24 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
 
   /* ── coordination / mail ──────────────────────────────────────────────── */
 
-  registerCoordinationOps(registry)
+  // discovery verifies the token's signature; the composition maps its
+  // claims into the C-WORK pin shape (the token proves what was SHOWN — the
+  // handlers still re-check role/implementation/grant state themselves)
+  const verifyToken: VerifySelectionToken = (raw) => {
+    const v = verifySelectionToken(token.secret, raw)
+    if (!v.ok) return null
+    return {
+      tokenId: v.claims.tokenId,
+      projectId: v.claims.projectId,
+      modelVersion: v.claims.modelVersion,
+      roleId: v.claims.roleId,
+      roleDigest: v.claims.roleDigest,
+      interfaceDigest: v.claims.interfaceDigest,
+      scope: v.claims.scope,
+      issuedAt: v.claims.issuedAt
+    }
+  }
+  registerCoordinationOps(registry, { verifySelectionToken: verifyToken })
   registerDispatchOps(registry)
   registerMailOps(registry, {
     authorize: (ctx, operation, targets) => accessBoundary.authorize(ctx, operation, targets),
