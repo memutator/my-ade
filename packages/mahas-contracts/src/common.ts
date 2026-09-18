@@ -131,3 +131,35 @@ export interface EffectReceipt {
   evidence?: unknown
   at: number
 }
+
+/* ------------------------------------------------------------------ */
+/* JSON payload + wire field policy (IMP-02, spec/common.md §2–3)       */
+/* ------------------------------------------------------------------ */
+
+/** a JSON object — the type of `*_json` columns whose inner shape the spec
+ *  leaves to the owning C-* contract */
+export type JsonObject = Record<string, unknown>
+
+/** any JSON-serializable value */
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+/**
+ * Fixed wire field policy (instruction §4.5). Handlers share these rules
+ * instead of re-deriving them per operation:
+ *  - `requiredFields: 'reject-missing'` — a mutation missing a required
+ *    field is rejected at admission, before the handler writes.
+ *  - `unknownFields: 'ignore'` — unknown payload fields are ignored by the
+ *    handler, never echoed back, and EXCLUDED from the canonical
+ *    fingerprint preimage (canonical JSON = recursively sorted keys, no
+ *    insignificant whitespace). Same operationId + different effective
+ *    payload still OPERATION_CONFLICTs (S-COMMON §3).
+ *  - stored `*_json` documents are preserved verbatim for replay.
+ */
+export const WIRE_FIELD_POLICY = {
+  requiredFields: 'reject-missing',
+  unknownFields: 'ignore',
+  fingerprint: 'canonical-json'
+} as const
+
+export type WireFieldPolicy = typeof WIRE_FIELD_POLICY
