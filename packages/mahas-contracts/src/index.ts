@@ -49,3 +49,31 @@ export type {
   ExecutionQuery,
   RuntimeClient
 } from './client.ts'
+
+export type {
+  Id,
+  Revision,
+  ModelVersionId,
+  RoleInterfaceDigest,
+  ImplementationRevision,
+  BundleDigest,
+  TaskRevision,
+  PlanRevision,
+  ExecutionGeneration,
+  ControllerEpoch,
+  HostIncarnation,
+  ContentRef,
+  ArtifactRef,
+  PathRef,
+  CommandRequest,
+  AuthenticatedContext,
+  ReceiptStatus,
+  CommandReceipt,
+  ErrorRetry,
+  MahasError,
+  ErrorCode,
+  QueryResult,
+  EffectState,
+  EffectIntent,
+  EffectReceipt
+} from './common.ts'
