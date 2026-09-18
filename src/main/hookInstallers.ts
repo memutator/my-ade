@@ -335,6 +335,75 @@ const PROVIDERS: ProviderDef[] = [
     }
   },
   {
+    id: 'cline',
+    label: 'Cline',
+    bin: 'cline',
+    mechanism: 'event-named hook files — ~/.cline/hooks/<Event>',
+    configPath: (home) => path.join(home, '.cline', 'hooks'),
+    installed: (home) =>
+      fileMentions(path.join(home, '.cline', 'hooks', 'TaskComplete'), HOOK_MARK),
+    install: (home, cmd) => {
+      // cline runs every file named after an event in its hooks search dirs,
+      // piping the JSON payload on stdin. Each of our files forwards stdin to
+      // mahas-hook, then chains a displaced user hook kept at <file>.mahas-bak
+      // (same preserve-the-incumbent rule as codex's notify forward).
+      const dir = path.join(home, '.cline', 'hooks')
+      const events = [
+        'TaskStart',
+        'TaskComplete',
+        'TaskError',
+        'TaskCancel',
+        'UserPromptSubmit',
+        'SessionShutdown'
+      ]
+      const script = (ev: string): string =>
+        [
+          '#!/bin/sh',
+          `# mahas-hook — cline ${ev} lifecycle event`,
+          'PAYLOAD="$(cat)"',
+          `printf '%s' "$PAYLOAD" | ${cmd}`,
+          'BAK="$(dirname "$0")/$(basename "$0").mahas-bak"',
+          'if [ -f "$BAK" ]; then',
+          '  printf \'%s\' "$PAYLOAD" | "$BAK" 2>/dev/null || printf \'%s\' "$PAYLOAD" | sh "$BAK" 2>/dev/null || true',
+          'fi',
+          'exit 0',
+          ''
+        ].join('\n')
+      let displaced = 0
+      fs.mkdirSync(dir, { recursive: true })
+      for (const ev of events) {
+        const file = path.join(dir, ev)
+        const text = script(ev)
+        let cur = ''
+        try {
+          cur = fs.readFileSync(file, 'utf8')
+        } catch {
+          /* absent */
+        }
+        if (cur === text) continue
+        if (cur && !cur.includes(HOOK_MARK)) {
+          displaced++
+          backup(file)
+        }
+        fs.writeFileSync(file, text, { mode: 0o755 })
+        // a stale .mahas-bak holding OUR old script would re-invoke
+        // mahas-hook through the chain — drop it; a user-owned bak stays
+        const bak = `${file}.mahas-bak`
+        try {
+          if (fs.readFileSync(bak, 'utf8').includes(HOOK_MARK)) fs.unlinkSync(bak)
+        } catch {
+          /* no bak to clean */
+        }
+      }
+      return {
+        ok: true,
+        detail: displaced
+          ? `${displaced} existing hook file(s) kept at .mahas-bak — chained after mahas`
+          : undefined
+      }
+    }
+  },
+  {
     id: 'opencode',
     label: 'OpenCode',
     bin: 'opencode',
@@ -466,7 +535,7 @@ export function refreshInstalledHooks(
             path.join(home, '.grok', 'hooks', 'ade.json.ade-bak'),
             path.join(home, '.grok', 'hooks', 'ade.json.mahas-bak')
           ].some(hasLegacyHook)
-        if (p.id === 'grok' || p.id === 'opencode') {
+        if (p.id === 'grok' || p.id === 'opencode' || p.id === 'cline') {
           if (ours || grokLegacy) p.install(home, cmd(p.id), argv(p.id), pluginSrc)
           continue
         }

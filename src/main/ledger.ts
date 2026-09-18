@@ -10,6 +10,7 @@
 //   devin    ~/.local/share/devin/cli/sessions.db  message_nodes.metrics
 //            (ATIF transcripts/final_metrics is a compacted export and
 //            undercounts cache_read by ~10×; do not use it as the total)
+//   cline    ~/.cline/data/sessions/<id>/*.messages.json  (sum metrics)
 
 import { Worker } from 'node:worker_threads'
 import { DatabaseSync } from 'node:sqlite'
@@ -425,13 +426,88 @@ async function scanDevin(): Promise<Store> {
   return scanDevinTranscripts()
 }
 
+// cline records every session under its own dir: <id>/<id>.json (manifest —
+// cwd, prompt) plus one <name>.messages.json per conversation (main run and
+// team/sub-agent runs alike). Each assistant message carries per-request
+// metrics{inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens} where the
+// cache fields sit inside inputTokens — sum them across every conversation in
+// the session dir.
+async function scanCline(): Promise<Store> {
+  const st = emptyStore()
+  const dataDir = process.env.CLINE_DATA_DIR || join(homedir(), '.cline', 'data')
+  const root = join(dataDir, 'sessions')
+  let dirs: string[] = []
+  try {
+    dirs = (await readdir(root, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => join(root, e.name))
+  } catch {
+    return st
+  }
+  for (const dir of dirs) {
+    const id = basename(dir)
+    let acc = empty()
+    let title: string | undefined
+    let cwd: string | undefined
+    try {
+      const manifest = JSON.parse(await readFile(join(dir, `${id}.json`), 'utf8')) as Record<
+        string,
+        unknown
+      >
+      cwd =
+        (typeof manifest.cwd === 'string' && manifest.cwd) ||
+        (typeof manifest.workspace_root === 'string' ? manifest.workspace_root : undefined) ||
+        undefined
+      // prompt arrives wrapped in <user_input …> tags — unwrap the text
+      const prompt = typeof manifest.prompt === 'string' ? manifest.prompt : ''
+      title =
+        prompt
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 80) || undefined
+    } catch {
+      /* manifest optional — tokens still count */
+    }
+    const files = await walkFiles(dir, (n) => n.endsWith('.messages.json'))
+    for (const f of files) {
+      try {
+        const d = JSON.parse(await readFile(f, 'utf8')) as Record<string, unknown>
+        const msgs = Array.isArray(d.messages) ? d.messages : []
+        for (const m of msgs) {
+          const u = (m as Record<string, unknown>).metrics as Record<string, unknown> | undefined
+          if (!u) continue
+          acc = add(
+            acc,
+            fromFields(
+              {
+                input_tokens: u.inputTokens,
+                output_tokens: u.outputTokens,
+                cache_read_input_tokens:
+                  (typeof u.cacheReadTokens === 'number' ? u.cacheReadTokens : 0) +
+                  (typeof u.cacheWriteTokens === 'number' ? u.cacheWriteTokens : 0)
+              },
+              ANTHRO
+            )
+          )
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    if (acc.total || acc.input || acc.output) put(st, id, { tokens: acc, title, cwd })
+  }
+  return st
+}
+
 const SCANNERS: Record<string, () => Promise<Store>> = {
   grok: scanGrok,
   claude: scanClaude,
   codex: scanCodex,
   opencode: async () => scanOpencode(),
   zcode: async () => scanZcode(),
-  devin: scanDevin
+  devin: scanDevin,
+  cline: scanCline
 }
 
 export type WireStore = {

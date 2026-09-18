@@ -154,7 +154,13 @@ without being asked:
   retries with a TUI `[Error]` banner and no hook, so the renderer also
   classifies that banner from pty output as `error`), opencode (plugin: session.idle/error/created/deleted — Esc-abort
   classifies as turn-cancelled, sub-session lifecycles demote to `other` —
-  permission/question.asked, held ~800ms so auto-approved asks never notify).
+  permission/question.asked, held ~800ms so auto-approved asks never notify),
+  cline (event-named files under `~/.cline/hooks/` — TaskComplete→turn-complete,
+  TaskError→error, TaskCancel→turn-cancelled, TaskStart→session-start,
+  UserPromptSubmit→turn-start, SessionShutdown→session-end; stdin JSON payload
+  carries `taskId`/`workspaceRoots`; runs with `parent_agent_id` demote to
+  `other` with the sessionId stripped; a displaced user `<Event>` file is kept
+  at `.mahas-bak` and our script re-pipes stdin to it).
   `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
   per provider. Events carry `mahasSession` (`process.env.MAHAS_SESSION`, a per-run
@@ -164,7 +170,8 @@ without being asked:
   a directory). The tailer stamps `ours` (`mahasSession === ours`); the renderer
   drops every event that isn't ours — hooks are global so agents in foreign
   terminals never notify. Mahas-owned hook artifacts (script copy, grok's hook
-  file, opencode plugin) refresh to the shipped version on app start;
+  file, opencode plugin, cline's `~/.cline/hooks/<Event>` files) refresh to the
+  shipped version on app start;
   leftover `ade-hook` pointers in user-owned configs (codex `config.toml`,
   claude/devin/zcode settings) are rewritten to `mahas-hook` on start — the
   ade→mahas rename deleted that path, so without the rewrite Codex never

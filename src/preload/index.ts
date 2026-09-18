@@ -126,10 +126,27 @@ export interface UsageResult {
   ok: boolean
   provider: string
   plan?: string
+  /** identity recovered from the credentials — distinguishes pooled accounts */
+  account?: string
   windows: UsageWindow[]
   extra?: string
   error?: string
   fetchedAt: number
+}
+
+export interface UsageAuthStart {
+  flowId: string
+  mode: 'browser' | 'code' | 'device'
+  url?: string
+  userCode?: string
+  verificationUri?: string
+}
+
+export interface UsageAuthDone {
+  ok: boolean
+  path?: string
+  account?: string
+  error?: string
 }
 
 export interface LedgerQuery {
@@ -407,8 +424,29 @@ const mahas = {
   },
   usage: {
     // per-harness rate-limit probe (claude/codex/gemini/copilot/zcode) —
-    // reads the CLI's own credentials and calls its usage endpoint
-    fetch: (provider: string): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch', provider),
+    // reads the CLI's own credentials and calls its usage endpoint; credPath
+    // points at a registered extra account's cred file (or its dir)
+    fetch: (provider: string, credPath?: string): Promise<UsageResult> =>
+      ipcRenderer.invoke('usage:fetch', provider, credPath),
+    // multi-account sign-in (see main/usageAuth.ts): authStart opens the
+    // provider's authorize page / device code; authFinish resolves after the
+    // callback, pasted code, or device poll lands — or errors
+    authStart: (provider: string): Promise<UsageAuthStart> =>
+      ipcRenderer.invoke('usage:authStart', provider),
+    authFinish: (flowId: string, code?: string): Promise<UsageAuthDone> =>
+      ipcRenderer.invoke('usage:authFinish', flowId, code),
+    authCancel: (flowId: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('usage:authCancel', flowId),
+    saveKey: (
+      provider: string,
+      key: string,
+      label?: string
+    ): Promise<{ path?: string; error?: string }> =>
+      ipcRenderer.invoke('usage:saveKey', provider, key, label),
+    // drop a registered account's creds — only deletes dirs under the managed
+    // usage-accounts root; imported paths elsewhere are untouched
+    discardCred: (path: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('usage:discardCred', path),
     ledger: (tracked: LedgerQuery[], force?: boolean): Promise<LedgerResult> =>
       ipcRenderer.invoke('usage:ledger', tracked, !!force)
   },

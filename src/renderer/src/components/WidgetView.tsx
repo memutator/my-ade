@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
-import type { LedgerQuery, LedgerResult, TokenUse, UsageResult, WidgetTab } from '../types'
+import { Loader2, Plus, RefreshCw, UserPlus, X } from 'lucide-react'
+import type {
+  LedgerQuery,
+  LedgerResult,
+  TokenUse,
+  UsageAccount,
+  UsageResult,
+  WidgetTab
+} from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { agentColor, agentLabel, agentProviders } from '../agents'
-import { fmtTok, fmtUsd, shortPath } from '../utils'
+import { fmtTok, fmtUsd, shortPath, srcProvider } from '../utils'
 import AgentIcon from './AgentIcon'
 import AgentsPanel from './AgentsPanel'
 import Tooltip from './Tooltip'
-import { Select } from './Menu'
+import { Dropdown, Select } from './Menu'
 
 /* A 'widget' block — chromeless mini-tools stacked in a leaf like any other
    tab. 'agents' mirrors the sidebar session list; 'usage' is the live
@@ -26,25 +33,49 @@ const USAGE_PROVIDERS = [
   'devin',
   'claude',
   'gemini',
-  'copilot'
+  'copilot',
+  'cline'
 ]
 
-// module-level cache: every usage widget shares a provider's snapshot
+// sign-in methods each provider supports — mirrors main/usageAuth.ts;
+// every provider can also import an existing credential file
+const OAUTH_PROVIDERS = new Set(['codex', 'grok', 'gemini', 'claude', 'copilot', 'cline'])
+const KEY_PROVIDERS = new Set(['zcode', 'opencode', 'devin'])
+
+/* A selectable probe target — a harness's default credential file, or an
+   extra account registered in settings.usageAccounts. Selection keys ride
+   tab.providers: `provider` for the default login, `provider@accountId`
+   for a registered one. */
+interface UsageSource {
+  key: string
+  provider: string
+  path?: string
+  label?: string
+}
+
+// module-level cache: every usage widget shares a source's snapshot
 const usageCache = new Map<string, UsageResult>()
 const inflight = new Map<string, Promise<UsageResult>>()
+const NO_ACCOUNTS: UsageAccount[] = []
 
-function fetchUsage(provider: string): Promise<UsageResult> {
-  let p = inflight.get(provider)
+function fetchUsage(src: UsageSource): Promise<UsageResult> {
+  let p = inflight.get(src.key)
   if (!p) {
     p = window.mahas.usage
-      .fetch(provider)
+      .fetch(src.provider, src.path)
       .then((res) => {
-        usageCache.set(provider, res)
+        usageCache.set(src.key, res)
         return res
       })
-      .catch((e) => ({ ok: false, provider, windows: [], error: String(e), fetchedAt: Date.now() }))
-      .finally(() => inflight.delete(provider))
-    inflight.set(provider, p)
+      .catch((e) => ({
+        ok: false,
+        provider: src.provider,
+        windows: [],
+        error: String(e),
+        fetchedAt: Date.now()
+      }))
+      .finally(() => inflight.delete(src.key))
+    inflight.set(src.key, p)
   }
   return p
 }
@@ -59,12 +90,49 @@ function fmtReset(resetAt: number): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
-function usageCatalog(): string[] {
+function usageCatalog(accounts: UsageAccount[]): UsageSource[] {
   const manifest = agentProviders()
-  return [
+  const providers = [
     ...USAGE_PROVIDERS.filter((id) => manifest[id]),
-    ...Object.keys(manifest).filter((id) => !USAGE_PROVIDERS.includes(id))
+    ...Object.keys(manifest).filter((id) => !USAGE_PROVIDERS.includes(id)),
+    // a registered account keeps its provider listed even off-manifest
+    ...USAGE_PROVIDERS.filter((id) => !manifest[id] && accounts.some((a) => a.provider === id))
   ]
+  const sources: UsageSource[] = []
+  for (const id of providers) {
+    sources.push({ key: id, provider: id })
+    for (const a of accounts) {
+      if (a.provider === id)
+        sources.push({ key: `${a.provider}@${a.id}`, provider: id, path: a.path, label: a.label })
+    }
+  }
+  return sources
+}
+
+// default label for a registered account: profile dirs name the account
+// ('login-homes/amir/auth.json' → 'amir'); free-standing files fall back to
+// their basename sans extension ('bob.json' → 'bob')
+const KNOWN_CRED_FILES = new Set([
+  'auth.json',
+  '.credentials.json',
+  'oauth_creds.json',
+  'config.json',
+  'credentials.toml',
+  'apps.json',
+  'hosts.yml'
+])
+function acctLabel(path: string): string {
+  const parts = path.replace(/\/+$/, '').split('/')
+  const base = parts[parts.length - 1] ?? path
+  if (!KNOWN_CRED_FILES.has(base)) return base.replace(/\.[^.]+$/, '') || base
+  return parts.length > 1 ? parts[parts.length - 2] : base
+}
+
+/** 'Codex' for unresolved sources, 'Codex · amir@x.com' once an identity is
+ *  known — the credential-derived identity wins over the path fallback */
+function srcTitle(src: UsageSource, res?: UsageResult): string {
+  const acct = res?.account ?? (src.path ? src.label : undefined)
+  return acct ? `${agentLabel(src.provider)} · ${acct}` : agentLabel(src.provider)
 }
 
 function UsageWindows({ res }: { res: UsageResult }): React.JSX.Element {
@@ -105,6 +173,207 @@ function UsageWindows({ res }: { res: UsageResult }): React.JSX.Element {
   )
 }
 
+interface AuthFlow {
+  flowId: string
+  mode: 'browser' | 'code' | 'device'
+  url?: string
+  userCode?: string
+  verificationUri?: string
+}
+
+/* Per-provider sign-in card for multi-account add. OAuth providers start the
+   flow in main (browser callback / pasted code / device poll), api-key
+   providers save the key into a managed cred file, and any provider can
+   still import an existing credential file. A finished method reports the
+   written cred path up so UsageBody registers it like a picked file. */
+function AuthPanel({
+  provider,
+  onDone,
+  onClose
+}: {
+  provider: string
+  onDone: (path: string, label?: string) => void
+  onClose: () => void
+}): React.JSX.Element {
+  const t = useT()
+  const [flow, setFlow] = useState<AuthFlow | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const [key, setKey] = useState('')
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const liveFlow = useRef<string | null>(null)
+
+  useEffect(
+    () => () => {
+      if (liveFlow.current) void window.mahas.usage.authCancel(liveFlow.current)
+    },
+    []
+  )
+
+  const settle = (r: { ok: boolean; path?: string; account?: string; error?: string }): void => {
+    if (r.ok && r.path) onDone(r.path, r.account)
+    else setError(r.error ?? 'sign-in failed')
+  }
+
+  const startOAuth = async (): Promise<void> => {
+    setError(undefined)
+    setBusy(true)
+    try {
+      const s = await window.mahas.usage.authStart(provider)
+      liveFlow.current = s.flowId
+      setFlow(s)
+      setBusy(false)
+      if (s.mode === 'code') return // waits for the pasted code below
+      const r = await window.mahas.usage.authFinish(s.flowId)
+      if (liveFlow.current !== s.flowId) return // cancelled meanwhile
+      liveFlow.current = null
+      setFlow(null)
+      settle(r)
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+      setBusy(false)
+    }
+  }
+
+  const submitCode = async (): Promise<void> => {
+    if (!flow) return
+    setBusy(true)
+    setError(undefined)
+    const r = await window.mahas.usage.authFinish(flow.flowId, code.trim())
+    if (liveFlow.current !== flow.flowId) return
+    setBusy(false)
+    if (r.ok) {
+      liveFlow.current = null
+      setFlow(null)
+    }
+    settle(r) // on failure the flow stays so a corrected paste can retry
+  }
+
+  const submitKey = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    const r = await window.mahas.usage.saveKey(provider, key, name.trim() || undefined)
+    setBusy(false)
+    if (r.path) onDone(r.path, name.trim() || undefined)
+    else setError(r.error ?? 'could not save the key')
+  }
+
+  const importFile = async (): Promise<void> => {
+    const path = await window.mahas.file.openDialog()
+    if (path) onDone(path)
+  }
+
+  const close = (): void => {
+    if (liveFlow.current) {
+      void window.mahas.usage.authCancel(liveFlow.current)
+      liveFlow.current = null
+    }
+    onClose()
+  }
+
+  return (
+    <div className="dash-auth">
+      <div className="dash-auth-h">
+        <AgentIcon id={provider} size={14} />
+        <span className="dash-auth-t">{agentLabel(provider)}</span>
+        <button className="pbtn" onClick={close}>
+          <X />
+        </button>
+      </div>
+      {OAUTH_PROVIDERS.has(provider) && !flow && (
+        <button className="sbtn accent" onClick={() => void startOAuth()} disabled={busy}>
+          {busy ? <Loader2 className="spin" /> : null}
+          {t('usageAuthSignIn')}
+        </button>
+      )}
+      {flow?.mode === 'browser' && (
+        <div className="dash-auth-msg">
+          <Loader2 className="spin" />
+          <span>{t('usageAuthWaiting')}</span>
+          {flow.url && (
+            <button className="sbtn" onClick={() => window.mahas.openExternal(flow.url!)}>
+              {t('usageAuthOpenPage')}
+            </button>
+          )}
+        </div>
+      )}
+      {flow?.mode === 'code' && (
+        <>
+          {flow.url && (
+            <div className="dash-auth-msg">
+              <span>{t('usageAuthCode')}</span>
+              <button className="sbtn" onClick={() => window.mahas.openExternal(flow.url!)}>
+                {t('usageAuthOpenPage')}
+              </button>
+            </div>
+          )}
+          <div className="dash-auth-form">
+            <input
+              className="sinput"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder={t('usageAuthCode')}
+              spellCheck={false}
+              autoFocus
+            />
+            <button
+              className="sbtn accent"
+              onClick={() => void submitCode()}
+              disabled={busy || !code.trim()}
+            >
+              {busy ? <Loader2 className="spin" /> : t('usageAdd')}
+            </button>
+          </div>
+        </>
+      )}
+      {flow?.mode === 'device' && (
+        <div className="dash-auth-msg">
+          <Loader2 className="spin" />
+          <span>
+            {t('usageAuthDevice', {
+              code: flow.userCode ?? '',
+              url: flow.verificationUri ?? ''
+            })}
+          </span>
+        </div>
+      )}
+      {KEY_PROVIDERS.has(provider) && !flow && (
+        <div className="dash-auth-form">
+          <input
+            className="sinput"
+            type="password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={t('usageApiKey')}
+            spellCheck={false}
+          />
+          <input
+            className="sinput"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t('usageAcctName')}
+            spellCheck={false}
+          />
+          <button
+            className="sbtn accent"
+            onClick={() => void submitKey()}
+            disabled={busy || !key.trim()}
+          >
+            {busy ? <Loader2 className="spin" /> : t('usageAdd')}
+          </button>
+        </div>
+      )}
+      {!flow && (
+        <button className="dash-auth-file" onClick={() => void importFile()}>
+          {t('usageImportFile')}
+        </button>
+      )}
+      {error && <div className="usage-note err">{error}</div>}
+    </div>
+  )
+}
+
 function UsageBody({
   providers,
   onProviders
@@ -113,19 +382,36 @@ function UsageBody({
   onProviders: (ids: string[]) => void
 }): React.JSX.Element {
   const t = useT()
-  const catalog = usageCatalog()
-  const catalogKey = catalog.join('|')
-  const selected = providers ? providers.filter((id) => catalog.includes(id)) : catalog
+  const accounts = useStore((s) => s.settings.usageAccounts ?? NO_ACCOUNTS)
+  const catalog = useMemo(() => usageCatalog(accounts), [accounts])
+  const srcByKey = useMemo(() => new Map(catalog.map((s) => [s.key, s])), [catalog])
+  const catalogKey = catalog.map((s) => s.key).join('|')
+  const selected = providers ? providers.filter((k) => srcByKey.has(k)) : catalog.map((s) => s.key)
   const selectedKey = selected.join('|')
+  // provider → selected source keys, in catalog order — each group renders a
+  // provider header with its account cards stacked underneath
+  const groups = useMemo(() => {
+    const out: { provider: string; keys: string[] }[] = []
+    for (const s of catalog) {
+      if (!selected.includes(s.key)) continue
+      const g = out.find((g) => g.provider === s.provider)
+      if (g) g.keys.push(s.key)
+      else out.push({ provider: s.provider, keys: [s.key] })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, selectedKey])
   const [rows, setRows] = useState<Record<string, UsageResult>>(() => {
     const init: Record<string, UsageResult> = {}
-    for (const id of selected) {
-      const hit = usageCache.get(id)
-      if (hit) init[id] = hit
+    for (const k of selected) {
+      const hit = usageCache.get(k)
+      if (hit) init[k] = hit
     }
     return init
   })
   const [busy, setBusy] = useState(false)
+  const manifest = agentProviders()
+  const addable = USAGE_PROVIDERS.filter((id) => manifest[id])
 
   // old tabs only stored `provider`; open them as the full dashboard once
   // the catalog is known. after the user toggles, `providers` is the source.
@@ -135,11 +421,17 @@ function UsageBody({
     onProviders(catalogKey.split('|'))
   }, [providers, catalogKey, onProviders])
 
-  const pull = (ids: string[]): Promise<void> =>
-    Promise.all(ids.map((id) => fetchUsage(id))).then((list) => {
+  const pull = (keys: string[]): Promise<void> =>
+    Promise.all(
+      keys.map((k) =>
+        fetchUsage(srcByKey.get(k) ?? { key: k, provider: srcProvider(k) }).then(
+          (res) => [k, res] as const
+        )
+      )
+    ).then((list) => {
       setRows((prev) => {
         const next = { ...prev }
-        for (const r of list) next[r.provider] = r
+        for (const [k, r] of list) next[k] = r
         return next
       })
     })
@@ -154,11 +446,17 @@ function UsageBody({
     if (!selected.length) return
     let on = true
     const run = (): void => {
-      void Promise.all(selected.map((id) => fetchUsage(id))).then((list) => {
+      void Promise.all(
+        selected.map((k) =>
+          fetchUsage(srcByKey.get(k) ?? { key: k, provider: srcProvider(k) }).then(
+            (res) => [k, res] as const
+          )
+        )
+      ).then((list) => {
         if (!on) return
         setRows((prev) => {
           const next = { ...prev }
-          for (const r of list) next[r.provider] = r
+          for (const [k, r] of list) next[k] = r
           return next
         })
       })
@@ -172,12 +470,40 @@ function UsageBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey])
 
-  const options = catalog.map((id) => ({
-    value: id,
+  const [authProvider, setAuthProvider] = useState<string | null>(null)
+
+  /* a sign-in/import reported back a credential path — register it (deduped
+     by provider+path) and select the new source so its card shows up */
+  const registerAccount = (provider: string, path: string, label?: string): void => {
+    const st = useStore.getState()
+    const cur = st.settings.usageAccounts ?? []
+    let acct = cur.find((a) => a.provider === provider && a.path === path)
+    if (!acct) {
+      acct = { id: crypto.randomUUID(), provider, path, label: label ?? acctLabel(path) }
+      st.updateSettings({ usageAccounts: [...cur, acct] })
+    }
+    const key = `${provider}@${acct.id}`
+    if (!selected.includes(key)) onProviders([...selected, key])
+    setAuthProvider(null)
+  }
+
+  const removeAccount = (src: UsageSource): void => {
+    const st = useStore.getState()
+    st.updateSettings({
+      usageAccounts: (st.settings.usageAccounts ?? []).filter(
+        (a) => `${a.provider}@${a.id}` !== src.key
+      )
+    })
+    if (selected.includes(src.key)) onProviders(selected.filter((k) => k !== src.key))
+    if (src.path) void window.mahas.usage.discardCred(src.path)
+  }
+
+  const options = catalog.map((s) => ({
+    value: s.key,
     label: (
       <span className="sel-agent">
-        <AgentIcon id={id} size={12} />
-        {agentLabel(id)}
+        <AgentIcon id={s.provider} size={12} />
+        {srcTitle(s, rows[s.key])}
       </span>
     )
   }))
@@ -186,19 +512,22 @@ function UsageBody({
       t('usageNone')
     ) : selected.length === 1 ? (
       <span className="sel-agent">
-        <AgentIcon id={selected[0]} size={12} />
-        {agentLabel(selected[0])}
+        <AgentIcon id={srcProvider(selected[0])} size={12} />
+        {srcTitle(
+          srcByKey.get(selected[0]) ?? { key: selected[0], provider: srcProvider(selected[0]) },
+          rows[selected[0]]
+        )}
       </span>
     ) : (
       <span className="sel-agent">
-        {selected.slice(0, 3).map((id) => (
-          <AgentIcon key={id} id={id} size={12} />
+        {selected.slice(0, 3).map((k) => (
+          <AgentIcon key={k} id={srcProvider(k)} size={12} />
         ))}
         {t('usageSelected', { n: String(selected.length) })}
       </span>
     )
 
-  const shown = selected.map((id) => rows[id]).filter(Boolean)
+  const shown = selected.map((k) => rows[k]).filter(Boolean)
   const ok = shown.filter((r) => r.ok)
   const peak = ok.reduce((m, r) => {
     for (const w of r.windows) {
@@ -227,7 +556,34 @@ function UsageBody({
               <RefreshCw className={busy ? 'spin' : ''} />
             </button>
           </Tooltip>
+          <Dropdown
+            align="end"
+            panelClassName="sel-pop"
+            trigger={
+              <Tooltip label={t('usageAddAccount')}>
+                <button className="pbtn">
+                  <UserPlus />
+                </button>
+              </Tooltip>
+            }
+          >
+            {addable.map((id) => (
+              <button key={id} className="sel-item" onClick={() => setAuthProvider(id)}>
+                <span className="sel-agent">
+                  <AgentIcon id={id} size={12} />
+                  {agentLabel(id)}
+                </span>
+              </button>
+            ))}
+          </Dropdown>
         </div>
+        {authProvider && !groups.some((g) => g.provider === authProvider) && (
+          <AuthPanel
+            provider={authProvider}
+            onDone={(path, label) => registerAccount(authProvider, path, label)}
+            onClose={() => setAuthProvider(null)}
+          />
+        )}
         {!selected.length ? (
           <div className="usage-note">{t('usageNone')}</div>
         ) : (
@@ -248,24 +604,63 @@ function UsageBody({
                 <span className="dash-kpi-v">{peak < 0 ? '—' : `${Math.round(peak)}%`}</span>
               </div>
             </div>
-            <div className="dash-grid">
-              {selected.map((id) => {
-                const res = rows[id]
-                return (
-                  <div key={id} className="dash-card">
-                    <div className="dash-card-h">
-                      <AgentIcon id={id} size={16} />
-                      <span className="dash-card-n">{agentLabel(id)}</span>
-                      {res?.plan && <span className="dash-card-s">{res.plan}</span>}
-                    </div>
-                    {!res ? (
-                      <div className="usage-note">{t('loading')}</div>
-                    ) : (
-                      <UsageWindows res={res} />
-                    )}
+            <div className="dash-groups">
+              {groups.map((g) => (
+                <section key={g.provider} className="dash-group">
+                  <div className="dash-grp-h">
+                    <AgentIcon id={g.provider} size={13} />
+                    <span className="dash-grp-t">{agentLabel(g.provider)}</span>
+                    <Tooltip label={t('usageAddAccount')}>
+                      <button
+                        className="pbtn dash-grp-add"
+                        onClick={() =>
+                          setAuthProvider(authProvider === g.provider ? null : g.provider)
+                        }
+                      >
+                        <Plus />
+                      </button>
+                    </Tooltip>
                   </div>
-                )
-              })}
+                  {authProvider === g.provider && (
+                    <AuthPanel
+                      provider={authProvider}
+                      onDone={(path, label) => registerAccount(authProvider, path, label)}
+                      onClose={() => setAuthProvider(null)}
+                    />
+                  )}
+                  <div className="dash-grid">
+                    {g.keys.map((key) => {
+                      const src = srcByKey.get(key) ?? { key, provider: g.provider }
+                      const res = rows[key]
+                      return (
+                        <div key={key} className="dash-card">
+                          <div className="dash-card-h">
+                            <span className="dash-card-n">
+                              {res?.account ?? src.label ?? t('usageDefault')}
+                            </span>
+                            {res?.plan && <span className="dash-card-s">{res.plan}</span>}
+                            {src.path && (
+                              <Tooltip label={t('usageRemoveAccount')}>
+                                <button
+                                  className="pbtn dash-card-x"
+                                  onClick={() => removeAccount(src)}
+                                >
+                                  <X />
+                                </button>
+                              </Tooltip>
+                            )}
+                          </div>
+                          {!res ? (
+                            <div className="usage-note">{t('loading')}</div>
+                          ) : (
+                            <UsageWindows res={res} />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
             {latest > 0 && (
               <div className="usage-foot">{new Date(latest).toLocaleTimeString()}</div>
@@ -599,7 +994,13 @@ export default function WidgetTabView({
         paneId,
         {
           tabs: p.tabs.map((x) =>
-            x.id === tabId ? ({ ...x, providers: ids, provider: ids[0] } as typeof x) : x
+            x.id === tabId
+              ? ({
+                  ...x,
+                  providers: ids,
+                  provider: ids[0] ? srcProvider(ids[0]) : undefined
+                } as typeof x)
+              : x
           )
         },
         wsId

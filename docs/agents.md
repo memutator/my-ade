@@ -60,10 +60,14 @@ as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 | devin    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` hook groups | `~/.config/devin/config.json`           |
 | zcode    | `Stop` + `PermissionRequest` + `SessionStart`/`SessionEnd` in `hooks.events` + `hooks.enabled` | `~/.zcode/cli/config.json`   |
 | opencode | plugin `MahasEventsPlugin` on `session.idle`, `session.error`, `session.created`, `session.deleted`, `permission.asked`, `question.asked` | `~/.config/opencode/plugins/mahas-events.js` |
+| cline    | event-named hook files (`TaskStart`, `TaskComplete`, `TaskError`, `TaskCancel`, `UserPromptSubmit`, `SessionShutdown`) — stdin JSON payload | `~/.cline/hooks/<Event>` |
 
-The hook script copy under `~/.config/mahas`, grok's hook file and the opencode
-plugin file are refreshed to the shipped version on every app start — fixes to
-them don't need a re-Install. User-owned configs (claude `settings.json`,
+The hook script copy under `~/.config/mahas`, grok's hook file, the opencode
+plugin file and cline's `~/.cline/hooks/<Event>` files are refreshed to the
+shipped version on every app start — fixes to them don't need a re-Install.
+(Cline note: an existing user-owned `<Event>` file is backed up to
+`<Event>.mahas-bak` and our script re-pipes the stdin payload to it — the
+displaced hook keeps working.) User-owned configs (claude `settings.json`,
 devin/zcode `config.json`, codex `config.toml`) are not claimed from scratch
 on start, but a leftover `ade-hook` pointer (from the ade→mahas rename) is
 rewritten to `mahas-hook` automatically — those absolute paths 404 after the
@@ -179,7 +183,8 @@ Records leave the set when the session actually ends:
 **Restore**: the workspace's terminal tabs restart as plain shells on boot
 (their persisted pty ids respawn). Accepting the dialog types the manifest's
 resume command — `claude --resume <id>`, `codex resume <id>`,
-`opencode --session <id>`, `grok|devin|zcode --resume <id>` — into each
+`opencode --session <id>`, `grok|devin|zcode --resume <id>`,
+`cline --id <id>` — into each
 session's old tab in layout pane order then tab order, activating the
 leftmost resumed tab per pane. Two records claiming one tab collapse to the
 newest — both typing into a single shell would land in the first agent's

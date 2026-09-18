@@ -19,9 +19,9 @@
 // providers return { ok:false, error } — the widget renders the reason.
 
 import { ipcMain, net } from 'electron'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { homedir } from 'os'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, stat, writeFile } from 'fs/promises'
 import { getLedger, type LedgerQuery, type LedgerResult } from './ledger'
 
 export interface UsageWindow {
@@ -36,13 +36,16 @@ export interface UsageResult {
   ok: boolean
   provider: string
   plan?: string
+  /** identity recovered from the credentials (grok email, codex JWT email) —
+   *  lets the widget tell pooled accounts apart */
+  account?: string
   windows: UsageWindow[]
   extra?: string
   error?: string
   fetchedAt: number
 }
 
-type Fetcher = () => Promise<Omit<UsageResult, 'ok' | 'provider' | 'fetchedAt'>>
+type Fetcher = (cred?: string) => Promise<Omit<UsageResult, 'ok' | 'provider' | 'fetchedAt'>>
 
 const TIMEOUT_MS = 9000
 
@@ -136,6 +139,30 @@ const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
+/** Registered credential paths may point at the file itself or at the dir
+ *  holding it (a CODEX_HOME-style profile dir) — resolve dirs to the
+ *  provider's canonical filename. */
+async function credFile(p: string, filename: string): Promise<string> {
+  try {
+    return (await stat(p)).isDirectory() ? join(p, filename) : p
+  } catch {
+    return p
+  }
+}
+
+/** Unverified JWT payload read — the token is ours and we only want the
+ *  display identity (email), not a security claim. */
+function jwtEmail(token: string | undefined): string | undefined {
+  const part = token?.split('.')[1]
+  if (!part) return undefined
+  try {
+    const j = JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as Record<string, unknown>
+    return str(j.email) ?? str(j.preferred_username)
+  } catch {
+    return undefined
+  }
+}
+
 /** Human plan label: SuperGrokPro → SuperGrok Pro, TEAMS_TIER_DEVIN_PRO → Devin Pro. */
 function prettyPlan(v: unknown): string | undefined {
   const s = str(v)
@@ -165,26 +192,26 @@ function isoMs(v: unknown): number | undefined {
 // Same endpoints Grok Build's /usage modal hits (cli-chat-proxy). Access
 // tokens last ~6h; we refresh via auth.x.ai OIDC and write the rotated
 // pair back so the grok CLI keeps working (refresh tokens rotate).
-async function grokAccessToken(): Promise<string | undefined> {
-  const file = join(homedir(), '.grok', 'auth.json')
+async function grokAccessToken(file: string): Promise<{ token?: string; account?: string }> {
   const table = await readJson(file)
-  if (!table) return undefined
+  if (!table) return {}
   const scope = Object.keys(table)[0]
   const entry = (scope ? table[scope] : undefined) as Record<string, unknown> | undefined
-  if (!entry) return undefined
+  if (!entry) return {}
+  const account = str(entry.email)
   const exp = isoMs(entry.expires_at) ?? 0
   const cached = str(entry.key)
-  if (cached && exp > Date.now() + 60_000) return cached
+  if (cached && exp > Date.now() + 60_000) return { token: cached, account }
   const rt = str(entry.refresh_token)
   const cid = str(entry.oidc_client_id)
-  if (!rt || !cid) return cached
+  if (!rt || !cid) return { token: cached, account }
   const r = (await postForm('https://auth.x.ai/oauth2/token', {
     grant_type: 'refresh_token',
     refresh_token: rt,
     client_id: cid
   }).catch(() => null)) as Record<string, unknown> | null
   const next = str(r?.access_token)
-  if (!next) return cached
+  if (!next) return { token: cached, account }
   const nrt = str(r?.refresh_token) ?? rt
   const ein = num(r?.expires_in) ?? 21_600
   const expiresAt = new Date(Date.now() + ein * 1000).toISOString()
@@ -197,7 +224,7 @@ async function grokAccessToken(): Promise<string | undefined> {
   } catch {
     /* disk is the CLI's file — a failed write still lets this fetch proceed */
   }
-  return next
+  return { token: next, account }
 }
 
 /** CLI display name — /user.subscriptionTier is a SKU enum (SuperGrokPro)
@@ -245,9 +272,10 @@ async function grokPlanLabel(
   return prettyPlan(sku)
 }
 
-async function fetchGrok(): ReturnType<Fetcher> {
-  const token = await grokAccessToken()
-  if (!token) return fail('no Grok credentials (~/.grok/auth.json) — run `grok login`')
+async function fetchGrok(cred?: string): ReturnType<Fetcher> {
+  const file = cred ? await credFile(cred, 'auth.json') : join(homedir(), '.grok', 'auth.json')
+  const { token, account } = await grokAccessToken(file)
+  if (!token) return fail(`no Grok credentials (${file}) — run \`grok login\``)
   const auth = { Authorization: `Bearer ${token}`, 'User-Agent': 'grok-shell' }
   const billing = (await getJson(
     'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
@@ -294,6 +322,7 @@ async function fetchGrok(): ReturnType<Fetcher> {
   if (!windows.length) return fail('empty billing response')
   return {
     plan: await grokPlanLabel(settings, user),
+    account,
     windows,
     extra: bits.join(' · ') || undefined
   }
@@ -303,12 +332,13 @@ async function fetchGrok(): ReturnType<Fetcher> {
 // The same endpoint Claude Code's /usage renders. The `anthropic-beta` +
 // claude-code User-Agent headers are required — without them the request
 // lands in an aggressively rate-limited bucket (persistent 429).
-async function fetchClaude(): ReturnType<Fetcher> {
+async function fetchClaude(cred?: string): ReturnType<Fetcher> {
   const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
-  const creds = await readJson(join(dir, '.credentials.json'))
+  const file = cred ? await credFile(cred, '.credentials.json') : join(dir, '.credentials.json')
+  const creds = await readJson(file)
   const oauth = creds?.claudeAiOauth as Record<string, unknown> | undefined
   const token = str(oauth?.accessToken)
-  if (!token) return fail('no Claude OAuth credentials (~/.claude/.credentials.json)')
+  if (!token) return fail(`no Claude OAuth credentials (${file})`)
   const r = (await getJson('https://api.anthropic.com/api/oauth/usage', {
     Authorization: `Bearer ${token}`,
     'anthropic-beta': 'oauth-2025-04-20',
@@ -339,16 +369,27 @@ async function fetchClaude(): ReturnType<Fetcher> {
         }`
       : undefined
   if (!windows.length) return fail('empty usage response')
-  return { windows, extra }
+  // .credentials.json carries no identity — ~/.claude.json's oauthAccount
+  // does (only populated for browser-OAuth logins). Global file, so only
+  // meaningful for the default credential.
+  let account: string | undefined
+  if (!cred) {
+    const home = await readJson(join(homedir(), '.claude.json'))
+    const oa = home?.oauthAccount as Record<string, unknown> | undefined
+    account = str(oa?.emailAddress) ?? str(oa?.email)
+  }
+  return { windows, extra, account }
 }
 
 // ── codex ───────────────────────────────────────────────────────────────
 // ChatGPT backend quota endpoint (what the Codex app itself calls).
-async function fetchCodex(): ReturnType<Fetcher> {
-  const auth = await readJson(join(homedir(), '.codex', 'auth.json'))
+async function fetchCodex(cred?: string): ReturnType<Fetcher> {
+  const file = cred ? await credFile(cred, 'auth.json') : join(homedir(), '.codex', 'auth.json')
+  const auth = await readJson(file)
   const tokens = auth?.tokens as Record<string, unknown> | undefined
   const token = str(tokens?.access_token) ?? str(auth?.access_token)
-  if (!token) return fail('no Codex credentials (~/.codex/auth.json)')
+  if (!token) return fail(`no Codex credentials (${file})`)
+  const account = jwtEmail(str(tokens?.id_token))
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
@@ -385,7 +426,7 @@ async function fetchCodex(): ReturnType<Fetcher> {
   const resets = r.rate_limit_reset_credits as Record<string, unknown> | undefined
   if (num(resets?.available_count)) bits.push(`${num(resets?.available_count)} reset credit(s)`)
   if (!windows.length) return fail('empty usage response')
-  return { plan: prettyPlan(r.plan_type), windows, extra: bits.join(' · ') || undefined }
+  return { plan: prettyPlan(r.plan_type), account, windows, extra: bits.join(' · ') || undefined }
 }
 
 // ── gemini ──────────────────────────────────────────────────────────────
@@ -396,9 +437,12 @@ async function fetchCodex(): ReturnType<Fetcher> {
 const GEMINI_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com'
 const GEMINI_CLIENT_SECRET = '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'
 
-async function fetchGemini(): ReturnType<Fetcher> {
-  const creds = await readJson(join(homedir(), '.gemini', 'oauth_creds.json'))
-  if (!creds) return fail('no Gemini credentials (~/.gemini/oauth_creds.json)')
+async function fetchGemini(cred?: string): ReturnType<Fetcher> {
+  const file = cred
+    ? await credFile(cred, 'oauth_creds.json')
+    : join(homedir(), '.gemini', 'oauth_creds.json')
+  const creds = await readJson(file)
+  if (!creds) return fail(`no Gemini credentials (${file})`)
   let token = str(creds.access_token)
   const expiry = num(creds.expiry_date)
   if ((!token || (expiry !== undefined && expiry < Date.now() + 60_000)) && creds.refresh_token) {
@@ -415,6 +459,14 @@ async function fetchGemini(): ReturnType<Fetcher> {
     token = str(r?.access_token) ?? token
   }
   if (!token) return fail('Gemini access token missing/expired — run `gemini` once')
+  // oauth_creds.json carries no identity — gemini-cli records the signed-in
+  // account in google_accounts.json next to it (we write one for managed
+  // accounts too)
+  const accts = await readJson(join(dirname(file), 'google_accounts.json'))
+  const account =
+    str(accts?.active) ??
+    str(accts?.email) ??
+    str((accts?.accounts as Record<string, unknown>[] | undefined)?.[0]?.email)
   const auth = { Authorization: `Bearer ${token}`, Accept: 'application/json' }
   const project = str(process.env.GOOGLE_CLOUD_PROJECT) ?? str(process.env.GOOGLE_CLOUD_PROJECT_ID)
   const body = project ? { project } : {}
@@ -435,13 +487,32 @@ async function fetchGemini(): ReturnType<Fetcher> {
         num(b.remainingAmount) !== undefined ? `${num(b.remainingAmount)} remaining` : undefined
     }
   })
-  return { windows }
+  return { account, windows }
 }
 
 // ── copilot ─────────────────────────────────────────────────────────────
 // api.github.com/copilot_internal/user — what VS Code's Copilot badge calls.
-// Token: copilot CLI's apps.json first, then the gh CLI's hosts.yml.
-async function copilotToken(): Promise<string | undefined> {
+// Token: copilot CLI's apps.json first, then the gh CLI's hosts.yml. A
+// registered cred path can point at either file directly.
+async function copilotToken(cred?: string): Promise<string | undefined> {
+  if (cred) {
+    const file = await credFile(cred, 'apps.json')
+    const table = await readJson(file)
+    if (table) {
+      for (const v of Object.values(table)) {
+        const t = str((v as Record<string, unknown>)?.oauth_token)
+        if (t) return t
+      }
+    }
+    try {
+      const hosts = await readFile(file, 'utf8')
+      const tok = /oauth_token:\s*(\S+)/.exec(hosts)
+      if (tok) return tok[1]
+    } catch {
+      /* fall through */
+    }
+    return undefined
+  }
   const apps = await readJson(join(homedir(), '.config', 'github-copilot', 'apps.json'))
   if (apps) {
     for (const v of Object.values(apps)) {
@@ -459,15 +530,28 @@ async function copilotToken(): Promise<string | undefined> {
   }
 }
 
-async function fetchCopilot(): ReturnType<Fetcher> {
-  const token = await copilotToken()
-  if (!token) return fail('no GitHub token (github-copilot apps.json / gh hosts.yml)')
-  const r = (await getJson('https://api.github.com/copilot_internal/user', {
+async function fetchCopilot(cred?: string): ReturnType<Fetcher> {
+  const token = await copilotToken(cred)
+  if (!token)
+    return fail(
+      cred
+        ? `no GitHub token (${cred})`
+        : 'no GitHub token (github-copilot apps.json / gh hosts.yml)'
+    )
+  const gh = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'mahas'
-  })) as Record<string, unknown>
+  }
+  // quota + identity in parallel — the copilot_internal payload itself
+  // doesn't name the user
+  const [r, me] = await Promise.all([
+    getJson('https://api.github.com/copilot_internal/user', gh) as Promise<Record<string, unknown>>,
+    getJson('https://api.github.com/user', gh)
+      .then((u) => str((u as Record<string, unknown>).login))
+      .catch(() => undefined)
+  ])
   const snaps = r.quota_snapshots as Record<string, Record<string, unknown>> | undefined
   const resetAt = str(r.quota_reset_date) ? Date.parse(str(r.quota_reset_date)!) : undefined
   const pretty = (id: string): string => id.replaceAll('_', ' ')
@@ -494,15 +578,15 @@ async function fetchCopilot(): ReturnType<Fetcher> {
     a.id === 'premium_interactions' ? -1 : b.id === 'premium_interactions' ? 1 : 0
   )
   if (!windows.length) return fail('no quota snapshots (copilot plan may not expose quotas)')
-  return { plan: prettyPlan(r.copilot_plan), windows }
+  return { plan: prettyPlan(r.copilot_plan), account: me, windows }
 }
 
 // ── zcode / z.ai ────────────────────────────────────────────────────────
 // GLM coding-plan monitor endpoint. ZCode persists the key on the provider
 // entry in ~/.zcode/v2/config.json; env vars still win when set.
-async function zaiCreds(): Promise<{ key: string; base: string } | null> {
+async function zaiCreds(cred?: string): Promise<{ key: string; base: string } | null> {
   const envKey = process.env.ZAI_API_KEY ?? process.env.ZHIPUAI_API_KEY
-  if (envKey) {
+  if (!cred && envKey) {
     const base =
       process.env.ZHIPUAI_API_KEY && !process.env.ZAI_API_KEY
         ? 'https://open.bigmodel.cn'
@@ -516,8 +600,14 @@ async function zaiCreds(): Promise<{ key: string; base: string } | null> {
     'zai',
     'builtin:bigmodel'
   ]
-  for (const rel of [join('.zcode', 'v2', 'config.json'), join('.zcode', 'cli', 'config.json')]) {
-    const cfg = await readJson(join(homedir(), rel))
+  const files = cred
+    ? [await credFile(cred, 'config.json')]
+    : [
+        join(homedir(), '.zcode', 'v2', 'config.json'),
+        join(homedir(), '.zcode', 'cli', 'config.json')
+      ]
+  for (const f of files) {
+    const cfg = await readJson(f)
     const prov = cfg?.provider as Record<string, Record<string, unknown>> | undefined
     if (!prov) continue
     const ids = [...prefer.filter((k) => prov[k]), ...Object.keys(prov)]
@@ -533,9 +623,12 @@ async function zaiCreds(): Promise<{ key: string; base: string } | null> {
   return null
 }
 
-async function fetchZai(): ReturnType<Fetcher> {
-  const creds = await zaiCreds()
-  if (!creds) return fail('no Z.AI key (~/.zcode/v2/config.json or ZAI_API_KEY)')
+async function fetchZai(cred?: string): ReturnType<Fetcher> {
+  const creds = await zaiCreds(cred)
+  if (!creds)
+    return fail(
+      cred ? `no Z.AI key (${cred})` : 'no Z.AI key (~/.zcode/v2/config.json or ZAI_API_KEY)'
+    )
   const { key, base } = creds
   const r = (await getJson(`${base}/api/monitor/usage/quota/limit`, {
     Authorization: `Bearer ${key}`,
@@ -576,11 +669,15 @@ async function fetchZai(): ReturnType<Fetcher> {
 
 // ── opencode (Go plan) ──────────────────────────────────────────────────
 // Official GET /zen/go/v1/usage — same numbers as the Zen dashboard.
-async function opencodeGoKey(): Promise<string | undefined> {
-  const env = process.env.OPENCODE_API_KEY ?? process.env.OPENCODE_GO_API_KEY
-  if (env) return env
+async function opencodeGoKey(cred?: string): Promise<string | undefined> {
+  if (!cred) {
+    const env = process.env.OPENCODE_API_KEY ?? process.env.OPENCODE_GO_API_KEY
+    if (env) return env
+  }
   const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
-  const auth = await readJson(join(xdg, 'opencode', 'auth.json'))
+  const auth = await readJson(
+    cred ? await credFile(cred, 'auth.json') : join(xdg, 'opencode', 'auth.json')
+  )
   if (!auth) return undefined
   for (const id of ['opencode-go', 'opencode']) {
     const rec = auth[id] as Record<string, unknown> | undefined
@@ -590,9 +687,14 @@ async function opencodeGoKey(): Promise<string | undefined> {
   return undefined
 }
 
-async function fetchOpencode(): ReturnType<Fetcher> {
-  const key = await opencodeGoKey()
-  if (!key) return fail('no OpenCode Go key (~/.local/share/opencode/auth.json)')
+async function fetchOpencode(cred?: string): ReturnType<Fetcher> {
+  const key = await opencodeGoKey(cred)
+  if (!key)
+    return fail(
+      cred
+        ? `no OpenCode Go key (${cred})`
+        : 'no OpenCode Go key (~/.local/share/opencode/auth.json)'
+    )
   const r = (await getJson('https://opencode.ai/zen/go/v1/usage', {
     Authorization: `Bearer ${key}`
   })) as Record<string, unknown>
@@ -655,19 +757,20 @@ function usedFromRemaining(v: unknown): number | undefined {
   return Math.max(0, Math.min(100, 100 - n))
 }
 
-async function fetchDevin(): ReturnType<Fetcher> {
+async function fetchDevin(cred?: string): ReturnType<Fetcher> {
   const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
+  const file = cred
+    ? await credFile(cred, 'credentials.toml')
+    : join(xdg, 'devin', 'credentials.toml')
   let toml = ''
   try {
-    toml = await readFile(join(xdg, 'devin', 'credentials.toml'), 'utf8')
+    toml = await readFile(file, 'utf8')
   } catch {
-    return fail(
-      'no Devin credentials (~/.local/share/devin/credentials.toml) — run `devin auth login`'
-    )
+    return fail(`no Devin credentials (${file}) — run \`devin auth login\``)
   }
   const kv = parseTomlStrings(toml)
   const key = kv.windsurf_api_key
-  if (!key) return fail('Devin credentials.toml has no windsurf_api_key — run `devin auth login`')
+  if (!key) return fail(`no windsurf_api_key in ${file} — run \`devin auth login\``)
   const host = (kv.api_server_url || 'https://server.codeium.com').replace(/\/+$/, '')
   // SeatManagementService is the Windsurf/Codeium endpoint. ideName "devin"
   // 500s ("unknown" internal error); vscode/windsurf identities succeed.
@@ -748,6 +851,141 @@ async function fetchDevin(): ReturnType<Fetcher> {
     plan:
       prettyPlan(pick(info, 'planName', 'plan_name')) ??
       prettyPlan(pick(user, 'teamsTier', 'teams_tier')),
+    // user_status carries the Windsurf account identity when populated
+    account:
+      str(pick(user, 'email')) ??
+      str(pick(user, 'name', 'userName', 'user_name')) ??
+      str(pick(rec(pick(user, 'user')), 'email', 'name')),
+    windows,
+    extra: bits.join(' · ') || undefined
+  }
+}
+
+// ── cline ─────────────────────────────────────────────────────────────
+// api.cline.bot — the Cline account service the CLI/extension backs. Creds
+// live in ~/.cline/data/settings/providers.json under
+// providers.cline.settings.auth (WorkOS device sign-in → /api/v1/auth/
+// register exchange). Near-expiry tokens refresh via /api/v1/auth/refresh
+// and are written back to the same file.
+const CLINE_API = 'https://api.cline.bot'
+
+/** `{success, data}` envelope the account service wraps responses in —
+ *  unwrapped only when a data object is actually present. */
+const unwrap = (r: unknown): Record<string, unknown> | undefined => {
+  if (!r || typeof r !== 'object') return undefined
+  const o = r as Record<string, unknown>
+  const d = o.data as Record<string, unknown> | undefined
+  return d && typeof d === 'object' ? d : o
+}
+
+async function clineAccessToken(
+  file: string
+): Promise<{ token?: string; accountId?: string; account?: string }> {
+  const prov = await readJson(file)
+  const entry = (prov?.providers as Record<string, unknown> | undefined)?.cline as
+    Record<string, unknown> | undefined
+  const settings = entry?.settings as Record<string, unknown> | undefined
+  const auth = settings?.auth as Record<string, unknown> | undefined
+  if (!settings || !auth) return {}
+  const cached = str(auth.accessToken)
+  const accountId = str(auth.accountId)
+  const account =
+    str(auth.email) ?? str((auth.metadata as Record<string, unknown> | undefined)?.email)
+  const exp = num(auth.expiresAt) ?? isoMs(auth.expiresAt) ?? 0
+  if (cached && exp > Date.now() + 300_000) return { token: cached, accountId, account }
+  const rt = str(auth.refreshToken)
+  if (!rt) return { token: cached, accountId, account }
+  const d = unwrap(
+    await postJson(
+      `${CLINE_API}/api/v1/auth/refresh`,
+      {},
+      {
+        refreshToken: rt,
+        grantType: 'refresh_token'
+      }
+    ).catch(() => null)
+  )
+  const next = str(d?.accessToken) ?? str(d?.access_token)
+  if (!next) return { token: cached, accountId, account }
+  const nrt = str(d?.refreshToken) ?? str(d?.refresh_token) ?? rt
+  const nexp =
+    num(d?.expiresAt) ??
+    isoMs(d?.expiresAt) ??
+    (num(d?.expires_in) !== undefined ? Date.now() + num(d?.expires_in)! * 1000 : exp)
+  // the response nests the canonical usr-* id and email under userInfo —
+  // auth.accountId is a numeric WorkOS id, not the API's user id
+  const ui = d?.userInfo as Record<string, unknown> | undefined
+  const nacc =
+    str(ui?.clineUserId) ??
+    str(ui?.cline_user_id) ??
+    str(d?.accountId) ??
+    str(d?.account_id) ??
+    accountId
+  const nemail = str(ui?.email) ?? account
+  try {
+    settings.auth = {
+      ...auth,
+      accessToken: next,
+      refreshToken: nrt,
+      expiresAt: nexp,
+      accountId: nacc,
+      email: nemail
+    }
+    await writeFile(file, JSON.stringify(prov, null, 2) + '\n', { mode: 0o600 })
+  } catch {
+    /* disk write is best-effort — the fresh token still serves this fetch */
+  }
+  return { token: next, accountId: nacc, account: nemail }
+}
+
+async function fetchCline(cred?: string): ReturnType<Fetcher> {
+  const file = cred
+    ? await credFile(cred, 'providers.json')
+    : join(homedir(), '.cline', 'data', 'settings', 'providers.json')
+  const { token, accountId, account } = await clineAccessToken(file)
+  if (!token) return fail(`no Cline credentials (${file}) — run \`cline\` to sign in`)
+  const auth = { Authorization: `Bearer ${token}` }
+  const me = unwrap(await getJson(`${CLINE_API}/api/v1/users/me`, auth))
+  const uid = str(me?.id) ?? accountId
+  const planRes = unwrap(await getJson(`${CLINE_API}/api/v1/users/me/plan`, auth).catch(() => null))
+  const windows: UsageWindow[] = []
+  const bits: string[] = []
+  if (uid) {
+    const bal = unwrap(
+      await getJson(`${CLINE_API}/api/v1/users/${encodeURIComponent(uid)}/balance`, auth).catch(
+        () => null
+      )
+    )
+    const balance = num(bal?.balance)
+    if (balance !== undefined) {
+      windows.push({
+        id: 'credits',
+        label: 'Credit balance',
+        // the account service reports micro-credits — the CLI's own
+        // settings view divides by 1e6 for display
+        detail: `${(Math.round((balance / 1e6) * 100) / 100).toFixed(2)} credits`
+      })
+    }
+  }
+  const orgs = me?.organizations as Record<string, unknown>[] | undefined
+  const activeOrg = Array.isArray(orgs) ? orgs.find((o) => o.active === true) : undefined
+  const orgId = str(activeOrg?.organizationId)
+  if (orgId) {
+    const ob = unwrap(
+      await getJson(
+        `${CLINE_API}/api/v1/organizations/${encodeURIComponent(orgId)}/balance`,
+        auth
+      ).catch(() => null)
+    )
+    const obal = num(ob?.balance)
+    if (obal !== undefined)
+      bits.push(`org ${str(activeOrg?.name) ?? ''} ${(obal / 1e6).toFixed(2)} credits`)
+  }
+  if (!windows.length && !bits.length) return fail('empty Cline account response')
+  return {
+    plan:
+      prettyPlan(str(planRes?.name) ?? str(planRes?.planName) ?? str(planRes?.plan)) ?? undefined,
+    account: str(me?.email) ?? account,
     windows,
     extra: bits.join(' · ') || undefined
   }
@@ -761,21 +999,31 @@ const FETCHERS: Record<string, Fetcher> = {
   copilot: fetchCopilot,
   zcode: fetchZai,
   opencode: fetchOpencode,
-  devin: fetchDevin
+  devin: fetchDevin,
+  cline: fetchCline
 }
 
 export function registerUsageIpc(): void {
-  ipcMain.handle('usage:fetch', async (_e, provider: string): Promise<UsageResult> => {
-    const fetcher = FETCHERS[provider]
-    const base = { provider, fetchedAt: Date.now() }
-    if (!fetcher) return { ...base, ok: false, windows: [], error: 'unsupported' }
-    try {
-      const r = await fetcher()
-      return { ...base, ok: !r.error, ...r }
-    } catch (e) {
-      return { ...base, ok: false, windows: [], error: String(e instanceof Error ? e.message : e) }
+  ipcMain.handle(
+    'usage:fetch',
+    async (_e, provider: string, credPath?: string): Promise<UsageResult> => {
+      const fetcher = FETCHERS[provider]
+      const base = { provider, fetchedAt: Date.now() }
+      if (!fetcher) return { ...base, ok: false, windows: [], error: 'unsupported' }
+      const cred = typeof credPath === 'string' && credPath ? credPath : undefined
+      try {
+        const r = await fetcher(cred)
+        return { ...base, ok: !r.error, ...r }
+      } catch (e) {
+        return {
+          ...base,
+          ok: false,
+          windows: [],
+          error: String(e instanceof Error ? e.message : e)
+        }
+      }
     }
-  })
+  )
   ipcMain.handle(
     'usage:ledger',
     async (_e, tracked: LedgerQuery[], force?: boolean): Promise<LedgerResult> => {

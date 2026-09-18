@@ -72,6 +72,13 @@
     "domain": "ampcode.com",
     "color": "#FF5543"
   },
+  "cline": {
+    "match": ["cline"],
+    "label": "Cline",
+    "domain": "cline.bot",
+    "color": "#7C3AED",
+    "resume": { "cmd": "cline", "args": ["--id"] }
+  },
   "fake": {
     "match": ["mahas-fake"],
     "label": "Fake",

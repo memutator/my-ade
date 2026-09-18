@@ -89,9 +89,14 @@ function normalizeEvent(raw, fallback, payload) {
     case 'stopped':
     case 'agentturncomplete':
     case 'taskcomplete':
+    case 'agentend':
       return 'turn-complete'
     case 'stopfailure':
+    case 'agenterror':
       return 'error'
+    case 'agentabort':
+      // cline fires agent_abort when the user stops the run — they know
+      return 'turn-cancelled'
     case 'stopcancelled': {
       // cancelledBy === 'user' (or a user-* reason) = the user stopped it —
       // they know; runtime cancels (max_turns, no_progress, …) are failures
@@ -130,10 +135,14 @@ function normalizeEvent(raw, fallback, payload) {
     case 'permissiondenied':
       return 'other' // policy auto-deny — the agent keeps going
     case 'sessionstart':
+    case 'agentstart':
+    case 'agentresume':
       return 'session-start'
     case 'sessionend':
+    case 'sessionshutdown':
       return 'session-end'
     case 'userpromptsubmit':
+    case 'promptsubmit':
       return 'turn-start'
     // already-canonical names pass through — tools, tests, and any harness
     // speaking mahas's taxonomy directly stay idempotent
@@ -201,10 +210,15 @@ function isFailedStop(p) {
 function buildEvent(provider, argEvent, payload) {
   const p = payload && typeof payload === 'object' ? payload : {}
   let event = normalizeEvent(
-    p.hook_event_name || p.hookEventName || p.type || p.event,
+    p.hook_event_name || p.hookEventName || p.hookName || p.type || p.event,
     argEvent,
     p
   )
+  // cline subagent runs emit the same lifecycle names with parent_agent_id
+  // set — tracking only, and their taskId must not claim the tab's resume
+  // record (same shape as codex's internal catch-up threads below)
+  const clineSub = typeof p.parent_agent_id === 'string' && p.parent_agent_id
+  if (clineSub) event = 'other'
   // grok fires an extra observe-only Stop at teardown; reclassify it.
   if (
     event === 'turn-complete' &&
@@ -241,16 +255,21 @@ function buildEvent(provider, argEvent, payload) {
     p.workingDirectory,
     p.workspace_root,
     p.workspaceRoot,
+    // cline hooks carry the roots array — the session's own root is first
+    Array.isArray(p.workspaceRoots) ? p.workspaceRoots[0] : undefined,
     process.env.GROK_WORKSPACE_ROOT,
     process.env.DEVIN_PROJECT_DIR,
     process.env.CLAUDE_PROJECT_DIR,
     process.env.CODEX_WORKSPACE_ROOT
   )
-  const sessionId = internalThread
+  const sessionId = internalThread || clineSub
     ? ''
     : firstString(
         p.session_id,
         p.sessionId,
+        // cline: taskId is the conversation/session id `cline --id` resumes
+        p.taskId,
+        p.sessionContext && p.sessionContext.rootSessionId,
         p['thread-id'],
         p.thread_id,
         p.threadId,
@@ -262,7 +281,10 @@ function buildEvent(provider, argEvent, payload) {
     toolInput && typeof toolInput === 'object' ? firstString(toolInput.command) : '',
     80
   )
-  const cause = firstString(p.error, p.errorType, p.error_type, p.reason)
+  // cline's agent_error/agent_abort carry error as {name,message,stack}
+  const errMsg =
+    p.error && typeof p.error === 'object' ? firstString(p.error.message) : undefined
+  const cause = firstString(errMsg, p.error, p.errorType, p.error_type, p.reason)
   const detail = firstString(
     p['last-assistant-message'],
     p.lastAssistantMessage,
@@ -271,6 +293,7 @@ function buildEvent(provider, argEvent, payload) {
     p.error_details,
     p.reasonDetails,
     p.reason_details,
+    errMsg,
     p.message
   )
   const message = clip(
@@ -288,6 +311,8 @@ function buildEvent(provider, argEvent, payload) {
             p['last-assistant-message'],
             p.lastAssistantMessage,
             p.last_assistant_message,
+            // cline agent_end carries the final assistant text in turn
+            p.turn && typeof p.turn === 'object' ? p.turn.outputText : undefined,
             p.responsePreview,
             p.responseText,
             p.message

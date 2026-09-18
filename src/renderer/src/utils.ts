@@ -58,6 +58,11 @@ export function blockLabel(tab: PaneTab, lang: Language): string {
   }
 }
 
+/** usage-widget source keys are `provider` (default creds) or
+ *  `provider@accountId` (a registered extra account) — the agent id is the
+ *  prefix either way */
+export const srcProvider = (key: string): string => key.split('@')[0]
+
 export function blockSub(tab: PaneTab): string | undefined {
   switch (tab.kind) {
     case 'term':
@@ -70,8 +75,8 @@ export function blockSub(tab: PaneTab): string | undefined {
       if (tab.widget !== 'usage') return undefined
       const ids = tab.providers?.length ? tab.providers : tab.provider ? [tab.provider] : []
       if (!ids.length) return undefined
-      if (ids.length === 1) return agentLabel(ids[0])
-      return `${agentLabel(ids[0])} +${ids.length - 1}`
+      if (ids.length === 1) return agentLabel(srcProvider(ids[0]))
+      return `${agentLabel(srcProvider(ids[0]))} +${ids.length - 1}`
     }
   }
 }

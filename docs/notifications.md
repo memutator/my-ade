@@ -46,6 +46,13 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 | opencode       | `session.error` `Aborted`          | `turn-cancelled` | user pressed Esc |
 | opencode       | `permission.asked` / `question.asked` | `needs-input` | held ~800 ms — auto-approved asks (`*.replied` in ~20 ms) never ring |
 | opencode       | `permission.updated`               | — (unmapped)   | rule/config churn, not a pending ask |
+| cline          | `agent_end` (`TaskComplete` hook)    | `turn-complete`  | `turn.outputText` is the message; no needs-input channel exists (CLI runs auto-approve) |
+| cline          | `agent_error` (`TaskError`)          | `error`          | `error` is an object — `.message` is read |
+| cline          | `agent_abort` (`TaskCancel`)         | `turn-cancelled` | user stopped the run |
+| cline          | `agent_start` (`TaskStart`)          | `session-start`  | `taskId` = the id `cline --id` resumes |
+| cline          | `prompt_submit` (`UserPromptSubmit`) | `turn-start`     | |
+| cline          | `session_shutdown` (`SessionShutdown`) | `session-end` | drops the resume record |
+| cline          | any event with `parent_agent_id`     | `other`, sessionId stripped | sub-agent runs — they must not claim the tab's resume record |
 
 This table is validated empirically — see **Raw capture** below. When the raw
 log shows a harness emitting something unmapped, the correct class is decided

@@ -212,6 +212,9 @@ export interface Settings {
   homeUrl: string
   osNotifications: boolean
   providers: Record<string, boolean>
+  /** extra OAuth credential files the usage widget probes alongside each
+   *  harness's default login (multi-account quota) */
+  usageAccounts?: UsageAccount[]
 }
 
 export interface AgentProviderInfo {
@@ -328,11 +331,23 @@ export interface UsageResult {
   provider: string
   /** plan tier when the provider reports one ('pro', 'plus', …) */
   plan?: string
+  /** identity recovered from the credentials — distinguishes pooled accounts */
+  account?: string
   windows: UsageWindow[]
   /** extra account facts worth a line (credit balance, reset credits) */
   extra?: string
   error?: string
   fetchedAt: number
+}
+
+/** a non-default credential the usage widget also probes — the file (or its
+ *  dir) another login lives at, e.g. a CODEX_HOME profile's auth.json */
+export interface UsageAccount {
+  id: string
+  provider: string
+  path: string
+  /** display fallback when the creds themselves carry no identity */
+  label?: string
 }
 
 export interface AgentHookStatus {

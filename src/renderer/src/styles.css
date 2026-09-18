@@ -3357,6 +3357,66 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
 .usage-note.err {
   color: var(--danger, #e5534b);
 }
+/* multi-account sign-in card inside the usage widget */
+.dash-auth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-pane);
+}
+.dash-auth-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dash-auth-t {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+}
+.dash-auth .sbtn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dash-auth-msg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.dash-auth-msg .sbtn {
+  margin-left: auto;
+}
+.dash-auth-form {
+  display: flex;
+  gap: 6px;
+}
+.dash-auth-form .sinput {
+  flex: 1;
+  min-width: 0;
+}
+.dash-auth-file {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dash-auth-file:hover {
+  color: var(--text-dim);
+}
 .usage-plan {
   margin-bottom: 8px;
   font-size: 10.5px;
@@ -3527,6 +3587,47 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   border-radius: 2px;
   flex-shrink: 0;
 }
+/* provider groups — a slim header rows above each provider's account cards */
+.dash-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dash-grp-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  color: var(--text-dim);
+}
+.dash-grp-t {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* per-group account add — hidden until the header is hovered */
+.dash-grp-add {
+  width: 18px;
+  height: 18px;
+  margin-right: -2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dash-grp-h:hover .dash-grp-add,
+.dash-group:focus-within .dash-grp-add,
+.dash-grp-add:focus-visible {
+  opacity: 1;
+}
+.dash-grp-add svg {
+  width: 12px;
+  height: 12px;
+}
 .dash-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -3559,6 +3660,19 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
   text-transform: none;
+}
+/* account-card unregister — tucks into the header's right edge */
+.dash-card-x {
+  width: 18px;
+  height: 18px;
+  margin: -2px -4px -2px -2px;
+}
+.dash-card-x:hover {
+  color: var(--danger, #e5534b);
+}
+.dash-card-x svg {
+  width: 11px;
+  height: 11px;
 }
 .dash-card .usage-row:last-child {
   margin-bottom: 0;
