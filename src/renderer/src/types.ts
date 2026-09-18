@@ -1,3 +1,5 @@
+import type { ExecutionBinding } from '../../../packages/mahas-contracts/src/index.ts'
+
 /** content kinds a leaf can stack — a "pane" has no type of its own */
 export type BlockKind = 'term' | 'web' | 'file' | 'widget'
 
@@ -42,6 +44,12 @@ export interface TerminalTab {
   /** live pty-host session id — lets remounts/detached windows `attach`
    *  (with scrollback replay) instead of spawning a new shell */
   pty?: string
+  /** managed-execution binding (C-CLIENT client.view.bind): set only when a
+   *  control plane binds this tab's view to an Execution/Terminal it owns —
+   *  a separate identity from the pane/tab (REQ-11). Plain pty terminals
+   *  never get one, and a tab persisted before the runtime existed is NOT
+   *  retro-claimed as a managed execution (REQ-27) */
+  binding?: ExecutionBinding
 }
 
 export interface BrowserTab {

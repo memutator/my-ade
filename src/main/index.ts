@@ -18,6 +18,7 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from '
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startPtyHost, registerPtyIpc, configureAgents, stopPtyHost } from './pty'
+import { initDesktopRuntime, registerRuntimeIpc, disconnectDesktopRuntime } from './runtimeClient'
 import { startEventIngest, registerHookIpc } from './hooks'
 import { sweepDevinSessionLocks, devinLocksPresent } from './devinLocks'
 import { appendCapped, decisionsFilePath } from './eventsFile'
@@ -573,6 +574,7 @@ app.whenReady().then(() => {
   )
 
   registerPtyIpc()
+  registerRuntimeIpc()
   registerFileIpc()
   registerFileWatchIpc()
   registerFsOpsIpc()
@@ -586,6 +588,9 @@ app.whenReady().then(() => {
   registerHookIpc()
   registerUsageIpc()
   createWindow()
+  // control-plane attachment (IMP-01 seam): resolves the mahasd endpoint and
+  // reports honest readiness — no daemon spawn/lease until IMP-17/23
+  initDesktopRuntime()
   startPtyHost()
   startEventIngest(() => mainWindow)
   pushAgentConfig()
@@ -606,6 +611,9 @@ app.on('window-all-closed', () => {
 // (SIGHUP on master close) instead of lingering as orphans after every quit
 let quitSweepDone = false
 app.on('will-quit', (e) => {
+  // UI close = detach (spec §5): drop the runtime client only — never a
+  // drain-and-stop. The pty-host is still app-owned and dies as before.
+  disconnectDesktopRuntime()
   stopPtyHost()
   // the killed agents' devin locks go stale here — but they die async, so a
   // synchronous sweep would still find them alive. Hold quit for a beat to

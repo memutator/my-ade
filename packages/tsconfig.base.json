@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "//": [
+    "Shared compiler options for packages/* (the mahas daemon-side boundaries",
+    "of spec/architecture.md §2). See packages/README.md for the conventions",
+    "this encodes — notably explicit .ts extensions on relative imports, which",
+    "allowImportingTsExtensions + rewriteRelativeImportExtensions make legal",
+    "both for typecheck and for direct `node file.ts` execution under Node 24."
+  ],
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true
+  }
+}

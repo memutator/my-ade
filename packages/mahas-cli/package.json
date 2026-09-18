@@ -1,0 +1,15 @@
+{
+  "name": "mahas-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "mahas operator/agent CLI — client of the control plane's collaboration API (spec/architecture.md §1). src/main.ts is the entrypoint shell: real argument surface and endpoint reachability; collaboration operations land with the control plane in later tasks.",
+  "bin": {
+    "mahas": "./src/main.ts"
+  },
+  "dependencies": {
+    "mahas-contracts": "*",
+    "mahas-runtime": "*",
+    "mahas-harness-config": "*"
+  }
+}

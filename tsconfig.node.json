@@ -1,8 +1,15 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "//": [
+    "IMP-01: allowImportingTsExtensions lets src/main reach packages/* sources",
+    "with the same explicit .ts specifier convention (see packages/README.md);",
+    "rewriteRelativeImportExtensions keeps a future tsc emit path legal."
+  ],
   "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node"]
+    "types": ["electron-vite/node"],
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "mahas-execution-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reattachable local daemon that owns PTY/generic process incarnations (spec/domains/execution.md). src/main.ts is the service entrypoint shell — process managers, ControllerLease verification and receipt storage are injected by IMP-17..IMP-23.",
+  "bin": {
+    "mahas-execution-host": "./src/main.ts"
+  },
+  "dependencies": {
+    "mahas-contracts": "*"
+  }
+}

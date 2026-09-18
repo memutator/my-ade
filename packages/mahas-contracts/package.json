@@ -1,0 +1,10 @@
+{
+  "name": "mahas-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared contract port (types only, zero dependencies) for the mahas control plane. The only packages/* module renderers and preload may import — type imports stay honest about C-CLIENT/C-HOST wire shapes.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

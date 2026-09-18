@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type {
+  BindViewRequest,
+  ClientViewBinding,
+  ControlResult,
+  CreateExecutionRequest,
+  Execution,
+  ExecutionQuery,
+  ServiceStatus,
+  UnbindViewRequest
+} from '../../packages/mahas-contracts/src/index.ts'
 
 export interface PtySpawnOpts {
   id: string
@@ -161,6 +171,30 @@ const mahas = {
       ipcRenderer.on('pty:event', handler)
       return () => ipcRenderer.removeListener('pty:event', handler)
     }
+  },
+  // managed executions (IMP-01 feature boundary): create/query/bind flow
+  // through the runtime client ONLY — never through pty:* — so a managed
+  // Execution can't be spawned as an anonymous shell. Every op answers an
+  // honest CONTROL_UNAVAILABLE until IMP-17/23 land the control plane; the
+  // UI must not present daemon-backed persistence as supported yet.
+  exec: {
+    create: (req: CreateExecutionRequest): Promise<ControlResult<Execution>> =>
+      ipcRenderer.invoke('exec:create', req),
+    get: (executionId: string): Promise<ControlResult<Execution | null>> =>
+      ipcRenderer.invoke('exec:get', executionId),
+    list: (query?: ExecutionQuery): Promise<ControlResult<Execution[]>> =>
+      ipcRenderer.invoke('exec:list', query),
+    // C-CLIENT client.view.bind / unbind — attach a view (pane/tab id) to a
+    // managed Execution/Terminal; plain terminals never get one implicitly
+    bindView: (req: BindViewRequest): Promise<ControlResult<ClientViewBinding>> =>
+      ipcRenderer.invoke('exec:bindView', req),
+    unbindView: (req: UnbindViewRequest): Promise<ControlResult<null>> =>
+      ipcRenderer.invoke('exec:unbindView', req)
+  },
+  runtime: {
+    // honest readiness of the control-plane endpoint — 'degraded' means a
+    // socket answered but no versioned session is negotiated yet
+    status: (): Promise<ServiceStatus> => ipcRenderer.invoke('runtime:status')
   },
   file: {
     openDialog: (): Promise<string | null> => ipcRenderer.invoke('file:openDialog'),

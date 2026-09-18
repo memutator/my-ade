@@ -1,0 +1,13 @@
+{
+  "name": "mahas-harness-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Harness profile registry port — per-harness knowledge (detection patterns, resume recipes, hook capability) owned as data, not provider adapters. Loads the existing resources/agents/manifest.json shape; role/component materialization builds on this in later tasks.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "mahas-contracts": "*"
+  }
+}
