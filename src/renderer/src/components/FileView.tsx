@@ -4,6 +4,7 @@ import { LanguageDescription } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import type { Extension } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
+import type { PaneToastAction } from '../types'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import MarkdownEditor from './MarkdownEditor'
@@ -64,10 +65,16 @@ interface Loaded {
 
 export default function FileView({
   path,
+  wsId,
+  paneId,
+  tabId,
   onDirtyChange,
   onSaveError
 }: {
   path: string
+  wsId: string
+  paneId: string
+  tabId: string
   onDirtyChange?: (dirty: boolean) => void
   onSaveError?: (msg: string) => void
 }): React.JSX.Element {
@@ -83,9 +90,7 @@ export default function FileView({
   // is reserved for dirty-buffer conflicts — the buffer is the only copy then
   const [diskConflict, setDiskConflict] = useState<'changed' | 'deleted' | null>(null)
   const [diskDeleted, setDiskDeleted] = useState(false)
-  const [saveConfirm, setSaveConfirm] = useState<'overwrite' | 'recreate' | null>(null)
   const [reloadKey, setReloadKey] = useState(0) // bumps to remount the editor on reload
-  const [reloadedFlash, setReloadedFlash] = useState(false)
   const [raw, setRaw] = useState(false) // markdown view: false = Milkdown, true = raw CodeMirror
   // buffer snapshot captured at toggle time — refs can't be read during render
   const [mdSeed, setMdSeed] = useState<string | null>(null)
@@ -95,7 +100,6 @@ export default function FileView({
   const dirtyRef = useRef(false)
   const mtimeRef = useRef<number | null>(null) // disk mtime as of last load/save; null = deleted
   const lastWriteRef = useRef(0) // timestamp of our own save — suppresses the watch echo
-  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onDirtyChangeRef = useRef(onDirtyChange)
   const onSaveErrorRef = useRef(onSaveError)
 
@@ -103,6 +107,31 @@ export default function FileView({
     onDirtyChangeRef.current = onDirtyChange
     onSaveErrorRef.current = onSaveError
   })
+
+  // the conflict/confirm UX lives in a pane toast — same slot rules as the
+  // old banner (one at a time, 'file-banner' dedupe key replaces in place)
+  const bannerToastRef = useRef<string | null>(null)
+  const dropBanner = useCallback((): void => {
+    if (bannerToastRef.current) {
+      useStore.getState().dismissPaneToast(bannerToastRef.current)
+      bannerToastRef.current = null
+    }
+  }, [])
+  const showBanner = useCallback(
+    (text: string, actions: PaneToastAction[]): void => {
+      bannerToastRef.current = useStore.getState().pushPaneToast({
+        wsId,
+        paneId,
+        tabId,
+        // tab-scoped key: two file tabs in one pane keep separate toasts
+        key: `file-banner:${tabId}`,
+        kind: 'warn',
+        text,
+        actions
+      })
+    },
+    [wsId, paneId, tabId]
+  )
 
   const save = async (force = false): Promise<void> => {
     if (!dirtyRef.current) return
@@ -113,13 +142,22 @@ export default function FileView({
       const diskChanged =
         !st.ok || !st.exists || mtimeRef.current === null || st.mtimeMs !== mtimeRef.current
       if (diskChanged) {
-        setSaveConfirm(st.ok && !st.exists ? 'recreate' : 'overwrite')
+        const kind = st.ok && !st.exists ? 'recreate' : 'overwrite'
+        showBanner(t(kind === 'recreate' ? 'fileDeletedConfirm' : 'fileChangedConfirm'), [
+          {
+            id: 'save',
+            label: t(kind === 'recreate' ? 'saveAnyway' : 'overwrite'),
+            run: () => void save(true)
+          },
+          { id: 'cancel', label: t('cancel'), run: () => {} }
+        ])
         return
       }
     }
-    setSaveConfirm(null)
+    dropBanner()
     const r = await window.ade.file.write(path, contentRef.current)
     if (r.ok) {
+      // eslint-disable-next-line react-hooks/purity -- async event context, not render
       lastWriteRef.current = Date.now()
       mtimeRef.current = r.mtimeMs ?? mtimeRef.current
       savedRef.current = contentRef.current
@@ -199,22 +237,33 @@ export default function FileView({
       if (!r.ok) {
         mtimeRef.current = null
         setDiskDeleted(true)
-        if (dirtyRef.current) setDiskConflict('deleted')
+        if (dirtyRef.current) {
+          setDiskConflict('deleted')
+          showBanner(t('fileDeletedOnDisk'), [
+            { id: 'keep', label: t('keepMine'), run: () => setDiskConflict(null) }
+          ])
+        }
         return
       }
       applyRead(r, false)
       setDiskConflict(null)
       setDiskDeleted(false)
-      setSaveConfirm(null)
+      dropBanner()
       setMdSeed(null) // fresh disk text becomes the seed again
       setReloadKey((k) => k + 1)
       if (flash) {
-        setReloadedFlash(true)
-        if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
-        flashTimerRef.current = setTimeout(() => setReloadedFlash(false), 2500)
+        useStore.getState().pushPaneToast({
+          wsId,
+          paneId,
+          tabId,
+          key: `file-banner:${tabId}`,
+          kind: 'info',
+          text: t('reloadedFromDisk'),
+          ttl: 2500
+        })
       }
     },
-    [path, applyRead]
+    [path, applyRead, t, wsId, paneId, tabId, showBanner, dropBanner]
   )
 
   useEffect(() => {
@@ -245,7 +294,12 @@ export default function FileView({
         setDiskDeleted(true)
         // a dirty buffer is the only surviving copy — surface the choice;
         // a clean one just notes it (save recreates)
-        if (dirtyRef.current) setDiskConflict('deleted')
+        if (dirtyRef.current) {
+          setDiskConflict('deleted')
+          showBanner(t('fileDeletedOnDisk'), [
+            { id: 'keep', label: t('keepMine'), run: () => setDiskConflict(null) }
+          ])
+        }
       } else if (
         // our own file.write trips the watcher — ignore the echo (mtime match,
         // with a 300ms time window as fallback for e.g. missing mtimeMs)
@@ -255,6 +309,10 @@ export default function FileView({
         return
       } else if (dirtyRef.current) {
         setDiskConflict('changed') // already-bannered stays bannered
+        showBanner(t('fileChangedOnDisk'), [
+          { id: 'reload', label: t('reload'), run: () => void reloadFromDisk() },
+          { id: 'keep', label: t('keepMine'), run: () => setDiskConflict(null) }
+        ])
       } else {
         void reloadFromDisk(true)
       }
@@ -263,7 +321,7 @@ export default function FileView({
       off()
       void window.ade.file.unwatch(path)
     }
-  }, [path, isLoaded, reloadFromDisk])
+  }, [path, isLoaded, reloadFromDisk, showBanner, t])
 
   // async-resolve a CM language for the file name (plaintext fallback).
   // md files skip this while rendered (Milkdown doesn't need it); raw view does.
@@ -293,6 +351,14 @@ export default function FileView({
     []
   )
 
+  // drop our pane toast if the tab unmounts (close/move)
+  useEffect(
+    () => () => {
+      dropBanner()
+    },
+    [dropBanner]
+  )
+
   const extensions = useMemo<Extension[]>(() => (langExt ? [langExt] : []), [langExt])
 
   const onKeyDownCapture = (e: React.KeyboardEvent): void => {
@@ -313,23 +379,6 @@ export default function FileView({
         } as React.CSSProperties
       }
     >
-      {saveConfirm ? (
-        <div className="file-banner">
-          <span>{t(saveConfirm === 'recreate' ? 'fileDeletedConfirm' : 'fileChangedConfirm')}</span>
-          <button onClick={() => void save(true)}>
-            {t(saveConfirm === 'recreate' ? 'saveAnyway' : 'overwrite')}
-          </button>
-          <button onClick={() => setSaveConfirm(null)}>{t('cancel')}</button>
-        </div>
-      ) : diskConflict ? (
-        <div className="file-banner">
-          <span>{t(diskConflict === 'deleted' ? 'fileDeletedOnDisk' : 'fileChangedOnDisk')}</span>
-          {diskConflict === 'changed' && (
-            <button onClick={() => void reloadFromDisk()}>{t('reload')}</button>
-          )}
-          <button onClick={() => setDiskConflict(null)}>{t('keepMine')}</button>
-        </div>
-      ) : null}
       {!loaded ? (
         <div className="file-empty">
           <span>{t('loading')}</span>
@@ -417,7 +466,6 @@ export default function FileView({
           {diskDeleted && !diskConflict && (
             <span className="file-dirty-note"> · {t('fileDeletedOnDisk')}</span>
           )}
-          {reloadedFlash && <span className="file-dirty-note"> · {t('reloadedFromDisk')}</span>}
           {saveError && <span className="file-err"> · {t('saveFailed', { name: saveError })}</span>}
         </div>
       )}

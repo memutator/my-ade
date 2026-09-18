@@ -19,6 +19,7 @@ import { isDetachedWin } from '../detached'
 import { useFloatCtx } from './floatCtx'
 import Tooltip from './Tooltip'
 import { Dropdown } from './Menu'
+import PaneToasts from './PaneToasts'
 
 export default function PaneFrame({
   pane,
@@ -181,7 +182,10 @@ export default function PaneFrame({
           )}
         </div>
       </div>
-      <div className="pane-body">{children}</div>
+      <div className="pane-body">
+        {children}
+        <PaneToasts wsId={wsId} paneId={pane.id} activeTabId={pane.activeTabId} />
+      </div>
     </div>
   )
 }

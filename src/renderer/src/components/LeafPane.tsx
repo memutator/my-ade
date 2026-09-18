@@ -519,6 +519,9 @@ export default function LeafPane({
             ) : tab.path ? (
               <FileView
                 path={tab.path}
+                wsId={wsId}
+                paneId={pane.id}
+                tabId={tab.id}
                 onDirtyChange={(d) => markDirty(tab.id, d)}
                 onSaveError={(msg) => saveFailed(tab.id, msg)}
               />

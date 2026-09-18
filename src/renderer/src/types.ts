@@ -163,6 +163,30 @@ export interface ToastItem {
   ts: number
 }
 
+/** a toast anchored to one pane (optionally one tab within it) — overlays
+ *  the pane body top-right, never pushing content. 'info' auto-dismisses;
+ *  'warn' sticks until acted on or closed. */
+export interface PaneToastAction {
+  id: string
+  label: string
+  run: () => void
+}
+
+export interface PaneToast {
+  id: string
+  wsId: string
+  paneId: string
+  /** when set, the toast is visible only while this tab is the pane's
+   *  active one — the notice waits for the tab it belongs to */
+  tabId?: string
+  /** dedupe key — a push with the same wsId+paneId+key replaces the
+   *  existing toast instead of stacking */
+  key?: string
+  kind: 'info' | 'warn'
+  text: string
+  actions?: PaneToastAction[]
+}
+
 export type Theme = 'dark' | 'light' | 'system'
 
 export type Language = 'ko' | 'en' | 'system'

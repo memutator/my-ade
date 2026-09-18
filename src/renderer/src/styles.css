@@ -1144,42 +1144,87 @@ webview.browser-view {
   color: #e5534b;
 }
 
-/* external-change / save-conflict notice bar */
-.file-banner {
+/* pane-scoped toasts — overlaid top-right on the pane body so a notice never
+   pushes the content it announces (replaces the old .file-banner bar) */
+.pane-toasts {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.pane-toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--border-strong);
-  background: var(--bg-elev);
-  color: var(--text-dim);
+  gap: 6px;
+  max-width: min(420px, 90%);
+  padding: 6px 6px 6px 10px;
+  background: var(--chrome);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  color: var(--text);
   font-size: 11.5px;
-  flex-shrink: 0;
+  animation: toast-in 0.22s ease-out;
 }
 
-.file-banner > span {
-  flex: 1;
+.pane-toast.warn {
+  border-color: #e5a50a66;
+}
+
+.pane-toast-text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-dim);
 }
 
-.file-banner button {
+.pane-toast.warn .pane-toast-text {
+  color: var(--text);
+}
+
+.pane-toast-act {
   height: 22px;
   padding: 0 10px;
   border-radius: 5px;
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text-dim);
+  font: inherit;
   font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pane-toast-act:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.pane-toast-x {
+  display: flex;
+  padding: 3px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-faint);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.file-banner button:hover {
+.pane-toast-x svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pane-toast-x:hover {
+  background: var(--hover);
   color: var(--text);
-  border-color: var(--accent);
 }
 
 /* ── empty state ─────────────────────────── */

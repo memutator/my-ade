@@ -10,6 +10,7 @@ import type {
   LayoutNode,
   PaneState,
   PaneTab,
+  PaneToast,
   Project,
   ResumeSession,
   Settings,
@@ -20,6 +21,9 @@ import type {
 } from './types'
 
 const uid = (): string => crypto.randomUUID()
+
+// ttl timers for pane toasts — keyed by toast id, cleared on dismiss
+const paneToastTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function makeTab(kind: BlockKind, home = '', widget?: WidgetKind): PaneTab {
   switch (kind) {
@@ -436,6 +440,8 @@ interface AdeState extends PersistedState {
   notifications: AppNotification[]
   /** ambient-level pings shown as slide-down toasts — runtime-only */
   toasts: ToastItem[]
+  /** pane-scoped toasts overlaid on the pane body — runtime-only */
+  paneToasts: PaneToast[]
   notifOpen: boolean
   settingsOpen: boolean
   resolvedTheme: 'dark' | 'light'
@@ -526,6 +532,11 @@ interface AdeState extends PersistedState {
   notify: (n: Omit<AppNotification, 'id' | 'ts' | 'read'> & { read?: boolean }) => string
   pushToast: (t: Omit<ToastItem, 'id' | 'ts'>) => void
   dismissToast: (id: string) => void
+  /** pane-scoped toast — `ttl` ms auto-dismiss; returns its id */
+  pushPaneToast: (t: Omit<PaneToast, 'id'> & { ttl?: number }) => string
+  dismissPaneToast: (id: string) => void
+  /** fire a toast action — dismisses the toast, then runs it */
+  runPaneToastAction: (id: string, actionId: string) => void
   /** settle pending needs-input pings for a session or tab (turn resumed /
    *  ended / cancelled — the prompt is stale either way) */
   settleInput: (k: { wsId?: string; paneId?: string; tabId?: string; sessionId?: string }) => void
@@ -578,6 +589,7 @@ export const useStore = create<AdeState>((set, get) => {
     agentsScope: 'ws',
     notifications: [],
     toasts: [],
+    paneToasts: [],
     notifOpen: false,
     settingsOpen: false,
     resolvedTheme: 'dark',
@@ -1462,6 +1474,45 @@ export const useStore = create<AdeState>((set, get) => {
       set((s) => ({ toasts: [{ ...t, id: uid(), ts: Date.now() }, ...s.toasts].slice(0, 4) })),
 
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+
+    pushPaneToast: (t) => {
+      // a same-key toast in the same pane is replaced, not stacked
+      if (t.key) {
+        const dup = get().paneToasts.find(
+          (x) => x.wsId === t.wsId && x.paneId === t.paneId && x.key === t.key
+        )
+        if (dup) get().dismissPaneToast(dup.id)
+      }
+      const id = uid()
+      set((s) => ({ paneToasts: [...s.paneToasts, { ...t, id }] }))
+      if (t.ttl) {
+        paneToastTimers.set(
+          id,
+          setTimeout(() => {
+            paneToastTimers.delete(id)
+            get().dismissPaneToast(id)
+          }, t.ttl)
+        )
+      }
+      return id
+    },
+
+    dismissPaneToast: (id) => {
+      const tm = paneToastTimers.get(id)
+      if (tm) {
+        clearTimeout(tm)
+        paneToastTimers.delete(id)
+      }
+      set((s) => ({ paneToasts: s.paneToasts.filter((x) => x.id !== id) }))
+    },
+
+    runPaneToastAction: (id, actionId) => {
+      const act = get()
+        .paneToasts.find((x) => x.id === id)
+        ?.actions?.find((a) => a.id === actionId)
+      get().dismissPaneToast(id)
+      act?.run()
+    },
 
     settleInput: (k) =>
       set((s) => ({
