@@ -132,6 +132,43 @@ export interface UsageResult {
   fetchedAt: number
 }
 
+export interface LedgerQuery {
+  sessionId: string
+  provider: string
+  cwd?: string
+  name?: string
+}
+
+export interface TokenUse {
+  input: number
+  output: number
+  cached: number
+  reasoning: number
+  total: number
+  costUsd?: number
+}
+
+export interface LedgerSession {
+  sessionId: string
+  provider: string
+  title?: string
+  cwd?: string
+  tokens: TokenUse
+  found: boolean
+}
+
+export interface LedgerProfile {
+  provider: string
+  sessionCount: number
+  tokens: TokenUse
+}
+
+export interface LedgerResult {
+  profiles: LedgerProfile[]
+  sessions: LedgerSession[]
+  fetchedAt: number
+}
+
 function toBase64(s: string): string {
   const bytes = new TextEncoder().encode(s)
   let bin = ''
@@ -315,6 +352,7 @@ const mahas = {
       tabId?: string
       provider?: string
       url?: string
+      message?: string
     }): void => ipcRenderer.send('pane:cmd', m),
     onPaneCmd: (
       cb: (m: {
@@ -324,6 +362,7 @@ const mahas = {
         tabId?: string
         provider?: string
         url?: string
+        message?: string
       }) => void
     ): (() => void) => {
       const handler = (
@@ -335,6 +374,7 @@ const mahas = {
           tabId?: string
           provider?: string
           url?: string
+          message?: string
         }
       ): void => cb(m)
       ipcRenderer.on('pane:cmd', handler)
@@ -368,7 +408,9 @@ const mahas = {
   usage: {
     // per-harness rate-limit probe (claude/codex/gemini/copilot/zcode) —
     // reads the CLI's own credentials and calls its usage endpoint
-    fetch: (provider: string): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch', provider)
+    fetch: (provider: string): Promise<UsageResult> => ipcRenderer.invoke('usage:fetch', provider),
+    ledger: (tracked: LedgerQuery[]): Promise<LedgerResult> =>
+      ipcRenderer.invoke('usage:ledger', tracked)
   },
   openExternal: (url: string): void => ipcRenderer.send('shell:openExternal', url)
 }

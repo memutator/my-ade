@@ -21,7 +21,9 @@ export default function AgentIcon({
     }
   }, [id])
   if (src) {
-    return <img className="agent-icon" src={src} width={size} height={size} alt="" />
+    return (
+      <img className="agent-icon" src={src} width={size} height={size} alt="" draggable={false} />
+    )
   }
   return (
     <span

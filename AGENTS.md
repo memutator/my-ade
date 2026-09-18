@@ -150,7 +150,9 @@ without being asked:
   SessionStart/SessionEnd), claude (`~/.claude/settings.json` Stop+Notification
   +SessionStart/SessionEnd — every Notification is needs-input, incl. the ≥60s
   "waiting for your input"), devin/zcode (Stop+PermissionRequest+SessionStart/
-  SessionEnd), opencode (plugin: session.idle/error/created/deleted — Esc-abort
+  SessionEnd — Devin has no StopFailure; a rate-limit kills the turn after 3
+  retries with a TUI `[Error]` banner and no hook, so the renderer also
+  classifies that banner from pty output as `error`), opencode (plugin: session.idle/error/created/deleted — Esc-abort
   classifies as turn-cancelled, sub-session lifecycles demote to `other` —
   permission/question.asked, held ~800ms so auto-approved asks never notify).
   `hooks:test` writes a synthetic event through the
@@ -163,7 +165,10 @@ without being asked:
   drops every event that isn't ours — hooks are global so agents in foreign
   terminals never notify. Mahas-owned hook artifacts (script copy, grok's hook
   file, opencode plugin) refresh to the shipped version on app start;
-  user-owned configs need a re-Install click.
+  leftover `ade-hook` pointers in user-owned configs (codex `config.toml`,
+  claude/devin/zcode settings) are rewritten to `mahas-hook` on start — the
+  ade→mahas rename deleted that path, so without the rewrite Codex never
+  emits `turn-complete`. New providers still need a re-Install click.
 - **devin session-lock sweep** (`src/main/devinLocks.ts`): `devin` CLI leaves
   `~/.local/share/devin/cli/session_locks/*.lock` behind on kill/crash and
   then refuses the session with `session_locked`. mahas sweeps on app start,
@@ -198,7 +203,8 @@ without being asked:
   A term tab's close slot is also a live status light (`TabItem.status` →
   `.ctab-st`): `working` pulse driven by `tab.working` (pty output activity
   while an agent is detected, refined by hook turn-start/end events — spec:
-  `docs/notifications.md` → Tab status dots), amber for unread `needs-input`,
+  `docs/notifications.md` → Tab status dots; `idleLocked` after turn-complete
+  so a dense idle TUI cannot relight the pulse), amber for unread `needs-input`,
   red for unread `error`; hovering the tab swaps the dot back to the close X.
 - **Preload** (`src/preload/index.ts`): `window.mahas` — `pty`, `file`, `fs`, `state`,
   `notify`, `agents`, `win`, `openExternal`.

@@ -7,6 +7,7 @@ import { agentProviders } from './agents'
 import {
   handleHookEvent,
   reportProcessIdle,
+  reportAgentError,
   refreshHookInstalled,
   sweepAttended
 } from './attention'
@@ -201,6 +202,8 @@ export default function App(): React.JSX.Element {
       // invisible; only this renderer owns the bell)
       if (m.action === 'agentIdle' && m.provider && m.tabId)
         reportProcessIdle(m.provider, m.wsId, m.paneId, m.tabId)
+      if (m.action === 'agentError' && m.provider && m.tabId)
+        reportAgentError(m.provider, m.wsId, m.paneId, m.tabId, m.message ?? '')
       // a detached window is attending its pane — clear pings aimed at it
       if (m.action === 'attended')
         useStore.getState().markAttendedRead({ wsId: m.wsId, paneId: m.paneId, tabId: m.tabId })

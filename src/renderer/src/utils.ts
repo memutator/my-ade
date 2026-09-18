@@ -2,6 +2,23 @@ import { agentLabel } from './agents'
 import { translate } from './i18n'
 import type { AppNotification, Language, PaneState, PaneTab } from './types'
 
+export function fmtTok(n: number): string {
+  const a = Math.abs(n)
+  if (a >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+  if (a >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (a >= 10_000) return `${Math.round(n / 1000)}k`
+  if (a >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(Math.round(n))
+}
+
+export function fmtUsd(n: number): string {
+  if (n >= 10) return `$${n.toFixed(0)}`
+  if (n >= 1) return `$${n.toFixed(2)}`
+  if (n >= 0.01) return `$${n.toFixed(2)}`
+  if (n > 0) return `$${n.toFixed(4)}`
+  return ''
+}
+
 export function shortPath(p: string): string {
   const home = '/home/'
   if (p.startsWith(home)) return '~/' + p.slice(home.length).split('/').slice(1).join('/')
@@ -30,7 +47,14 @@ export function blockLabel(tab: PaneTab, lang: Language): string {
     case 'file':
       return tab.name || translate(lang, 'editor')
     case 'widget':
-      return translate(lang, tab.widget === 'usage' ? 'widgetUsage' : 'widgetAgents')
+      return translate(
+        lang,
+        tab.widget === 'usage'
+          ? 'widgetUsage'
+          : tab.widget === 'tokens'
+            ? 'widgetTokens'
+            : 'widgetAgents'
+      )
   }
 }
 

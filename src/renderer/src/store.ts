@@ -331,6 +331,7 @@ function normalizePane(
       delete (nt as TerminalTab).working
       delete (nt as TerminalTab).workingSince
       delete (nt as TerminalTab).quietUntil
+      delete (nt as TerminalTab).idleLocked
     }
     return nt
   })

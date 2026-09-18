@@ -7,7 +7,7 @@ import Tooltip from './Tooltip'
 import FileTree, { type FileTreeApi } from './FileTree'
 import TreeRootMenu from './TreeRootMenu'
 import AgentsPanel from './AgentsPanel'
-import { agentCount, groupsStatus, useAgentGroups } from '../agentGroups'
+import { agentCount, useAgentGroups } from '../agentGroups'
 
 // The sidebar splits vertically: the file tree on top, the workspace's
 // agent-session list on the bottom. The divider drags to resize (the agents
@@ -50,7 +50,6 @@ export default function Sidebar(): React.JSX.Element | null {
 
   if (!open || !project) return null
   const count = agentCount(groups)
-  const worst = groupsStatus(groups)
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -101,7 +100,6 @@ export default function Sidebar(): React.JSX.Element | null {
             <ChevronRight className={`side-sec-chev${collapsed ? '' : ' open'}`} />
             <span className="side-sec-name">{t('agents')}</span>
             {count > 0 && <span className="ag-count">{count}</span>}
-            {worst && <span className={`ctab-st ${worst}`} />}
           </button>
           {!collapsed && activeWs && <AgentsPanel wsId={activeWs.id} />}
         </section>

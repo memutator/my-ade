@@ -90,15 +90,6 @@ export function useAgentGroups(wsId: string | undefined): AgentGroup[] {
   }, [workspaces, wsId, scope, notifications, sessions])
 }
 
-/** worst row status across the groups — drives the section header's dot */
-export function groupsStatus(groups: AgentGroup[]): TabStatus | undefined {
-  const order: TabStatus[] = ['input', 'error', 'working', 'news']
-  for (const st of order) {
-    if (groups.some((g) => g.rows.some((r) => r.status === st))) return st
-  }
-  return undefined
-}
-
 export function agentCount(groups: AgentGroup[]): number {
   return groups.reduce((n, g) => n + g.rows.length, 0)
 }

@@ -37,8 +37,9 @@ reason, and opencode `session.error` whose error is `Aborted`, classify as
 | grok           | `StopFailure`                      | `error`          | |
 | grok           | `Notification` `permission_prompt` | `needs-input`    | any non-idle `notificationType` counts as an ask |
 | grok           | `Notification` `idle_prompt`       | `idle`           | post-settle backstop — silent |
-| devin / zcode  | `Stop`                             | `turn-complete`  | |
+| devin / zcode  | `Stop`                             | `turn-complete`  | last_assistant_message starting `[Error]` / `Rate limited:` / `Quota exhausted:` → `error` (Devin has no StopFailure) |
 | devin / zcode  | `PermissionRequest`                | `needs-input`    | passive observe — the real prompt still shows in the terminal |
+| devin           | TUI `[Error] Reached free model rate limit…` | `error` | no hook fires — the turn dies after 3 inference retries; pty output is the signal |
 | opencode       | `session.idle`                     | `turn-complete`  | fires per session — **bursts are coalesced** (see below); sub-agent sessions (`parentID` seen via `session.created`/`updated`) demote to `other` |
 | opencode       | `session.idle` (sub-session)       | `other`          | task-tool fan-out — the parent's idle is the user-visible unit |
 | opencode       | `session.error` (not abort)        | `error`          | |
@@ -98,7 +99,7 @@ tabs — and hovering the tab swaps back to the X so the tab stays closable.
 
 | status    | source                                                              |
 | --------- | ------------------------------------------------------------------- |
-| `working` | `tab.working` — green breathing pulse; output activity while an agent owns the shell (agent TUIs stream/spin mid-turn, silent at the prompt; ~1.6 s of silence ends it). Output within ~0.8 s of a keystroke is prompt echo — it can refresh a lit flag but never lights one, so typing at the prompt isn't "work". Hook `turn-start` sets it immediately and `turn-complete`/`needs-input`/`error`/`turn-cancelled`/`session-end`/`idle` clear it — the same flag, so hooked providers get exact edges and unhooked ones still get the signal. An authoritative clear (or a freshly detected agent) also sets `quietUntil` (~1.2 s): the post-turn prompt redraw / startup banner is output too but can't relight the pulse inside that window. Attach-replay output is ignored (~400 ms) so a remount doesn't flash |
+| `working` | `tab.working` — green breathing pulse; output activity while an agent owns the shell (agent TUIs stream/spin mid-turn, silent at the prompt; ~1.6 s of silence ends it). Output within ~0.8 s of a keystroke is prompt echo — it can refresh a lit flag but never lights one, so typing at the prompt isn't "work". Hook `turn-start` sets it immediately and `turn-complete`/`needs-input`/`error`/`turn-cancelled`/`session-end`/`idle` clear it — the same flag, so hooked providers get exact edges and unhooked ones still get the signal. An authoritative clear (or a freshly detected agent) also sets `quietUntil` (~1.2 s) **and** `idleLocked`: Codex has no `turn-start` and its idle TUI is a dense frame stream, so a time window alone never holds — output cannot relight until the user types or a `turn-start` arrives. `needs-input` clears the pulse but does not latch (the agent will resume). Attach-replay output is ignored (~400 ms) so a remount doesn't flash |
 | `input`   | unread `needs-input` notification for that tab (`kind`)             |
 | `error`   | unread `error` notification for that tab                            |
 | `news`    | the generic accent dot — any other unread notification for the tab, a file tab's dirty buffer, a term tab's exited shell (VS Code-style dirty dot). Workspace tabs use it too for unread notifications |

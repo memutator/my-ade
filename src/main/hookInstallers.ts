@@ -99,10 +99,18 @@ function appendJsonHook(
   ) as Record<string, unknown>
   if (opts.eventsKey) hooks.events = container
   const arr = Array.isArray(container[event]) ? (container[event] as unknown[]) : []
-  if (arr.some((g) => JSON.stringify(g).includes('mahas-hook')))
-    return { ok: true, detail: 'already installed' }
-  // a pre-rename 'ade-hook' group is ours — replace it, don't double-register
+  const hadMahas = arr.some((g) => JSON.stringify(g).includes('mahas-hook'))
   const kept = arr.filter((g) => !JSON.stringify(g).includes('ade-hook'))
+  const strippedLegacy = kept.length !== arr.length
+  if (hadMahas) {
+    if (!strippedLegacy) return { ok: true, detail: 'already installed' }
+    container[event] = kept
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    backup(file)
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
+    return { ok: true, detail: 'removed legacy ade-hook' }
+  }
+  // a pre-rename 'ade-hook' group is ours — replace it, don't double-register
   kept.push(group)
   container[event] = kept
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -411,13 +419,20 @@ export function installHook(
   }
 }
 
+function hasLegacyHook(file: string): boolean {
+  return fileMentions(file, 'ade-hook') || fileMentions(file, 'AdeEventsPlugin')
+}
+
 // Refresh mahas-owned hook artifacts at startup. The hook script copy under
 // ~/.config/mahas and grok's hook file are ours end-to-end, and the opencode
-// plugin file is a file we own inside opencode's plugins dir — all three
-// track the shipped version so fixes land without a re-Install click.
-// User-owned config files (claude settings.json, devin/zcode config.json,
-// codex config.toml) are never touched here — new event registrations for
-// those still require clicking Install again.
+// plugin file is a file we own inside opencode's plugins dir — those track
+// the shipped version so fixes land without a re-Install click.
+//
+// User-owned configs (claude settings.json, devin/zcode config.json, codex
+// config.toml) are not claimed from scratch here. But a leftover `ade-hook`
+// pointer is ours: the ade→mahas rename moved ~/.config/ade, so those
+// absolute paths 404 and completion events never arrive. Rewrite them the
+// same way Install does.
 export function refreshInstalledHooks(
   hookScriptSrc: string,
   pluginSrc: string,
@@ -426,23 +441,36 @@ export function refreshInstalledHooks(
   try {
     const dest = ensureHookCopy(home, hookScriptSrc)
     // sweep pre-rename ade-owned leftovers — they point at ~/.config/ade
-    // paths that no longer exist. User configs carrying 'ade-hook' entries
-    // migrate on the next Install click.
+    // paths that no longer exist.
     for (const f of [
       path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
       path.join(home, '.grok', 'hooks', 'ade.json'),
       path.join(mahasConfigDir(home), 'ade-hook.cjs')
     ]) {
       try {
-        if (fileMentions(f, 'ade-hook') || fileMentions(f, 'AdeEventsPlugin')) fs.unlinkSync(f)
+        if (hasLegacyHook(f)) fs.unlinkSync(f)
       } catch {
         /* best-effort */
       }
     }
-    for (const id of ['grok', 'opencode']) {
-      const p = PROVIDERS.find((x) => x.id === id)
+    const cmd = (id: string): string => hookCommand(dest, id)
+    const argv = (id: string): string[] => ['node', dest, id]
+    for (const p of PROVIDERS) {
       try {
-        if (p?.installed(home)) p.install(home, hookCommand(dest, p.id), [], pluginSrc)
+        const ours = p.installed(home)
+        const legacy = hasLegacyHook(p.configPath(home))
+        const grokLegacy =
+          p.id === 'grok' &&
+          [
+            path.join(home, '.grok', 'hooks', 'ade.json'),
+            path.join(home, '.grok', 'hooks', 'ade.json.ade-bak'),
+            path.join(home, '.grok', 'hooks', 'ade.json.mahas-bak')
+          ].some(hasLegacyHook)
+        if (p.id === 'grok' || p.id === 'opencode') {
+          if (ours || grokLegacy) p.install(home, cmd(p.id), argv(p.id), pluginSrc)
+          continue
+        }
+        if (legacy) p.install(home, cmd(p.id), argv(p.id), pluginSrc)
       } catch {
         /* best-effort */
       }

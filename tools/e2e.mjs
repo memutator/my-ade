@@ -695,7 +695,7 @@ async function scStatus() {
   const h = await boot('status', { focus: 'focused' })
   const { wsId: ws1 } = await mkws(h)
   const t1 = await h.term()
-  await h.type(t1.pty, `${FAKE} --session-id s-st\n`)
+  await h.type(t1.pty, `${FAKE} --storm --session-id s-st\n`)
   await sleep(1500)
 
   // data-st on the tab's close button = the rendered status (null → plain X)
@@ -723,6 +723,11 @@ async function scStatus() {
   await h.waitFor(`${tabWorking(t1.tabId)} === false`, 'working cleared after turn-complete')
   const afterDone = await h.ev(stOf(t1.tabId))
   ok(afterDone !== 'working', `close slot left working state (got ${afterDone})`)
+  // fake --storm keeps painting for ~2.5s like Codex's idle TUI; that must
+  // not relight the pulse (hook turn-complete latches idle)
+  await sleep(3000)
+  const afterStorm = await h.ev(tabWorking(t1.tabId))
+  ok(afterStorm === false, `post-turn output storm did not relight working (got ${afterStorm})`)
 
   // needs-input on an off-screen workspace tab → unread → amber dot.
   // (attended would still badge but read-on-view sweeps it instantly, so the
@@ -747,6 +752,11 @@ async function scStatus() {
   )
   await h.type(t2.pty, `${FAKE} --session-id s-st2\n`)
   await sleep(1500)
+  // Devin-style `[Error]` banner with no hook — off-screen so the unread
+  // error dot stays (attended would pre-read it)
+  await h.type(t2.pty, 'b')
+  await h.waitFor(`${stOf(t2.tabId)} === 'error'`, 'pty rate-limit banner shows error dot')
+  ok(true, 'pty error banner lit the error dot without a hook')
   await h.type(t2.pty, 'n')
   await h.waitFor(`${stOf(t2.tabId)} === 'input'`, 'amber dot for pending needs-input')
   ok(true, 'unread needs-input shows the input dot')

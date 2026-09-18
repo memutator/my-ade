@@ -3,7 +3,9 @@
 //
 //   hook events      agent:event IPC          → handleHookEvent
 //   process fallback pty agent→idle           → reportProcessIdle
+//   tui error banner pty [Error] / rate-limit → reportAgentError
 //   detached panes   pane:cmd 'agentIdle'     → reportProcessIdle (main store)
+//                    pane:cmd 'agentError'    → reportAgentError (main store)
 //
 // Attention level decides the interruption: attended = you're looking at it
 // (silent, pre-read record), ambient = app focused but target off-screen
@@ -280,10 +282,22 @@ const WORKING_CLEAR = new Set([
 // an authoritative "turn over" is followed by a last burst of output — the
 // agent redrawing its prompt — which the activity fallback would mistake for
 // a new turn and relight the pulse for another silence window. quietUntil
-// holds the light off across that redraw; a real turn-start re-arms it
+// holds the light off across that redraw; idleLocked holds it off until the
+// user types or a turn-start arrives (Codex has no turn-start, and its idle
+// TUI is a dense frame stream that outlasts any fixed window).
 const QUIET_MS = 1200
 
-function setWorking(t: Target, on: boolean): void {
+// needs-input pauses the turn — the agent will resume after the user answers,
+// so output may relight. True turn-over events latch idle.
+const WORKING_LOCK_IDLE = new Set([
+  'turn-complete',
+  'error',
+  'turn-cancelled',
+  'session-end',
+  'idle'
+])
+
+function setWorking(t: Target, on: boolean, lockIdle = false): void {
   if (!t.ws || !t.paneId || !t.tabId) return
   const now = Date.now()
   // read the tab fresh — the resolved target's snapshot predates patches
@@ -298,7 +312,8 @@ function setWorking(t: Target, on: boolean): void {
     patchTerminalTab(t.ws.id, t.paneId, t.tabId, {
       working: true,
       workingSince: now,
-      quietUntil: undefined
+      quietUntil: undefined,
+      idleLocked: false
     })
     return
   }
@@ -308,7 +323,8 @@ function setWorking(t: Target, on: boolean): void {
     // only the working→idle transition owns the 'ended' clock — a second
     // clear event on an already-idle tab must not reset the '…ago' label
     ...(rec?.working ? { turnEndedAt: now } : {}),
-    quietUntil: now + QUIET_MS
+    quietUntil: now + QUIET_MS,
+    ...(lockIdle ? { idleLocked: true } : {})
   })
 }
 
@@ -497,7 +513,7 @@ export async function handleHookEvent(ev: AgentHookEvent): Promise<void> {
   // live turn state rides the same resolution — runs for tracking-only
   // events too (turn-start itself never notifies)
   if (ev.event === 'turn-start') setWorking(t, true)
-  else if (WORKING_CLEAR.has(ev.event)) setWorking(t, false)
+  else if (WORKING_CLEAR.has(ev.event)) setWorking(t, false, WORKING_LOCK_IDLE.has(ev.event))
   if (!NOTIFY_EVENTS.has(ev.event)) {
     logDecision(ev, t, 'drop', 'tracking', 'hook')
     return
@@ -527,7 +543,7 @@ export function reportProcessIdle(
   // the agent process is gone — a pending prompt died with it, and nothing
   // is working anymore
   settleFor(st, ev, t)
-  setWorking(t, false)
+  setWorking(t, false, true)
   if (hookInstalled[provider]) {
     logDecision(ev, t, 'drop', 'hook-owned provider', 'pty-idle')
     return
@@ -537,4 +553,29 @@ export function reportProcessIdle(
     return
   }
   void deliver(ev, t, 'pty-idle')
+}
+
+// Devin (no StopFailure hook) prints `[Error] Reached free model rate limit…`
+// to the TUI and stops the turn without firing Stop. Catch that banner from
+// pty output — hooked providers are NOT suppressed: the hook never saw this.
+export function reportAgentError(
+  provider: string,
+  wsId: string,
+  paneId: string,
+  tabId: string,
+  message: string
+): void {
+  const st = useStore.getState()
+  const ws = st.workspaces.find((w) => w.id === wsId)
+  const pane = ws?.panes[paneId]
+  const tab = pane?.tabs.find((t): t is TerminalTab => t.id === tabId && t.kind === 'term')
+  const t: Target = { ws, paneId, tabId: tab ? tabId : undefined, tab }
+  const ev = { provider, event: 'error' as const, cwd: tab?.cwd, message }
+  settleFor(st, ev, t)
+  setWorking(t, false, true)
+  if (st.settings.providers[provider] === false) {
+    logDecision(ev, t, 'drop', 'provider-disabled', 'pty-error')
+    return
+  }
+  void deliver(ev, t, 'pty-error')
 }

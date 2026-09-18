@@ -6,7 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneState, TerminalTab } from '../types'
 import { useStore, patchTerminalTab, linkTargetPane } from '../store'
-import { reportProcessIdle } from '../attention'
+import { reportProcessIdle, reportAgentError } from '../attention'
 import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
 import { CtxMenu } from './Menu'
@@ -35,6 +35,45 @@ function decode(b64: string): Uint8Array {
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return bytes
+}
+
+const utf8 = new TextDecoder()
+
+function stripAnsi(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) !== 27) {
+      out += s[i]
+      continue
+    }
+    // CSI: ESC [ … @-~
+    if (s[i + 1] === '[') {
+      i += 2
+      while (i < s.length) {
+        const c = s.charCodeAt(i)
+        if (c >= 64 && c <= 126) break
+        i++
+      }
+    }
+  }
+  return out
+}
+
+// Devin prints `[Error] Reached free model rate limit…` and stops the turn
+// without a Stop/StopFailure hook. Keep prefixes in sync with mahas-hook.cjs
+// `isFailedStop`.
+const ERROR_BANNER_RE =
+  /(?:^|[\r\n])((?:\[Error\][ \t]*|Rate limited:[ \t]*|Quota exhausted:[ \t]*)[^\r\n]+)/gi
+
+function lastErrorBanner(buf: string): { msg: string; end: number } | null {
+  ERROR_BANNER_RE.lastIndex = 0
+  let hit: { msg: string; end: number } | null = null
+  let m: RegExpExecArray | null
+  while ((m = ERROR_BANNER_RE.exec(buf))) {
+    const msg = (m[1] || '').trim()
+    if (msg) hit = { msg, end: m.index + m[0].length }
+  }
+  return hit
 }
 
 // ── terminal → pane links ────────────────────────────────────────────────
@@ -239,6 +278,9 @@ export function TerminalTabView({
   // one-frame blips that must not light the pulse
   const lastDataAt = useRef(0)
   const burstStartAt = useRef(0)
+  // rolling tail of stripped pty text — Devin error banners can split across
+  // chunks, and attach replay must not re-fire a historical one
+  const errorScanAt = useRef('')
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
@@ -347,6 +389,33 @@ export function TerminalTabView({
       workingTimer.current = null
       patchTerminalTab(wsId, paneId, tabId, { working: false })
     }
+    const emitErrorBanner = (msg: string): void => {
+      const provider = lastAgentRef.current
+      if (!provider) return
+      const clipped = msg.replace(/\s+/g, ' ').trim().slice(0, 300)
+      if (!clipped) return
+      if (isDetachedWin)
+        window.mahas.win.paneCmd({
+          action: 'agentError',
+          wsId,
+          paneId,
+          tabId,
+          provider,
+          message: clipped
+        })
+      else reportAgentError(provider, wsId, paneId, tabId, clipped)
+    }
+    const noteErrorBanner = (chunk: string): void => {
+      if (Date.now() < replayUntil.current) return
+      const buf = (errorScanAt.current + stripAnsi(chunk)).slice(-2500)
+      const hit = lastErrorBanner(buf)
+      if (hit) {
+        emitErrorBanner(hit.msg)
+        errorScanAt.current = buf.slice(hit.end)
+      } else {
+        errorScanAt.current = buf
+      }
+    }
     const noteOutput = (): void => {
       if (!lastAgentRef.current) return
       const now = Date.now()
@@ -364,6 +433,13 @@ export function TerminalTabView({
       const rec = paneAt(wsId, paneId)?.tabs.find(
         (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
       )
+      // hook/agent-detect latched idle — Codex's prompt TUI is a dense frame
+      // stream, so a quiet window alone never holds. Wait for the user (or a
+      // turn-start) before output may light the lamp again.
+      if (rec?.idleLocked) {
+        burstStartAt.current = now
+        return
+      }
       const working = rec?.working ?? false
       if (!working) {
         // suppressed output isn't turn evidence either — echo redraws and
@@ -410,13 +486,19 @@ export function TerminalTabView({
       // typing isn't work — composer echoes can't keep a burst alive, else
       // composing a long prompt would itself read as a turn
       burstStartAt.current = 0
+      const rec = paneAt(wsId, paneId)?.tabs.find(
+        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
+      )
+      if (rec?.idleLocked) patchTerminalTab(wsId, paneId, tabId, { idleLocked: false })
       window.mahas.pty.write(id, d)
     })
     const offEvent = window.mahas.pty.onEvent((e) => {
       if (e.id !== id) return
       if (e.t === 'data' && e.d) {
-        term.write(decode(e.d))
+        const bytes = decode(e.d)
+        term.write(bytes)
         noteOutput()
+        noteErrorBanner(utf8.decode(bytes))
       } else if (e.t === 'spawned' && e.shell) {
         // fresh shell: clear exited and any stale agent label from the old session
         clearWorking()
@@ -427,6 +509,7 @@ export function TerminalTabView({
           working: false,
           workingSince: undefined,
           turnEndedAt: undefined,
+          idleLocked: true,
           pty: id
         })
       } else if (e.t === 'attached') {
@@ -437,6 +520,7 @@ export function TerminalTabView({
         // until the next agent event
         replayUntil.current = Date.now() + 400
         lastAgentRef.current = e.agent ?? null
+        errorScanAt.current = ''
         clearWorking()
         patchTerminalTab(wsId, paneId, tabId, {
           shell: e.shell,
@@ -459,10 +543,11 @@ export function TerminalTabView({
         lastAgentRef.current = e.agent ?? null
         patchTerminalTab(wsId, paneId, tabId, {
           agent: e.agent ?? null,
-          // a freshly detected agent is mid-launch — its startup banner is
-          // output but not a turn; hold the light off or every spawn flashes
-          ...(!prev && e.agent ? { quietUntil: Date.now() + 1200 } : {}),
-          ...(e.agent ? {} : { working: false })
+          // a freshly detected agent is mid-launch — its startup banner / idle
+          // TUI is output but not a turn. quietUntil covers the first paint;
+          // idleLocked covers Codex-style frame loops that never go quiet.
+          ...(!prev && e.agent ? { quietUntil: Date.now() + 1200, idleLocked: true } : {}),
+          ...(e.agent ? {} : { working: false, idleLocked: true })
         })
         if (!e.agent) clearWorking()
         // agent → idle transition = completion fallback. In a detached window

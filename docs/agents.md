@@ -64,8 +64,11 @@ as `node "<dest>" <provider>`. The section only lists providers whose CLI is on
 The hook script copy under `~/.config/mahas`, grok's hook file and the opencode
 plugin file are refreshed to the shipped version on every app start — fixes to
 them don't need a re-Install. User-owned configs (claude `settings.json`,
-devin/zcode `config.json`, codex `config.toml`) only change when you click
-**Install** again.
+devin/zcode `config.json`, codex `config.toml`) are not claimed from scratch
+on start, but a leftover `ade-hook` pointer (from the ade→mahas rename) is
+rewritten to `mahas-hook` automatically — those absolute paths 404 after the
+config dir moved, and without the rewrite Codex never fires `turn-complete`.
+New providers still need an **Install** click.
 
 Codex note: `notify` is a single slot. If you already had one, the installer
 records it in `~/.config/mahas/notify-forward.json` and the hook script
@@ -88,7 +91,7 @@ The shared taxonomy — three kinds notify, the rest are tracking-only:
 | ---------------- | ---------------------------------------------- | ------- |
 | `turn-complete`  | turn finished normally                         | `Stop`, `agent-turn-complete` (codex notify), `session.idle`, grok `task_complete` |
 | `needs-input`    | agent waits on a user decision                 | `PermissionRequest` (devin/zcode), `Notification` (all claude messages — permission prompts and the ≥60 s "waiting for your input"; grok `permission_prompt` etc.), opencode `permission.asked`, `question.asked` (800 ms grace — cancelled on a fast `*.replied`) |
-| `error`          | turn failed or the runtime aborted it          | `StopFailure`, `StopCancelled` with `cancelledBy: runtime`/`unknown` (`max_turns`, `no_progress`), `session.error` |
+| `error`          | turn failed or the runtime aborted it          | `StopFailure`, `StopCancelled` with `cancelledBy: runtime`/`unknown` (`max_turns`, `no_progress`), `session.error`, Devin/zcode `Stop` whose last message is a TUI error banner, pty `[Error]` / `Rate limited:` / `Quota exhausted:` banners (Devin rate-limits fire no hook) |
 | `turn-cancelled` | the user stopped the turn                      | `StopCancelled` with `cancelledBy: user` / `user_interrupt`/`permission_*` reasons, opencode `session.error` `Aborted` |
 | `idle`           | post-settle backstop ping, redundant with the turn-end report | grok `idle_prompt` |
 | `turn-start` / `session-start` / `session-end` / `other` | lifecycle tracking | `UserPromptSubmit`, `SessionStart`, `SessionEnd`, a grok teardown `Stop` (`reason: channel_closed`/`shutdown`) |

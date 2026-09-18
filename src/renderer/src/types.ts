@@ -3,7 +3,7 @@ export type BlockKind = 'term' | 'web' | 'file' | 'widget'
 
 /** built-in widget blocks — 'agents' mirrors the sidebar's per-pane session
  *  list into a tab, 'usage' is a per-harness rate-limit dashboard */
-export type WidgetKind = 'agents' | 'usage'
+export type WidgetKind = 'agents' | 'usage' | 'tokens'
 
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
@@ -39,6 +39,11 @@ export interface TerminalTab {
    *  event just declared the turn over (hook clear, fresh agent detect) so the
    *  post-turn prompt redraw / startup banner doesn't relight the pulse */
   quietUntil?: number
+  /** hook/agent-detect declared the turn idle — output (TUI redraws, watchers)
+   *  must not relight `working` until the user types or a turn-start arrives.
+   *  Codex has no turn-start and its idle TUI is a dense frame stream, so a
+   *  time window alone never holds. */
+  idleLocked?: boolean
   /** live pty-host session id — lets remounts/detached windows `attach`
    *  (with scrollback replay) instead of spawning a new shell */
   pty?: string
@@ -275,6 +280,44 @@ export interface UsageWindow {
   resetAt?: number
   /** free-form note — 'unlimited', 'x/y remaining', … */
   detail?: string
+}
+
+/** local token totals for one session / harness (src/main/ledger.ts) */
+export interface TokenUse {
+  input: number
+  output: number
+  cached: number
+  reasoning: number
+  total: number
+  costUsd?: number
+}
+
+export interface LedgerQuery {
+  sessionId: string
+  provider: string
+  cwd?: string
+  name?: string
+}
+
+export interface LedgerSession {
+  sessionId: string
+  provider: string
+  title?: string
+  cwd?: string
+  tokens: TokenUse
+  found: boolean
+}
+
+export interface LedgerProfile {
+  provider: string
+  sessionCount: number
+  tokens: TokenUse
+}
+
+export interface LedgerResult {
+  profiles: LedgerProfile[]
+  sessions: LedgerSession[]
+  fetchedAt: number
 }
 
 /** normalized result of a provider usage probe (src/main/usage.ts) */

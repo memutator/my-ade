@@ -168,6 +168,36 @@ function clip(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s
 }
 
+// TUI / Stop payload banners for a turn that died of quota, rate limit, or
+// auth — keep in sync with TerminalPane ERROR_BANNER_RE.
+function isFailedStop(p) {
+  const err = firstString(p.error, p.errorType, p.error_type)
+    .toLowerCase()
+    .replace(/[\s-]/g, '_')
+  if (
+    /^(rate_limit|quota_exhausted|usage_limit|authentication_failed|server_error|unavailable|resource_exhausted)$/.test(
+      err
+    )
+  ) {
+    return true
+  }
+  const t = firstString(
+    p['last-assistant-message'],
+    p.lastAssistantMessage,
+    p.last_assistant_message,
+    p.message
+  ).trim()
+  const head = t.slice(0, 48).toLowerCase()
+  return (
+    head.startsWith('[error]') ||
+    head.startsWith('rate limited') ||
+    head.startsWith('quota exhausted') ||
+    head.startsWith('reached free model rate limit') ||
+    head.startsWith("you've reached your monthly usage") ||
+    head.startsWith('organization usage limit')
+  )
+}
+
 function buildEvent(provider, argEvent, payload) {
   const p = payload && typeof payload === 'object' ? payload : {}
   let event = normalizeEvent(
@@ -196,6 +226,15 @@ function buildEvent(provider, argEvent, payload) {
   const internalThread = firstInput.startsWith('Write a brief catch-up')
   if (event === 'turn-complete' && (recapTurn || internalThread)) {
     event = 'other'
+  }
+  // Devin (and similar CLIs) have no StopFailure hook. A rate-limit / quota
+  // death still fires Stop with the TUI error banner as last_assistant_message
+  // — or, more often, fires nothing and the renderer catches the banner from
+  // pty output. When Stop does carry the banner, don't report a successful
+  // turn. Match only the start of the blob so a wrap-up that *discusses* a
+  // rate limit isn't reclassified.
+  if (event === 'turn-complete' && isFailedStop(p)) {
+    event = 'error'
   }
   const cwd = firstString(
     p.cwd,

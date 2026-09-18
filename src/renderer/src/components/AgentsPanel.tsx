@@ -100,20 +100,17 @@ export default function AgentsPanel({ wsId }: { wsId: string }): React.JSX.Eleme
               {g.rows.map((r) => {
                 const time = rowTime(r)
                 return (
-                  <button
-                    key={r.tab.id}
-                    className="ag-row"
-                    onClick={() => jump(g, r)}
-                    title={r.sub ? `${r.label} — ${r.sub}` : r.label}
-                  >
-                    <AgentIcon id={r.tab.agent ?? ''} size={13} />
-                    <span className="ag-text">
-                      <span className="ag-name">{r.label}</span>
-                      {r.sub && <span className="ag-sub">{r.sub}</span>}
-                    </span>
-                    {time && <span className="ag-time">{time}</span>}
-                    {r.status && <span className={`ctab-st ${r.status}`} />}
-                  </button>
+                  <Tooltip key={r.tab.id} label={r.sub ? `${r.label} — ${r.sub}` : r.label}>
+                    <button className="ag-row" onClick={() => jump(g, r)}>
+                      <AgentIcon id={r.tab.agent ?? ''} size={13} />
+                      <span className="ag-text">
+                        <span className="ag-name">{r.label}</span>
+                        {r.sub && <span className="ag-sub">{r.sub}</span>}
+                      </span>
+                      {time && <span className="ag-time">{time}</span>}
+                      {r.status && <span className={`ctab-st ${r.status}`} />}
+                    </button>
+                  </Tooltip>
                 )
               })}
             </div>

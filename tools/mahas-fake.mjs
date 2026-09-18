@@ -75,7 +75,7 @@ const resumed = has('--resume')
 if (!quiet) emit('session-start', resumed ? { reason: 'resume' } : {})
 
 console.log(`[mahas-fake] session ${sessionId}${resumed ? ' (resumed)' : ''}`)
-console.log('[mahas-fake] keys: n needs-input · c turn-complete · e error · i idle · u turn-start · r rename · x end+exit')
+console.log('[mahas-fake] keys: n needs-input · c turn-complete · e error · b tui-error-banner · i idle · u turn-start · r rename · x end+exit')
 
 let ending = false
 function end(code = 0) {
@@ -102,9 +102,29 @@ if (process.stdin.isTTY) {
       r: 'session-rename'
     }
     if (k.name === 'x') return end(0)
+    // `b` — Devin-style TUI error banner, no hook. Tests the pty-output
+    // fallback (Devin rate-limits stop the turn without Stop/StopFailure).
+    if (k.name === 'b') {
+      process.stdout.write(
+        '\n[Error] Reached free model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in 1 minute.\n'
+      )
+      return
+    }
     const ev = table[k.name]
     if (!ev) return
     emit(ev, k.name === 'r' ? { name: 'renamed session' } : {})
     console.log(`[mahas-fake] → ${ev}`)
+    // `--storm`: after turn-complete, keep painting like a TUI at the prompt
+    // so mahas must not relight `working` from output alone
+    if (ev === 'turn-complete' && has('storm')) {
+      let n = 0
+      const id = setInterval(() => {
+        process.stdout.write(`\x1b[2K\r[storm] ${n++}`)
+      }, 40)
+      setTimeout(() => {
+        clearInterval(id)
+        process.stdout.write('\n')
+      }, 2500)
+    }
   })
 }

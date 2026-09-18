@@ -7,6 +7,7 @@ import {
   FolderTree,
   Gauge,
   Globe,
+  BarChart3,
   Plus,
   Puzzle,
   RotateCw,
@@ -41,13 +42,23 @@ function BlockIcon({ tab }: { tab: PaneTab }): React.JSX.Element {
   if (tab.kind === 'web') return <Globe className="tab-kico" />
   if (tab.kind === 'file') return <FileGlyph name={tab.name || 'file'} />
   if (tab.kind === 'widget')
-    return tab.widget === 'usage' ? <Gauge className="tab-kico" /> : <Bot className="tab-kico" />
+    return tab.widget === 'usage' ? (
+      <Gauge className="tab-kico" />
+    ) : tab.widget === 'tokens' ? (
+      <BarChart3 className="tab-kico" />
+    ) : (
+      <Bot className="tab-kico" />
+    )
   return <TerminalSquare className="tab-kico" />
 }
 
 function FileGlyph({ name }: { name: string }): React.JSX.Element {
   const url = useFileIcon(name, false)
-  return url ? <img className="ticon-img" src={url} alt="" /> : <Code2 className="tab-kico" />
+  return url ? (
+    <img className="ticon-img" src={url} alt="" draggable={false} />
+  ) : (
+    <Code2 className="tab-kico" />
+  )
 }
 
 // the leaf's file-tree overlay — a corner fab floats over editor content;
@@ -456,6 +467,10 @@ export default function LeafPane({
                     <button className="pact-item" onClick={() => addTab('widget', 'usage')}>
                       <Gauge />
                       {t('widgetUsage')}
+                    </button>
+                    <button className="pact-item" onClick={() => addTab('widget', 'tokens')}>
+                      <BarChart3 />
+                      {t('widgetTokens')}
                     </button>
                   </Submenu>
                 </Dropdown>

@@ -2,11 +2,18 @@
 // the credentials its own CLI left on disk and calls the same (undocumented,
 // read-only) endpoint the CLI's own usage display uses:
 //
-//   claude  ~/.claude/.credentials.json   → GET api.anthropic.com/api/oauth/usage
-//   codex   ~/.codex/auth.json            → GET chatgpt.com/backend-api/wham/usage
-//   gemini  ~/.gemini/oauth_creds.json    → POST cloudcode-pa.googleapis.com/…:retrieveUserQuota
-//   copilot gh/copilot token              → GET api.github.com/copilot_internal/user
-//   zcode   ZAI_API_KEY env               → GET api.z.ai/api/monitor/usage/quota/limit
+//   grok     ~/.grok/auth.json              → GET cli-chat-proxy.grok.com/v1/billing
+//            (OIDC refresh via auth.x.ai; rotated tokens written back)
+//   claude   ~/.claude/.credentials.json    → GET api.anthropic.com/api/oauth/usage
+//   codex    ~/.codex/auth.json             → GET chatgpt.com/backend-api/wham/usage
+//   gemini   ~/.gemini/oauth_creds.json     → POST cloudcode-pa.googleapis.com/…:retrieveUserQuota
+//   copilot  gh/copilot token               → GET api.github.com/copilot_internal/user
+//   zcode    ~/.zcode/v2/config.json apiKey → GET api.z.ai/api/monitor/usage/quota/limit
+//            (env ZAI_API_KEY / ZHIPUAI_API_KEY still accepted)
+//   opencode ~/.local/share/opencode/auth.json opencode-go.key
+//                                           → GET opencode.ai/zen/go/v1/usage
+//   devin    ~/.local/share/devin/credentials.toml windsurf_api_key
+//                                           → POST server.codeium.com/…/GetUserStatus
 //
 // Everything degrades honestly: missing creds / expired tokens / unsupported
 // providers return { ok:false, error } — the widget renders the reason.
@@ -14,7 +21,8 @@
 import { ipcMain, net } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
-import { readFile } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
+import { scanLedger, type LedgerQuery, type LedgerResult } from './ledger'
 
 export interface UsageWindow {
   id: string
@@ -38,13 +46,31 @@ type Fetcher = () => Promise<Omit<UsageResult, 'ok' | 'provider' | 'fetchedAt'>>
 
 const TIMEOUT_MS = 9000
 
+// Cloudflare (opencode.ai, some gateways) 1010s Electron's default UA.
+const CHROME_UA =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
 function fail(error: string): Omit<UsageResult, 'ok' | 'provider' | 'fetchedAt'> {
   return { windows: [], error }
 }
 
-async function getJson(url: string, headers: Record<string, string>): Promise<unknown> {
-  const res = await net.fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+function hdrs(extra: Record<string, string> = {}): Record<string, string> {
+  return { Accept: 'application/json', 'User-Agent': CHROME_UA, ...extra }
+}
+
+async function readBody(res: Response): Promise<string> {
+  return res.text().catch(() => '')
+}
+
+async function getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+  const res = await net.fetch(url, {
+    headers: hdrs(headers),
+    signal: AbortSignal.timeout(TIMEOUT_MS)
+  })
+  if (!res.ok) {
+    const t = await readBody(res)
+    throw new Error(`HTTP ${res.status}${t ? `: ${t.slice(0, 160)}` : ''}`)
+  }
   return res.json()
 }
 
@@ -55,11 +81,28 @@ async function postJson(
 ): Promise<unknown> {
   const res = await net.fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: hdrs({ 'Content-Type': 'application/json', ...headers }),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS)
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    const t = await readBody(res)
+    throw new Error(`HTTP ${res.status}${t ? `: ${t.slice(0, 160)}` : ''}`)
+  }
+  return res.json()
+}
+
+async function postForm(url: string, fields: Record<string, string>): Promise<unknown> {
+  const res = await net.fetch(url, {
+    method: 'POST',
+    headers: hdrs({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+    body: new URLSearchParams(fields).toString(),
+    signal: AbortSignal.timeout(TIMEOUT_MS)
+  })
+  if (!res.ok) {
+    const t = await readBody(res)
+    throw new Error(`HTTP ${res.status}${t ? `: ${t.slice(0, 160)}` : ''}`)
+  }
   return res.json()
 }
 
@@ -75,12 +118,110 @@ const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
+function isoMs(v: unknown): number | undefined {
+  const s = str(v)
+  if (!s) return undefined
+  const n = Date.parse(s)
+  return Number.isFinite(n) ? n : undefined
+}
+
+// ── grok ────────────────────────────────────────────────────────────────
+// Same endpoints Grok Build's /usage modal hits (cli-chat-proxy). Access
+// tokens last ~6h; we refresh via auth.x.ai OIDC and write the rotated
+// pair back so the grok CLI keeps working (refresh tokens rotate).
+async function grokAccessToken(): Promise<string | undefined> {
+  const file = join(homedir(), '.grok', 'auth.json')
+  const table = await readJson(file)
+  if (!table) return undefined
+  const scope = Object.keys(table)[0]
+  const entry = (scope ? table[scope] : undefined) as Record<string, unknown> | undefined
+  if (!entry) return undefined
+  const exp = isoMs(entry.expires_at) ?? 0
+  const cached = str(entry.key)
+  if (cached && exp > Date.now() + 60_000) return cached
+  const rt = str(entry.refresh_token)
+  const cid = str(entry.oidc_client_id)
+  if (!rt || !cid) return cached
+  const r = (await postForm('https://auth.x.ai/oauth2/token', {
+    grant_type: 'refresh_token',
+    refresh_token: rt,
+    client_id: cid
+  }).catch(() => null)) as Record<string, unknown> | null
+  const next = str(r?.access_token)
+  if (!next) return cached
+  const nrt = str(r?.refresh_token) ?? rt
+  const ein = num(r?.expires_in) ?? 21_600
+  const expiresAt = new Date(Date.now() + ein * 1000).toISOString()
+  try {
+    const updated = {
+      ...table,
+      [scope]: { ...entry, key: next, refresh_token: nrt, expires_at: expiresAt }
+    }
+    await writeFile(file, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
+  } catch {
+    /* disk is the CLI's file — a failed write still lets this fetch proceed */
+  }
+  return next
+}
+
+async function fetchGrok(): ReturnType<Fetcher> {
+  const token = await grokAccessToken()
+  if (!token) return fail('no Grok credentials (~/.grok/auth.json) — run `grok login`')
+  const auth = { Authorization: `Bearer ${token}` }
+  const billing = (await getJson(
+    'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
+    auth
+  )) as Record<string, unknown>
+  const user = (await getJson(
+    'https://cli-chat-proxy.grok.com/v1/user?include=subscription',
+    auth
+  ).catch(() => null)) as Record<string, unknown> | null
+  const cfg = (billing.config as Record<string, unknown> | undefined) ?? billing
+  const period = (cfg.currentPeriod as Record<string, unknown> | undefined) ?? {}
+  const resetAt = isoMs(period.end) ?? isoMs(cfg.billingPeriodEnd)
+  const windows: UsageWindow[] = []
+  const overall = num(cfg.creditUsagePercent)
+  if (overall !== undefined) {
+    windows.push({
+      id: 'week',
+      label: 'Weekly allowance',
+      usedPct: overall,
+      resetAt
+    })
+  }
+  const products = cfg.productUsage as Record<string, unknown>[] | undefined
+  if (Array.isArray(products)) {
+    for (const p of products) {
+      const name = str(p.product)
+      const pct = num(p.usagePercent)
+      if (!name || pct === undefined) continue
+      if (name === 'GrokBuild' && overall !== undefined && Math.abs(pct - overall) < 0.05) continue
+      windows.push({ id: name.toLowerCase(), label: name, usedPct: pct, resetAt })
+    }
+  }
+  const bits: string[] = []
+  const od = cfg.onDemandUsed as Record<string, unknown> | undefined
+  const cap = cfg.onDemandCap as Record<string, unknown> | undefined
+  if (num(od?.val) !== undefined || num(cap?.val) !== undefined) {
+    bits.push(`on-demand ${num(od?.val) ?? 0}/${num(cap?.val) ?? '?'}`)
+  }
+  const prepaid = cfg.prepaidBalance as Record<string, unknown> | undefined
+  if (num(prepaid?.val)) bits.push(`prepaid ${num(prepaid?.val)}`)
+  if (!windows.length) return fail('empty billing response')
+  return {
+    plan: str(user?.subscriptionTier),
+    windows,
+    extra: bits.join(' · ') || undefined
+  }
+}
+
 // ── claude ──────────────────────────────────────────────────────────────
 // The same endpoint Claude Code's /usage renders. The `anthropic-beta` +
 // claude-code User-Agent headers are required — without them the request
 // lands in an aggressively rate-limited bucket (persistent 429).
 async function fetchClaude(): ReturnType<Fetcher> {
-  const creds = await readJson(join(homedir(), '.claude', '.credentials.json'))
+  const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+  const creds = await readJson(join(dir, '.credentials.json'))
   const oauth = creds?.claudeAiOauth as Record<string, unknown> | undefined
   const token = str(oauth?.accessToken)
   if (!token) return fail('no Claude OAuth credentials (~/.claude/.credentials.json)')
@@ -273,15 +414,45 @@ async function fetchCopilot(): ReturnType<Fetcher> {
 }
 
 // ── zcode / z.ai ────────────────────────────────────────────────────────
-// GLM coding-plan monitor endpoint; keyed by the ZAI_API_KEY env var (zcode
-// stores no reusable token file of its own).
+// GLM coding-plan monitor endpoint. ZCode persists the key on the provider
+// entry in ~/.zcode/v2/config.json; env vars still win when set.
+async function zaiCreds(): Promise<{ key: string; base: string } | null> {
+  const envKey = process.env.ZAI_API_KEY ?? process.env.ZHIPUAI_API_KEY
+  if (envKey) {
+    const base =
+      process.env.ZHIPUAI_API_KEY && !process.env.ZAI_API_KEY
+        ? 'https://open.bigmodel.cn'
+        : 'https://api.z.ai'
+    return { key: envKey, base }
+  }
+  const prefer = [
+    'builtin:zai-coding-plan',
+    'builtin:bigmodel-coding-plan',
+    'builtin:zai',
+    'zai',
+    'builtin:bigmodel'
+  ]
+  for (const rel of [join('.zcode', 'v2', 'config.json'), join('.zcode', 'cli', 'config.json')]) {
+    const cfg = await readJson(join(homedir(), rel))
+    const prov = cfg?.provider as Record<string, Record<string, unknown>> | undefined
+    if (!prov) continue
+    const ids = [...prefer.filter((k) => prov[k]), ...Object.keys(prov)]
+    for (const id of ids) {
+      const opts = (prov[id]?.options ?? {}) as Record<string, unknown>
+      const key = str(opts.apiKey)
+      if (!key) continue
+      const bu = str(opts.baseURL) ?? ''
+      const base = bu.includes('bigmodel.cn') ? 'https://open.bigmodel.cn' : 'https://api.z.ai'
+      return { key, base }
+    }
+  }
+  return null
+}
+
 async function fetchZai(): ReturnType<Fetcher> {
-  const key = process.env.ZAI_API_KEY ?? process.env.ZHIPUAI_API_KEY
-  if (!key) return fail('no ZAI_API_KEY / ZHIPUAI_API_KEY env')
-  const base =
-    process.env.ZHIPUAI_API_KEY && !process.env.ZAI_API_KEY
-      ? 'https://open.bigmodel.cn'
-      : 'https://api.z.ai'
+  const creds = await zaiCreds()
+  if (!creds) return fail('no Z.AI key (~/.zcode/v2/config.json or ZAI_API_KEY)')
+  const { key, base } = creds
   const r = (await getJson(`${base}/api/monitor/usage/quota/limit`, {
     Authorization: `Bearer ${key}`,
     Accept: 'application/json'
@@ -319,12 +490,190 @@ async function fetchZai(): ReturnType<Fetcher> {
   return { plan: str(data.level), windows }
 }
 
+// ── opencode (Go plan) ──────────────────────────────────────────────────
+// Official GET /zen/go/v1/usage — same numbers as the Zen dashboard.
+async function opencodeGoKey(): Promise<string | undefined> {
+  const env = process.env.OPENCODE_API_KEY ?? process.env.OPENCODE_GO_API_KEY
+  if (env) return env
+  const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
+  const auth = await readJson(join(xdg, 'opencode', 'auth.json'))
+  if (!auth) return undefined
+  for (const id of ['opencode-go', 'opencode']) {
+    const rec = auth[id] as Record<string, unknown> | undefined
+    const key = str(rec?.key)
+    if (key) return key
+  }
+  return undefined
+}
+
+async function fetchOpencode(): ReturnType<Fetcher> {
+  const key = await opencodeGoKey()
+  if (!key) return fail('no OpenCode Go key (~/.local/share/opencode/auth.json)')
+  const r = (await getJson('https://opencode.ai/zen/go/v1/usage', {
+    Authorization: `Bearer ${key}`
+  })) as Record<string, unknown>
+  const usage = (r.usage as Record<string, unknown> | undefined) ?? r
+  const win = (v: unknown, id: string, label: string): UsageWindow | null => {
+    const w = v as Record<string, unknown> | undefined
+    if (!w) return null
+    const status = str(w.status)
+    if (status && status !== 'ok') return null
+    const pct = num(w.percent) ?? num(w.usagePercent)
+    const resetAt =
+      isoMs(w.resetsAt) ??
+      (num(w.resetInSec) !== undefined ? Date.now() + num(w.resetInSec)! * 1000 : undefined)
+    if (pct === undefined && resetAt === undefined) return null
+    return { id, label, usedPct: pct, resetAt }
+  }
+  const windows = [
+    win(usage.rolling ?? usage.rollingUsage, '5h', '5-hour window'),
+    win(usage.weekly ?? usage.weeklyUsage, '7d', 'Weekly'),
+    win(usage.monthly ?? usage.monthlyUsage, '30d', 'Monthly')
+  ].filter((w): w is UsageWindow => !!w)
+  if (!windows.length) return fail('empty OpenCode Go usage response')
+  return { plan: 'Go', windows }
+}
+
+// ── devin ───────────────────────────────────────────────────────────────
+// Connect-RPC GetUserStatus — the same call the CLI / desktop quota UI uses.
+// Percentages arrive as remaining; we flip them to used. Unix resets are
+// seconds. A credit of -1 is the vendor "unlimited" sentinel.
+function parseTomlStrings(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const m = /^\s*([A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$/.exec(line)
+    if (m) out[m[1]] = m[2].replace(/\\"/g, '"')
+  }
+  return out
+}
+
+function rec(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : undefined
+}
+
+function pick(o: Record<string, unknown> | undefined, ...keys: string[]): unknown {
+  if (!o) return undefined
+  for (const k of keys) if (o[k] !== undefined && o[k] !== null) return o[k]
+  return undefined
+}
+
+function unixMs(v: unknown): number | undefined {
+  const n = typeof v === 'string' && v.trim() ? Number(v) : num(v)
+  if (n === undefined || !Number.isFinite(n) || n <= 0) return undefined
+  return n < 1e12 ? n * 1000 : n
+}
+
+function usedFromRemaining(v: unknown): number | undefined {
+  const n = typeof v === 'string' && v.trim() ? Number(v) : num(v)
+  if (n === undefined || !Number.isFinite(n)) return undefined
+  return Math.max(0, Math.min(100, 100 - n))
+}
+
+async function fetchDevin(): ReturnType<Fetcher> {
+  const xdg = process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share')
+  let toml = ''
+  try {
+    toml = await readFile(join(xdg, 'devin', 'credentials.toml'), 'utf8')
+  } catch {
+    return fail(
+      'no Devin credentials (~/.local/share/devin/credentials.toml) — run `devin auth login`'
+    )
+  }
+  const kv = parseTomlStrings(toml)
+  const key = kv.windsurf_api_key
+  if (!key) return fail('Devin credentials.toml has no windsurf_api_key — run `devin auth login`')
+  const host = (kv.api_server_url || 'https://server.codeium.com').replace(/\/+$/, '')
+  const r = (await postJson(
+    `${host}/exa.seat_management_pb.SeatManagementService/GetUserStatus`,
+    { 'Connect-Protocol-Version': '1' },
+    {
+      metadata: {
+        apiKey: key,
+        ideName: 'devin',
+        ideVersion: '1.0',
+        extensionName: 'devin',
+        extensionVersion: '1.0',
+        locale: 'en'
+      }
+    }
+  )) as Record<string, unknown>
+  const user = rec(pick(r, 'userStatus', 'user_status')) ?? r
+  const plan = rec(pick(user, 'planStatus', 'plan_status')) ?? {}
+  const info =
+    rec(pick(plan, 'planInfo', 'plan_info')) ?? rec(pick(r, 'planInfo', 'plan_info')) ?? {}
+  const hideDaily = !!pick(info, 'hideDailyQuota', 'hide_daily_quota')
+  const windows: UsageWindow[] = []
+  const dailyUsed = usedFromRemaining(
+    pick(plan, 'dailyQuotaRemainingPercent', 'daily_quota_remaining_percent')
+  )
+  const dailyReset = unixMs(pick(plan, 'dailyQuotaResetAtUnix', 'daily_quota_reset_at_unix'))
+  if (!hideDaily && dailyUsed !== undefined) {
+    windows.push({ id: 'day', label: 'Daily quota', usedPct: dailyUsed, resetAt: dailyReset })
+  }
+  const weekRem = pick(plan, 'weeklyQuotaRemainingPercent', 'weekly_quota_remaining_percent')
+  const weekReset = unixMs(pick(plan, 'weeklyQuotaResetAtUnix', 'weekly_quota_reset_at_unix'))
+  const weekUsed = usedFromRemaining(weekRem)
+  if (weekUsed !== undefined) {
+    windows.push({ id: 'week', label: 'Weekly quota', usedPct: weekUsed, resetAt: weekReset })
+  } else if (weekReset !== undefined) {
+    windows.push({ id: 'week', label: 'Weekly quota', usedPct: 100, resetAt: weekReset })
+  }
+  const acuUsed = num(pick(plan, 'acuConsumed', 'acu_consumed'))
+  const acuLimit = num(pick(plan, 'acuLimit', 'acu_limit'))
+  if (acuUsed !== undefined && acuLimit !== undefined && acuLimit > 0) {
+    windows.push({
+      id: 'acu',
+      label: 'ACU',
+      usedPct: Math.max(0, Math.min(100, (acuUsed / acuLimit) * 100)),
+      detail: `${Math.round(acuUsed)} / ${Math.round(acuLimit)}`,
+      resetAt: isoMs(pick(plan, 'planEnd', 'plan_end'))
+    })
+  }
+  const bits: string[] = []
+  const credit = (avail: unknown, used: unknown, label: string): void => {
+    const a = num(avail)
+    const u = num(used)
+    if (a === -1 || u === -1) return
+    if (a !== undefined && u !== undefined)
+      bits.push(`${label} ${Math.round(u)}/${Math.round(a + u)}`)
+    else if (a !== undefined) bits.push(`${label} ${Math.round(a)} left`)
+  }
+  credit(
+    pick(plan, 'availablePromptCredits', 'available_prompt_credits'),
+    pick(plan, 'usedPromptCredits', 'used_prompt_credits'),
+    'prompt'
+  )
+  credit(
+    pick(plan, 'availableFlowCredits', 'available_flow_credits'),
+    pick(plan, 'usedFlowCredits', 'used_flow_credits'),
+    'flow'
+  )
+  credit(
+    pick(plan, 'availableFlexCredits', 'available_flex_credits'),
+    pick(plan, 'usedFlexCredits', 'used_flex_credits'),
+    'on-demand'
+  )
+  const micros = num(pick(plan, 'overageBalanceMicros', 'overage_balance_micros'))
+  if (micros !== undefined && micros !== 0) bits.push(`extra $${(micros / 1_000_000).toFixed(2)}`)
+  if (!windows.length && !bits.length) return fail('empty Devin usage response')
+  return {
+    plan: str(pick(info, 'planName', 'plan_name')) ?? str(pick(user, 'teamsTier', 'teams_tier')),
+    windows,
+    extra: bits.join(' · ') || undefined
+  }
+}
+
 const FETCHERS: Record<string, Fetcher> = {
+  grok: fetchGrok,
   claude: fetchClaude,
   codex: fetchCodex,
   gemini: fetchGemini,
   copilot: fetchCopilot,
-  zcode: fetchZai
+  zcode: fetchZai,
+  opencode: fetchOpencode,
+  devin: fetchDevin
 }
 
 export function registerUsageIpc(): void {
@@ -337,6 +686,27 @@ export function registerUsageIpc(): void {
       return { ...base, ok: !r.error, ...r }
     } catch (e) {
       return { ...base, ok: false, windows: [], error: String(e instanceof Error ? e.message : e) }
+    }
+  })
+  ipcMain.handle('usage:ledger', async (_e, tracked: LedgerQuery[]): Promise<LedgerResult> => {
+    const list = Array.isArray(tracked)
+      ? tracked.filter((t) => t && typeof t.sessionId === 'string')
+      : []
+    try {
+      return await scanLedger(list)
+    } catch {
+      return {
+        profiles: [],
+        sessions: list.map((t) => ({
+          sessionId: t.sessionId,
+          provider: t.provider,
+          title: t.name,
+          cwd: t.cwd,
+          tokens: { input: 0, output: 0, cached: 0, reasoning: 0, total: 0 },
+          found: false
+        })),
+        fetchedAt: Date.now()
+      }
     }
   })
 }
