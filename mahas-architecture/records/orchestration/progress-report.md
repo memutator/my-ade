@@ -1,5 +1,80 @@
 # mahas-architecture 진행 리포트 — 2026-09-19
 
+## 최신 상태 — 코드 기준 `24c983f` + 후속 수정 WIP
+
+이 절이 현재 상태의 정본이다. 아래 §1~6은 커밋 전 조사·수정 이력이며,
+`미커밋`, `fixed-in-wip`, Claude 로그인 blocker 등 과거 표기는 이 절로 대체한다.
+
+### 현재 판정: 최소 task lifecycle 검증 완료 — 이번 후속 작업 종료
+
+사용자의 “최소 동작을 보장하는 방향으로 문제를 먼저 닫기” 지시에 따라,
+이번 종료 기준을 다음으로 고정한다. 전체 architecture RELEASE 수락과는 구분한다.
+
+| 고정된 종료 조건 | 판정/증거 |
+|---|---|
+| 유효한 task assignment를 준비하고 정상 workspace에서 실제 worker를 실행한다 | PASS — prepare 권한 회귀 + 실제 host 통합 |
+| 초기 입력이 실제 프로세스에 전달되고 worker 인증 → join → accept가 커밋된다 | PASS — stdin 원문 일치 및 worker RPC receipt |
+| worker가 전달된 작업을 수행하고 결과 보고 → 완료·정산에 도달한다 | PASS — stdin의 `17 + 25` 계산 → `42` 보고, outcome 1건 및 accepted settlement 1건, dispatch settled |
+| 종료 후 인증·실행 바인딩·자원과 실제 checkout을 정리한다 | PASS — worker.stop 후 credential 폐기/member 해제, worker.release 후 claim 해제/workspace released/checkout 디렉터리 없음 |
+| 준비 실패/불명확 상태에서는 spawn하지 않고, 검증한 실패·재호출 경로에서 중복 실행하지 않는다 | PASS — workspace gate 2건 + 복구 5건 + 실제 start/accept replay |
+
+`npm run test:launch`를 종료 시 다시 실행해 전체 PASS를 확인했다.
+**F-062/F-063/F-064 및 workspace 준비 gate 문제는 이 검증 범위에서 닫는다.**
+새 발견을 자동으로 이번 완료 조건에 추가하지 않는다. 재개 조건은 위 경로의
+재현 가능한 회귀, 또는 사용자의 별도 범위 확대 요청뿐이다.
+
+**검증 형태:** task assignment와 controller epoch는 테스트 fixture에서 seed한다.
+worker는 실제 OS 프로세스이며 stdin 지시의 계산·RPC 보고·owner-declaration 정산을 수행한다.
+전체 team.assign 흐름·LLM 활용 품질·UI·모든 provider·crash/restart 조합은 이번 기준에 넣지 않는다.
+확정 실패 후 **같은 입력으로 새 plan을 발급하는 복구(F-065)는 지원 보장 밖**이다.
+해당 문제는 해결로 표시하지 않고 별도 backlog로 보존한다. Claude 검증은 제외한다.
+
+- **커밋 완료:** `24c983f` (`fix: checkpoint architecture integration and launch recovery`).
+  기존 WIP를 포함한 142개 파일을 커밋했다. 아래 후속 구현·테스트·문서 수정은 아직 미커밋이다.
+- **Claude 검증 제외:** 사용자 지시에 따라 VER-09는 이번 작업 범위에서 제외한다.
+  Claude 로그인은 현재 작업의 blocker가 아니다. Claude 지원은 미검증으로 남기며
+  pass로 집계하지 않는다. 기존 VER DAG의 VER-09 의존성과 최종 수락 범위는
+  VER-12에서 이 제외 결정을 명시해야 한다.
+- **현재 spawn 실패 원인 확정:** 테스트 프로젝트 경로
+  `/tmp/mahas-ver-11/repo`가 없어 host가 workspace.prepare를 거부했다.
+  해당 operation receipt는 `workspace.state=failed`, `effect.state=rejected`,
+  reason=`INPUT_NOT_READY: projectRoot is not an existing directory: /tmp/mahas-ver-11/repo`다.
+  그런데 `stageResourcesClaimed`는 상태를 검사하지 않고 checkout 경로와 ID만 보고
+  `resources_claimed=confirmed`로 기록했다. 생성되지 않은 cwd
+  `/tmp/mahas-ver-11/worktrees/w5`로 spawn하여 ENOENT가 발생했다.
+  Node 실행 파일은 존재한다. **fixture 디렉터리 누락 + 준비 실패를 무시하는 코드 버그**이며,
+  후속 WIP에서 ready/confirmed gate를 추가했고, 실패/불명확 응답 모두
+  materialize/spawn 호출 0회 및 잔여 claim 보존을 자동 검증했다.
+  증거: `/tmp/mahas-ver-11/config/mahas.sqlite`의 `operation_receipts`,
+  operation_id=`internal:workspace.prepare:8f232c93-e3db-49b5-8d9d-c26cab4d4cfa`.
+- **F-062:** 새로 migrate한 격리 DB의 결정적 스크립트가 통과했다. run-scoped
+  worker.prepare-only member grant로 prepare 성공, 내부 context.build는 service principal로
+  인가, 다른 run assignment는 거부, 직접 member context.build는 비노출을 확인했다.
+  실행: `node packages/mahas-runtime/src/access/f062-assignment-service.smoke.ts`.
+- **F-063 및 실제 통합:** 초기 입력에 실행별 join/accept pins를 추가했다.
+  실제 host/runtime/OS worker에서 task/initial.txt와 수신 stdin 원문 일치,
+  worker credential 인증, execution.join·task.accept 성공, start/accept replay의
+  중복 방지를 확인했다. 이후 task.report와 report replay, accepted 정산,
+  worker.stop/release 및 물리적 checkout 제거까지 같은 통합 테스트로 확인했다.
+  결정적 Node worker이며 LLM/provider 동작 검증은 아니다.
+- **F-064:** coordinator 오류 주입 스크립트 5개 시나리오가 통과했다. 재시도 가능
+  materialize 실패는 동일 실행 바인딩 유지 후 1회 spawn; 확정 materialize/spawn 실패는
+  member 해제·dispatch fence·credential 폐기 후 replay만 허용; spawn 응답 유실은
+  바인딩/dispatch 보존 및 중복 spawn 금지; 구버전의 확정 실패 receipt는 잔류 member
+  바인딩을 회수한다. host/materializer는 이 테스트에서 대역이며 실제 OS 통합은 별도다.
+  실행: `node packages/mahas-runtime/src/launch/f064-recovery.smoke.ts`.
+- **검증:** `npm run test:launch` 4개 스크립트 통과, registry 회귀 40개 통과.
+  루트 typecheck 및 runtime/host 개별 타입체크와 변경 TS 파일 ESLint 오류 검사 통과. 기존 REV/VER는
+  새 커밋의 전체 수락 증거가 아니며, 잔여 findings 집계도 재검증 후 갱신해야 한다.
+- **이번 후속 3개 묶음 완료:** F-062 권한 경계 자동 검증, workspace 준비 gate 및 실제
+  spawn→join→accept 통합, F-064 실패·재시도 안전성 수정/자동 검증.
+  범위와 한계: [launch-regression.md](../verification/launch-regression.md).
+- **별도 backlog — 이번 작업의 후속 의무 아님:** F-065(동일 입력으로 실패 plan 대체 불가),
+  잔여 host/인가/UI/복구 findings의 최신 코드 대조 및 전체 RELEASE용 영향 REV/VER.
+  자동 착수하지 않는다. 최소 task lifecycle 검증은 완료이며 전체 RELEASE는 미수락이다.
+
+---
+
 대상 워크트리: `/home/pyosechang/projects/ade-wt-mahas-architecture` (branch `mahas-architecture`)
 기준: HEAD `71a6cae` + live uncommitted WIP (fix 세션, 121 files / +5115 −1400)
 성격: 구현·리뷰·검증·수정 4개 흐름의 결합 상태 정산. 정식 수락 판정 아님.

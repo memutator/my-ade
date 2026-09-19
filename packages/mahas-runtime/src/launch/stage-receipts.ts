@@ -60,6 +60,8 @@ export interface LaunchReceipt {
   executionId?: string
   generation?: number
   dispatchId?: string
+  /** Definitive pre-spawn abort fenced this generation; receipt replay only. */
+  admissionReleased?: boolean
   stages: StageEntry[]
   failedStage?: LaunchStageName
   residuals: unknown[]

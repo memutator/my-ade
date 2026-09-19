@@ -2,6 +2,25 @@
 
 각 finding은 delivery.md 규칙대로 원래 IMP owner의 수정 revision으로 되돌린다.
 `status`: open / fix-claimed / fixed-in-<sha> / wontfix / spec-issue.
+후속 범위 한정 종료는 `closed-verified (launch WIP)`로 별도 표시한다.
+
+2026-09-19 후속 검증: F-062/F-063/F-064 관련 결정적 회귀 및 실제 OS worker 통합은
+`24c983f` 이후 WIP에서 통과했다. 아래 표의 과거 상태/증거를 전체 재정산한 것은 아니다.
+최신 범위와 한계는 [progress-report.md](progress-report.md) 및
+[launch-regression.md](../verification/launch-regression.md)를 따른다. F-065는 여전히 open이다.
+
+### 현재 후속 작업의 종료 판정
+
+| 항목 | 현재 상태 | 종료 근거 |
+|---|---|---|
+| F-062 | closed-verified (launch WIP) | 새 DB에서 prepare-only member 권한 성공 및 권한 경계 회귀 통과 |
+| F-063 | closed-verified (launch WIP) | 실제 materialization/stdin 전달/worker 인증/join/accept 통합 통과 |
+| F-064 | closed-verified (launch WIP) | 확정 실패 회수·재시도·응답 유실·구 receipt 회귀 5건 통과 |
+| workspace 준비 상태 무시 | closed-verified (launch WIP) | rejected/unknown 응답에서 materialize/spawn 0회 및 claim 보존 |
+| F-065 | open — 별도 backlog | 동일 입력 실패 plan 대체 미해결. 이번 최소 launch 보장 범위에서 제외하며 자동 착수하지 않음 |
+
+이 표가 해당 항목의 현재 판정이며 아래 원래 행은 발견 당시 설명과 증거 이력이다.
+전체 결함 대장 또는 architecture RELEASE를 완료로 판정한 것은 아니다.
 
 | id | 발견 | 위치 | owner | status | evidence |
 |---|---|---|---|---|---|

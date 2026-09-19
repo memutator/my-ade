@@ -18,6 +18,7 @@ import type { ExecutionLiveness, ExecutionState } from '../../../mahas-contracts
 import type { TxnContext } from '../api/registry.ts'
 import type { HostClient } from '../hostClient.ts'
 import { mahasdWorkerEndpoint } from '../rpc/endpoints.ts'
+import { getContentBlob } from '../storage/db.ts'
 import { issueBootstrapCredential } from './bootstrap-credential.ts'
 import {
   asMahasError,
@@ -230,6 +231,8 @@ export async function workerStart(
   const ctx: StageCtx = { db, txn, deps, plan, pins, spec, receipt, shared: { files: new Map() } }
   hydrateShared(ctx)
 
+  if (receipt.admissionReleased) return result(receipt)
+
   for (const stage of DRIVEN_STAGES) {
     const entry = receipt.stages.find((s) => s.stage === stage)!
     if (entry.status === 'confirmed') continue
@@ -250,11 +253,27 @@ export async function workerStart(
     }
 
     if (entry.status === 'failed') {
-      const retryable = entry.nextAllowedActions?.includes('retry:same-operation') ?? false
+      const execution = sharedExecution(ctx)
+      const retryable =
+        (entry.nextAllowedActions?.includes('retry:same-operation') ?? false) &&
+        execution?.state !== 'exited'
       if (!retryable) {
-        receipt.failedStage = stage
-        receipt.nextAllowedActions = entry.nextAllowedActions ?? ['replan']
-        saveReceipt(db, deps, receipt)
+        // Repair receipts written before definitive failures released their
+        // admission. This only uses durable evidence that no spawn exists.
+        tx(db, () => {
+          releaseDefinitivePreSpawnAdmission(ctx, stage)
+          receipt.failedStage = stage
+          receipt.nextAllowedActions = failureActions(
+            receipt,
+            (entry.nextAllowedActions ?? ['replan']).filter(
+              (action) => action !== 'retry:same-operation'
+            )
+          )
+          if (!receipt.nextAllowedActions.includes('replan'))
+            receipt.nextAllowedActions.push('replan')
+          entry.nextAllowedActions = receipt.nextAllowedActions
+          saveReceipt(db, deps, receipt)
+        })
         return result(receipt)
       }
     }
@@ -271,31 +290,36 @@ export async function workerStart(
         deps.now()
       )
       addResiduals(receipt, outcome.residuals)
+      if (receipt.failedStage === stage) delete receipt.failedStage
       saveReceipt(db, deps, receipt)
     } catch (e) {
       const verdict = stageFailure(stage, e)
-      recordStage(
-        receipt,
-        stage,
-        {
-          status: verdict.status,
-          error: verdict.error,
-          residuals: verdict.residuals,
-          nextAllowedActions: verdict.next
-        },
-        deps.now()
-      )
-      addResiduals(receipt, verdict.residuals)
-      const released =
-        verdict.status === 'failed' ? releaseDefinitivePreSpawnAdmission(ctx, stage) : false
-      if (verdict.executionState && !released)
-        transitionExecution(ctx, verdict.executionState, verdict.liveness)
-      receipt.failedStage = stage
-      receipt.nextAllowedActions =
-        receipt.residuals.length > 0 && !verdict.next.includes('worker.release')
-          ? [...verdict.next, 'worker.release']
-          : verdict.next
-      saveReceipt(db, deps, receipt)
+      tx(db, () => {
+        // A retry continues this very execution/dispatch. Releasing admission
+        // here would let another launch take its member while a later retry
+        // revives the old generation.
+        const shouldRelease =
+          verdict.status === 'failed' && !verdict.next.includes('retry:same-operation')
+        const released = shouldRelease ? releaseDefinitivePreSpawnAdmission(ctx, stage) : false
+        if (verdict.executionState && !released)
+          transitionExecution(ctx, verdict.executionState, verdict.liveness)
+        const next = failureActions(receipt, verdict.next)
+        recordStage(
+          receipt,
+          stage,
+          {
+            status: verdict.status,
+            error: verdict.error,
+            residuals: verdict.residuals,
+            nextAllowedActions: next
+          },
+          deps.now()
+        )
+        addResiduals(receipt, verdict.residuals)
+        receipt.failedStage = stage
+        receipt.nextAllowedActions = next
+        saveReceipt(db, deps, receipt)
+      })
       return result(receipt)
     }
   }
@@ -325,6 +349,18 @@ export async function workerStart(
   return result(receipt)
 }
 
+function sharedExecution(ctx: StageCtx): ExecutionRow | null {
+  return ctx.shared.executionId
+    ? getRow<ExecutionRow>(ctx.db, 'SELECT * FROM executions WHERE id=?', ctx.shared.executionId)
+    : null
+}
+
+function failureActions(receipt: LaunchReceipt, next: string[]): string[] {
+  return receipt.residuals.length > 0 && !next.includes('worker.release')
+    ? [...next, 'worker.release']
+    : next
+}
+
 /** A definitive failure before a process can exist must not leave the member
  * permanently bound to a dead `preparing` execution. Fence the dispatch and
  * generation authority, release the member pointer, and retain claims as
@@ -340,12 +376,22 @@ function releaseDefinitivePreSpawnAdmission(ctx: StageCtx, stage: DrivenStageNam
     'process_attempting'
   ])
   if (!preSpawn.has(stage)) return false
-  const execution = getRow<{ state: string; member_id: string; generation: number }>(
+  const execution = getRow<{
+    state: string
+    member_id: string
+    generation: number
+    process_identity_json: string
+  }>(
     db,
-    'SELECT state, member_id, generation FROM executions WHERE id=?',
+    'SELECT state, member_id, generation, process_identity_json FROM executions WHERE id=?',
     shared.executionId
   )
-  if (!execution || !['preparing', 'starting'].includes(execution.state)) return false
+  if (!execution || !['preparing', 'starting', 'exited'].includes(execution.state)) return false
+  const spawn = getEffect(db, effectId(ctx.plan.id, 'spawn'))
+  if (spawn && spawn.state !== 'rejected') return false
+  // Never clear authority for an execution that has observed process identity,
+  // even if a stale/invalid receipt claims an earlier stage failed.
+  if (execution.process_identity_json !== '{}') return false
 
   tx(db, () => {
     const dispatch = getRow<{ id: string; task_id: string }>(
@@ -394,12 +440,13 @@ function releaseDefinitivePreSpawnAdmission(ctx: StageCtx, stage: DrivenStageNam
       { launchPlanId: ctx.plan.id, failedStage: stage },
       { definitiveNoProcess: true, residualResources: ctx.receipt.residuals }
     )
+    ctx.receipt.admissionReleased = true
   })
   return true
 }
 
 function result(r: LaunchReceipt): StartResult {
-  const last = r.stages.filter((s) => s.status === 'confirmed').at(-1)
+  const failed = r.stages.find((s) => s.stage === r.failedStage)
   return {
     launchPlanId: r.launchPlanId,
     ...(r.executionId ? { executionId: r.executionId } : {}),
@@ -407,7 +454,7 @@ function result(r: LaunchReceipt): StartResult {
     ...(r.dispatchId ? { dispatchId: r.dispatchId } : {}),
     joinState:
       r.terminal ??
-      (r.failedStage ? `${r.failedStage}:${last?.status ?? 'failed'}` : 'in-progress'),
+      (r.failedStage ? `${r.failedStage}:${failed?.status ?? 'failed'}` : 'in-progress'),
     stageReceipt: r
   }
 }
@@ -448,19 +495,21 @@ function stageFailure(stage: DrivenStageName, e: unknown): StageVerdict {
         status: 'failed',
         error,
         next:
-          m?.code === 'INTERFACE_STALE' || m?.code === 'INPUT_NOT_READY'
+          m?.code === 'INTERFACE_STALE' ||
+          m?.code === 'INPUT_NOT_READY' ||
+          m?.code === 'GRANT_REVOKED'
             ? ['replan']
             : ['retry:same-operation', 'replan']
       }
     case 'resources_claimed':
+      if (m?.code === 'START_UNKNOWN' || m?.code === 'CONTROL_UNAVAILABLE') {
+        return { status: 'unknown', error, next: ['worker.inspect', 'reconcile'] }
+      }
       if (m) {
         return {
           status: 'failed',
           error,
-          next:
-            m.code === 'RESOURCE_BUSY' || m.code === 'CONTROL_UNAVAILABLE'
-              ? ['retry:same-operation', 'replan']
-              : ['replan']
+          next: m.code === 'RESOURCE_BUSY' ? ['retry:same-operation', 'replan'] : ['replan']
         }
       }
       return { status: 'unknown', error, next: ['worker.inspect', 'reconcile'] }
@@ -828,10 +877,56 @@ async function stageResourcesClaimed(ctx: StageCtx): Promise<StageOutcome> {
   const { db, deps, txn, plan, pins, receipt, shared } = ctx
   const eid = effectId(plan.id, 'resources')
   const prior = getEffect(db, eid)
-  if (prior?.state === 'confirmed') {
-    hydrateClaim(prior.receipt, shared)
-    return { receipt: prior.receipt, residuals: claimResiduals(shared) }
+
+  type PrepareResult = {
+    workspace?: { id?: string; state?: string }
+    checkout?: { id?: string; canonicalPath?: string }
+    claim?: unknown
+    claims?: unknown[]
+    effect?: { state?: string; receipt?: unknown; residuals?: unknown[] }
   }
+  type MappedClaim = {
+    checkoutId?: string
+    checkoutPath?: string
+    workspaceId?: string
+    claims: unknown[]
+    effectResiduals: unknown[]
+  }
+
+  const mapPrepare = (out: PrepareResult): MappedClaim => ({
+    checkoutId: out.checkout?.id,
+    checkoutPath: out.checkout?.canonicalPath,
+    workspaceId: out.workspace?.id,
+    claims: out.claims ?? (out.claim ? [out.claim] : []),
+    effectResiduals: out.effect?.residuals ?? []
+  })
+
+  if (prior?.state === 'confirmed') {
+    const mapped = prior.receipt as MappedClaim
+    hydrateClaim(mapped, shared)
+    const workspaceState = mapped.workspaceId
+      ? getRow<{ state: string }>(db, 'SELECT state FROM workspaces WHERE id=?', mapped.workspaceId)
+          ?.state
+      : undefined
+    if (
+      workspaceState !== 'ready' ||
+      !mapped.checkoutPath ||
+      !mapped.checkoutId ||
+      !mapped.workspaceId
+    ) {
+      throw mahasError(
+        'START_UNKNOWN',
+        'confirmed workspace.prepare effect has no ready workspace',
+        'reconcile',
+        { workspaceState, effectState: prior.state }
+      )
+    }
+    return {
+      receipt: mapped,
+      residuals: [...(mapped.effectResiduals ?? []), ...claimResiduals(shared)]
+    }
+  }
+
   if (!deps.call) {
     throw mahasError(
       'CONTROL_UNAVAILABLE',
@@ -879,36 +974,68 @@ async function stageResourcesClaimed(ctx: StageCtx): Promise<StageOutcome> {
     recordStage(receipt, 'resources_claimed', { status: 'attempting', effectId: eid }, deps.now())
     saveReceipt(db, deps, receipt)
   })
+  let observed: MappedClaim | undefined
   try {
-    // WorkspacePrepareResult = {workspace, checkout, claim, effect} — map the
-    // nested shape onto the coordinator's flat claim view (F-046: the old
-    // code read top-level checkoutPath off the nested result and always
-    // threw CONTROL_UNAVAILABLE even on success).
-    const out = (await deps.call(txn.ctx, 'workspace.prepare', payload)) as {
-      workspace?: { id?: string }
-      checkout?: { id?: string; canonicalPath?: string }
-      claim?: unknown
+    const out = (await deps.call(txn.ctx, 'workspace.prepare', payload)) as PrepareResult
+    const mapped = mapPrepare(out)
+    observed = mapped
+    hydrateClaim(mapped, shared)
+
+    const workspaceState = out.workspace?.state
+    const effectState = out.effect?.state
+    if (workspaceState === 'failed' || effectState === 'rejected') {
+      const nestedReceipt = out.effect?.receipt
+      const reason =
+        nestedReceipt && typeof nestedReceipt === 'object' && 'reason' in nestedReceipt
+          ? (nestedReceipt as { reason?: unknown }).reason
+          : nestedReceipt
+      throw (
+        asMahasError(reason) ??
+        mahasError('INPUT_NOT_READY', 'workspace.prepare was rejected', 'replan', reason)
+      )
     }
-    const mapped = {
-      checkoutId: out?.checkout?.id,
-      checkoutPath: out?.checkout?.canonicalPath,
-      workspaceId: out?.workspace?.id,
-      claims: out?.claim ? [out.claim] : []
+    if (workspaceState !== 'ready' || effectState !== 'confirmed') {
+      throw mahasError(
+        'START_UNKNOWN',
+        'workspace.prepare did not confirm a ready workspace',
+        'reconcile',
+        { workspaceState, effectState }
+      )
     }
-    if (typeof mapped.checkoutPath !== 'string' || !mapped.checkoutId || !mapped.workspaceId) {
+    if (!mapped.checkoutPath || !mapped.checkoutId || !mapped.workspaceId) {
       throw mahasError(
         'CONTROL_UNAVAILABLE',
-        'workspace.prepare returned no canonical checkout path'
+        'workspace.prepare confirmed readiness without a canonical checkout path',
+        'reconcile',
+        { workspaceState, effectState }
       )
     }
     tx(db, () => {
-      setEffectState(db, eid, 'confirmed', mapped, mapped.claims)
+      const residuals = [...mapped.effectResiduals, ...claimResiduals(shared)]
+      setEffectState(db, eid, 'confirmed', mapped, residuals)
       hydrateClaim(mapped, shared)
     })
-    return { receipt: mapped, residuals: claimResiduals(shared) }
+    return { receipt: mapped, residuals: [...mapped.effectResiduals, ...claimResiduals(shared)] }
   } catch (e) {
+    // Keep any claim returned with a rejected/unknown workspace result.  The
+    // residual is the handoff for worker.release/reconcile; dropping it here
+    // would make a failed launch look clean while its writer still blocks the
+    // checkout.
+    const m = asMahasError(e)
+    const state =
+      !m || m.code === 'CONTROL_UNAVAILABLE' || m.code === 'START_UNKNOWN' ? 'unknown' : 'rejected'
+    const residuals = observed
+      ? [...observed.effectResiduals, ...claimResiduals(shared)]
+      : claimResiduals(shared)
+    addResiduals(receipt, residuals)
     tx(db, () => {
-      setEffectState(db, eid, asMahasError(e) ? 'rejected' : 'unknown', { error: describeError(e) })
+      setEffectState(
+        db,
+        eid,
+        state,
+        { error: describeError(e), ...(observed ? { result: observed } : {}) },
+        residuals
+      )
     })
     throw e
   }
@@ -963,7 +1090,7 @@ async function stageComponentsMaterialized(ctx: StageCtx): Promise<StageOutcome>
   if (!shared.checkoutPath)
     throw mahasError('INPUT_NOT_READY', 'no claimed checkout path', 'same-operation')
 
-  const envelope = loadMaterializationEnvelope(db, pins.envelope.digest)
+  const envelope = loadMaterializationEnvelope(ctx)
 
   const wantBytes = textSources(spec)
   const payload = {
@@ -1056,23 +1183,25 @@ async function stageComponentsMaterialized(ctx: StageCtx): Promise<StageOutcome>
 /** Resolve the pinned WorkEnvelope into the actual bytes materialized as
  * task/initial.txt. The envelope row only stores content-addressed body
  * bytes, so launch must join the blob instead of forwarding a digest/path. */
-function loadMaterializationEnvelope(
-  db: DatabaseSync,
-  envelopeDigest: string
-): { digest: string; initialText: string; envelopeJson: unknown } {
+function loadMaterializationEnvelope(ctx: StageCtx): {
+  digest: string
+  initialText: string
+  envelopeJson: unknown
+} {
+  const { db, pins, shared } = ctx
+  const envelopeDigest = pins.envelope.digest
   const row = getRow<{
     digest: string
     kind: string
     assignment_id: string
     assignment_revision: number
     bindings_json: string
-    body: Uint8Array
+    body_digest: string
   }>(
     db,
     `SELECT e.digest, e.kind, e.assignment_id, e.assignment_revision,
-            e.bindings_json, b.body
+            e.bindings_json, e.body_digest
        FROM work_envelopes e
-       JOIN content_blobs b ON b.digest = e.body_digest
       WHERE e.digest = ?`,
     envelopeDigest
   )
@@ -1085,8 +1214,12 @@ function loadMaterializationEnvelope(
   }
   let body: unknown
   let bindings: unknown
+  const blob = getContentBlob(db, row.body_digest)
+  if (!blob) {
+    throw mahasError('INPUT_NOT_READY', `work envelope ${envelopeDigest} body is missing`, 'replan')
+  }
   try {
-    body = JSON.parse(new TextDecoder().decode(row.body))
+    body = JSON.parse(new TextDecoder().decode(blob.bytes))
     bindings = JSON.parse(row.bindings_json)
   } catch {
     throw mahasError('MODEL_INVALID', `work envelope ${envelopeDigest} is malformed`, 'replan')
@@ -1099,11 +1232,38 @@ function loadMaterializationEnvelope(
     body,
     bindings
   }
+  const bootstrap = {
+    connection: 'Use MAHAS_CONNECTION_FILE to authenticate. Never print or forward its contents.',
+    join: {
+      operation: 'execution.join',
+      payload: {
+        executionId: shared.executionId,
+        generation: shared.generation,
+        bundleDigest: pins.bundle.digest,
+        surfaceDigest: pins.surface.digest,
+        envelopeDigest
+      }
+    },
+    ...(pins.assignment.kind === 'task' && pins.task && shared.dispatchId
+      ? {
+          accept: {
+            operation: 'task.accept',
+            payload: {
+              dispatchId: shared.dispatchId,
+              taskRevision: pins.task.revision,
+              envelopeDigest
+            }
+          }
+        }
+      : {}),
+    instructions:
+      'Call join with these exact pins first; after it commits, call accept if present. A same-operation retry may be needed while launch reaches awaiting_join.'
+  }
   return {
     digest: row.digest,
     // The complete pinned payload is supplied, not merely requirementText:
     // inputs, peers and report/settlement terms live in bindings.
-    initialText: JSON.stringify(envelopeJson, null, 2),
+    initialText: JSON.stringify({ ...envelopeJson, bootstrap }, null, 2),
     envelopeJson
   }
 }
@@ -1131,10 +1291,11 @@ async function refillBytes(ctx: StageCtx): Promise<void> {
     executionId: shared.executionId!,
     bundleDigest: pins.bundle.digest,
     checkoutPath: shared.checkoutPath!,
+    ...(shared.workspaceId ? { workspaceId: shared.workspaceId } : {}),
     memberId: pins.member.id,
     launchPlanId: ctx.plan.id,
     operationKey: effectId(ctx.plan.id, 'materialize'),
-    envelope: loadMaterializationEnvelope(ctx.db, pins.envelope.digest),
+    envelope: loadMaterializationEnvelope(ctx),
     wantBytes: textSources(ctx.spec)
   })
   for (const f of out.files) shared.files.set(f.path, f)
@@ -1178,6 +1339,10 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
       'replan'
     )
   }
+
+  // A resumed call hydrates the receipt's paths, not its file bytes.
+  // Refill through the idempotent materializer before resolving argv/stdin.
+  await refillBytes(ctx)
 
   // F-053: an execution that already left the start window (start_unknown
   // after a previous ambiguous attempt, awaiting_join after a confirmed-but-
@@ -1245,7 +1410,7 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
   try {
     const out = (await host.call('host.process.spawn', spawnPayload)) as {
       state?: string
-      spawn?: { state?: string; error?: { code?: string; message?: string } }
+      spawn?: { state?: string; message?: string; error?: { code?: string; message?: string } }
       processIdentity?: unknown
       processIncarnation?: unknown
       terminalId?: string
@@ -1257,7 +1422,7 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
       tx(db, () => setEffectState(db, eid, 'rejected', out))
       throw mahasError(
         'MANDATORY_COMPONENT_MISSING',
-        `host rejected spawn: ${out.spawn?.error?.message ?? out.error?.message ?? 'no detail'}`,
+        `host rejected spawn: ${out.spawn?.message ?? out.spawn?.error?.message ?? out.error?.message ?? 'no detail'}`,
         'replan'
       )
     }
