@@ -56,9 +56,9 @@ during the assessment):**
 | F-019 | **untouched** | `admission.ts:320-322` post-handler re-authorization unchanged (now also resolves `finalTargets` via `resolveTargets`); `access/operations.ts` identical — self-revoke still revokes the attested grant then fails the post-check → rollback. Note: `access.revoke` is currently `MODEL_INVALID`-blocked anyway (see migration blocker below), so the path can't even be reached via socket right now. | high |
 | F-020 | **untouched** | `member.ts:150-196` `requiredActionsFor` base list still lacks `access.inspect`; `access/operations.ts` identical — member self-view still `UNAVAILABLE_OPERATION`. | high |
 | F-021 | **fixed** | probe-verified. Same `scopeEntries` fix as F-010 (`grant.ts:235-272`): `fx-authz.ts` — own boundary covered by `scopeCoversTargets`, foreign boundary denied. Boundary targets now reachable through role/boundary scope entries. | high |
-| F-022 | **addressing** | probe-verified partially open. `internal.ts:518-525` adds a principal-scoped fallback (empty `grantRevisions` → grants selected by `principal_id`), and `grantRevisions` is now server-derived at credential bind (`bootstrap-credential.ts:172-186`) so a socket caller can no longer inject foreign grant ids. **But** the id-only path persists: non-empty `grantRevisions` still looks up `WHERE id=?` without `principal_id=?` (:527-540), and `recheckCallerGrants` same — `fx-authz.ts`: foreign provisioning grant still returned for lead ctx, accepted by `recheckCallerGrants`, and enabled an r-doc assign commit in-process. | high |
+| F-022 | **fixed** | reverified 2026-09-19 (VER-11 launch leg + code). `internal.ts` union scan + `ownerSet` ownership on both `callerGrantsOfKind` (:528-566) and `recheckCallerGrants` (:503-513) — foreign grant ids rejected `UNAUTHENTICATED`. Live: preview committed with attested≠prov while prov grant found via owner scan. Residual (was): `internal.ts:518-525` adds a principal-scoped fallback (empty `grantRevisions` → grants selected by `principal_id`), and `grantRevisions` is now server-derived at credential bind (`bootstrap-credential.ts:172-186`) so a socket caller can no longer inject foreign grant ids. **But** the id-only path persists: non-empty `grantRevisions` still looks up `WHERE id=?` without `principal_id=?` (:527-540), and `recheckCallerGrants` same — `fx-authz.ts`: foreign provisioning grant still returned for lead ctx, accepted by `recheckCallerGrants`, and enabled an r-doc assign commit in-process. | high |
 | F-023 | **fixed** | probe-verified. Worker endpoint bound+authenticated (F-001 evidence); `fx-transport` check 9: revoked `execution_credentials` row → `UNAUTHENTICATED` on connect — `revoked_at` now consulted on the live auth path. Caveat: revoking mid-session does not fence an already-connected socket (documented limitation). | high |
-| F-024 | **untouched** | probe-verified open. `decide()` (`authorize.ts:271-277`) still verifies existence+`revoked_at` only — no `grant.revision` vs `ctx.grantRevisions[id]` compare anywhere. `fx-authz.ts`: ctx attesting rev 1 while grant sits at rev 6 → admitted. Server-derived `grantRevisions` is groundwork, but no comparison logic exists. | high |
+| F-024 | **fixed** | `recheckCallerGrants` now enforces owner (`principal_id`/bound member) + revision (`internal.ts:503-525`) — was: probe-verified open. `decide()` (`authorize.ts:271-277`) still verifies existence+`revoked_at` only — no `grant.revision` vs `ctx.grantRevisions[id]` compare anywhere. `fx-authz.ts`: ctx attesting rev 1 while grant sits at rev 6 → admitted. Server-derived `grantRevisions` is groundwork, but no comparison logic exists. | high |
 
 ## Mid-migration blocker (not a ledger finding — flags WIP completeness)
 
@@ -179,3 +179,27 @@ Per file:
   (epoch 1→2). Legacy `s0-fixture`/`s3-bypass`/`s6-cover` could not run —
   unmigrated ops die at the `resolveTargets` gate (see blocker section).
 - Spec diff: `git show 83a6d21:<spec>` vs WIP for all 16 changed spec files.
+
+
+## 2026-09-19 re-verification addendum — VER-11 launch leg (live WIP, epoch-2 daemon)
+
+Targeted probes against the live daemon (seeded VER-11 world, `mem_42857051` /
+`asg_b7dd9bec`, fake-harness profile `hp-ver11-fake`). Full receipts:
+`records/verification/evidence/ver-11/launch/`.
+
+| id | status | probe result |
+| --- | --- | --- |
+| F-046 | **fixed (verified)** | `worker.start` drove REAL stages: admitted→inputs_pinned→resources_claimed confirmed; `workspace.prepare` committed with `{projectId, placementIntent, ownerReservation}` contract (effect `…:effect:resources` confirmed). |
+| F-051 | **fixed (verified)** | `components_materialized` confirmed — compiled bundle `ff6c6746` parsed by the real materializer → exec root manifest `mahas.execution-manifest/v1`, `role/mandatory.md` (0444), `surface/commands.{json,md}`, `connection/worker` (0600, real bootstrap cred `aa9c1723`). |
+| F-055 | **fixed (verified)** | `execution.join` called with the real bootstrap credential over the worker socket: hello-ok → admission passed (launchPlan ancestry now resolves) → handler reached, rejected only by execution state (`STALE_EXECUTION`, exec already exited post-spawn-failure — correct). Residual: `assignment` kind → F-062. |
+| F-022 | **fixed (verified)** | union owner-scan + `ownerSet` on both grant paths (`internal.ts:503-566`); foreign attestation rejected `UNAUTHENTICATED`. |
+| F-024 | **fixed (verified)** | `recheckCallerGrants` enforces owner + revision. |
+| F-047 | **superseded by F-063** | initial-stdin field placement is now unreachable: `task/initial.txt` is never materialized (envelope never forwarded to the materializer), spawn dies earlier at `process_attempting`. The underlying spec-field question is untestable until F-063 lands. |
+| F-048 | **partially verified** | bootstrap credential authenticates and `execution.join` reaches its handler — the worker's pre-join surface includes the op. Post-join grant issuance unverifiable until an execution reaches `awaiting_join` (blocked by F-063). |
+| F-049 | **partially verified** | join cleared admission + post-write path not reached (state gate) — the F-055 ancestry fix removed the old `unresolvedTargets:[launchPlan]` wedge. Commit-level re-authz still unobserved (needs a joined execution). |
+| F-050 | **open (unreached)** | dispatch-phase advancement requires a real join; blocked upstream by F-063. |
+| F-052/53/54/56 | **open (unexercised)** | host crash/dedupe/journal paths not re-drilled this leg. |
+| F-062 | **open (new, major)** | `worker.prepare` doubly unreachable for members: `assignment` target kind has no `expandOne` case (SCOPE_DENIED for any non-`*` scope); internal `context.build` dispatches under member ctx → service-visibility op hidden. Both baseline defects. |
+| F-063 | **open (new, critical-path)** | `task/initial.txt` can never materialize — coordinator omits `envelope` from the materialize request while REQUIRED_SOURCES forces every recipe to route it. `worker.start` cannot reach spawn on the shipped path (baseline defect). |
+| F-064 | **open (new, major)** | post-admission start failure wedges the member: `worker.stop` refuses 'preparing', `worker.release` doesn't clear `current_execution_id`, failed-plan receipt replays. No shipped recovery path. |
+| F-065 | **open (new, minor)** | `worker.prepare` idempotent plan-id derivation — a `replan`-verdict plan cannot be superseded without perturbing unrelated inputs. |

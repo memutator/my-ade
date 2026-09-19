@@ -75,3 +75,41 @@ Same seeded world (`/tmp/mahas-ver-11/config`), daemons rebooted on the current 
 | F-061 | `assignment.preview` with attested=member-grant only | **fixed** — commits citing `grant-ver11-lead-prov`, `missing:[]` (union scan finds lead-owned grant) |
 
 Note: `team.retire` does not clear `runs.coordinator_member_id` — a run's coordinator slot is single-use for the run's lifetime (spec-consistent observation, not a defect).
+
+## launch leg — F-046~F-055 targeted re-verification (2026-09-19, live WIP)
+
+Minimal real launch attempt on the seeded world: `hp-ver11-fake` profile
+(`node /tmp/mahas-ver-11/fake-worker.mjs`, stdio `pipes`) bound to
+`impl-codex-1`; member `mem_42857051` (coordinator of `run-ver11-2`), caller =
+lead member credential. Evidence: `evidence/ver-11/launch/`.
+
+**Outcome: worker.start reached `process_attempting` — further than any prior
+revision — then died on a structural gap (F-063).** Stage receipts:
+
+| stage | result |
+|---|---|
+| admitted | **confirmed** — execution `execution-ab661c82` gen 2, principal `principal-execution-…` minted |
+| inputs_pinned | **confirmed** — bundle/surface/envelope/interface pins verified, routes=2 |
+| resources_claimed | **confirmed** — real `workspace.prepare` committed under the F-046-fixed contract (effect `…:effect:resources`) |
+| components_materialized | **confirmed** — exec root `config/executions/execution-ab661c82/`: `role/mandatory.md` (0444), `surface/commands.{json,md}`, `connection/worker` (**0600**, real bootstrap credential `aa9c1723`), manifest `mahas.execution-manifest/v1` |
+| process_attempting | **failed** — `MANDATORY_COMPONENT_MISSING: materialized file 'task/initial.txt' absent from execution root` (F-063) |
+| joined / awaiting_join | unreached |
+
+**Verified fixed:** F-046 (workspace.prepare contract), F-051 (compiler→
+materializer manifest seam — real bundle parsed+written), F-055 (launchPlan
+ancestry: bootstrap credential hello-ok + admission passed + join reached its
+handler, rejected only on execution state — correct).
+
+**New findings** (all baseline at `83a6d21`, not fix-session regressions):
+F-062 (worker.prepare doubly unreachable: `assignment` target unexpandable +
+internal `context.build` under member ctx), F-063 (envelope never forwarded to
+materializer → `task/initial.txt` can never exist → spawn unreachable for every
+recipe since the route is REQUIRED), F-064 (post-admission failure wedges the
+member — stop refuses `preparing`, release doesn't unbind, failed-plan receipt
+replays), F-065 (minor — plan id is input-derived; `replan` verdicts can't get
+a fresh plan without perturbing inputs).
+
+**Workarounds used (recorded, fixture-level):** prov-grant scope + explicit
+`assignment` entry; member grant actions + `context.build`/`workspace.prepare`
+(service-surface ops); member binding cleared manually after the wedged first
+plan. No source code touched.

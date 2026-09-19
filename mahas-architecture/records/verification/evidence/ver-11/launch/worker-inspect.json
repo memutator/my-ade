@@ -1,0 +1,17 @@
+{
+ "kind": "result",
+ "requestId": 1,
+ "receipt": {
+  "operationId": "drv-1789816178878",
+  "fingerprint": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "status": "rejected",
+  "error": {
+   "code": "INPUT_NOT_READY",
+   "message": "no execution found for the given executionId/memberId",
+   "retry": "none"
+  },
+  "effects": [],
+  "domainRevision": 0,
+  "eventCursor": 38
+ }
+}
