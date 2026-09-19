@@ -62,3 +62,16 @@ cost: "2 paid grok turns approved implicitly via user direction — ACP session 
 - **Codex paid re-execution** — not re-run; worker role exercised through its qualified worker-surface CLI (VER-10 already proved real codex exec/injection/resume).
 - **Grok TUI member residency** — requires a real pty; ACP stdio was the deterministic path. Resume via `session/loadSession` capability observed in ACP metadata, not driven.
 - **VER-09 claude** — remains `blocked` (no account); VER-11 does not claim its coverage.
+
+## re-verification — post-fix (2026-09-19, live worktree vs VER-11 world)
+
+Same seeded world (`/tmp/mahas-ver-11/config`), daemons rebooted on the current worktree code (epoch 2). Workarounds reverted first (prov grant scope → non-`*` targets; lead assignment binding → member grant).
+
+| finding | repro | result |
+|---|---|---|
+| F-058 | fresh `responsibility.search`(mv_e4a76579) → `team.assign` coordination on `run-ver11-2` with **scoped** parent | **fixed** — `mem_42857051` / `grt_395b2496` committed; member INSERT precedes issueGrant |
+| F-059 | `model.impact.list` (legacy `{kind,details}` rows) | **fixed** — returns `ic_cee0e64458` (b-quality) + `ic_a0a699b12d` (r-worker) via change_ref→project fallback |
+| F-060 | rejection receipts | **fixed** — `STALE_REVISION`/`INVALID_TRANSITION`/`INTERFACE_STALE` all carry `message` on the wire |
+| F-061 | `assignment.preview` with attested=member-grant only | **fixed** — commits citing `grant-ver11-lead-prov`, `missing:[]` (union scan finds lead-owned grant) |
+
+Note: `team.retire` does not clear `runs.coordinator_member_id` — a run's coordinator slot is single-use for the run's lifetime (spec-consistent observation, not a defect).
