@@ -15,7 +15,8 @@
 // (attended vs ambient) assume it keeps focus for the few seconds it runs.
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +26,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const electron = createRequire(import.meta.url)('electron')
 const FAKE = 'node tools/mahas-fake.mjs'
 const BASE = mkdtempSync(join(tmpdir(), 'mahas-e2e-'))
+
+/**
+ * Every config directory a scenario actually booted, recorded at spawn time.
+ * Cleanup walks this set rather than the scenario list: a scenario can boot
+ * more than one app (attention boots a second 'attention-away' app), and a
+ * scenario that throws before its own `quit()` still leaves daemons behind.
+ */
+const bootedConfigDirs = new Set()
+const bootedApps = new Set()
 
 let passed = 0
 let failed = 0
@@ -42,6 +52,131 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 function pgrep(pattern) {
   const r = spawnSync('pgrep', ['-f', pattern], { encoding: 'utf8' })
   return r.status === 0 ? r.stdout.trim().split('\n').filter(Boolean) : []
+}
+
+/**
+ * The isolated config directory for one scenario, and the environment that
+ * pins every config-derived path into it.
+ *
+ * `XDG_CONFIG_HOME` alone is not enough: `MAHAS_CONFIG_DIR` wins over it in
+ * `src/main/eventsFile.ts`, and a hosting terminal that already exports it (the
+ * mahas dev shell does) would point the test app's hook channel, decision log
+ * and daemon state at the *installed* app's live data. Setting all four
+ * explicitly makes the scenario self-contained regardless of the caller.
+ */
+function scenarioConfig(tag) {
+  const cfg = join(BASE, tag)
+  const configDir = join(cfg, 'mahas')
+  const fixtureHome = join(configDir, 'test-home')
+  for (const path of [fixtureHome, join(cfg, 'runtime'), join(configDir, 'agent-icons')]) {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  }
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
+  for (const id of Object.keys(JSON.parse(readFileSync(join(ROOT, 'resources/agents/manifest.json'), 'utf8')))) {
+    writeFileSync(join(configDir, 'agent-icons', `${id}.img`), png)
+  }
+  return {
+    cfg,
+    configDir,
+    env: {
+      ...Object.fromEntries(['DISPLAY', 'XAUTHORITY'].filter(key => process.env[key])
+        .map(key => [key, process.env[key]])),
+      HOME: fixtureHome,
+      XDG_CONFIG_HOME: cfg,
+      XDG_DATA_HOME: join(cfg, 'data'),
+      XDG_CACHE_HOME: join(cfg, 'cache'),
+      XDG_STATE_HOME: join(cfg, 'state'),
+      XDG_RUNTIME_DIR: join(cfg, 'runtime'),
+      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+      SHELL: '/bin/bash',
+      MAHAS_NODE: process.execPath,
+      MAHAS_LEGACY_USAGE_ACCOUNTS_ROOT: join(configDir, 'usage-accounts'),
+      MAHAS_CONFIG_DIR: configDir,
+      MAHAS_EVENTS_FILE: join(configDir, 'agent-events.log'),
+      MAHAS_NOTIFY_LOG: join(configDir, 'notify-decisions.log')
+    }
+  }
+}
+
+/**
+ * Stop only the daemons this fixture started.
+ *
+ * The services are deliberately detached so they survive a UI close, which
+ * means killing the Electron process leaves them running. Never `pkill` a
+ * daemon name — that would also hit an installed mahas the user is running.
+ * A fixture daemon is identified by its own config directory: its endpoint file
+ * lives under the scenario's scratch dir and nowhere else.
+ */
+async function stopFixtureDaemons(configDir) {
+  // Endpoint file names differ per service: mahasd publishes
+  // <configDir>/mahasd.endpoint.json (lifecyclePaths) while the execution host
+  // writes <configDir>/execution-host.sock.endpoint.json next to its socket.
+  const endpointFiles = [
+    join(configDir, 'mahasd.endpoint.json'),
+    join(configDir, 'execution-host.sock.endpoint.json')
+  ]
+  const identities = new Map()
+  for (const endpointFile of endpointFiles) {
+    if (!existsSync(endpointFile)) continue
+    let recorded
+    try {
+      recorded = JSON.parse(readFileSync(endpointFile, 'utf8'))
+    } catch {
+      continue
+    }
+    const identity = recorded?.processIdentity ?? recorded
+    const pid = Number(identity.pid)
+    if (!Number.isInteger(pid) || pid <= 1 || !recorded.endpoint?.startsWith(`${configDir}/`)) continue
+    const live = procIdentity(pid)
+    if (!live || live.birth !== String(identity.birthEvidence)) continue
+    if (identity.bootId !== readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()) continue
+    identities.set(pid, live)
+  }
+  // A child can fail before publishing its endpoint. Bootstrap receipts still
+  // identify it; verify its exact config argument before recording a PID.
+  try {
+    const log = readFileSync(join(configDir, 'logs/desktop-bootstrap.log'), 'utf8')
+    for (const match of log.matchAll(/spawned (?:mahasd|execution-host) pid=(\d+)/g)) {
+      const pid = Number(match[1])
+      const live = procIdentity(pid)
+      if (!live) continue
+      try {
+        const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')
+        if (argv.some((arg, i) => arg === '--config-dir' && argv[i + 1] === configDir)) identities.set(pid, live)
+      } catch { /* exited */ }
+    }
+  } catch { /* never spawned */ }
+  for (const identity of identities.values()) {
+    for (const signal of ['SIGTERM', 'SIGKILL']) {
+      if (!sameProcess(identity)) break
+      try { process.kill(identity.pid, signal) } catch { /* exited */ }
+      if (await waitForExit(identity, signal === 'SIGTERM' ? 5000 : 3000)) break
+    }
+    if (sameProcess(identity)) throw new Error(`fixture service did not exit: ${identity.pid}`)
+  }
+}
+
+function procIdentity(pid) {
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const fields = raw.slice(raw.lastIndexOf(')') + 2).split(' ')
+    return { pid, birth: fields[19], state: fields[0] }
+  } catch { return null }
+}
+
+function sameProcess(identity) {
+  const live = procIdentity(identity.pid)
+  return live?.birth === identity.birth && !['Z', 'X'].includes(live.state)
+}
+
+/** Bounded wait using birth identity; zombies have exited. */
+async function waitForExit(identity, budgetMs) {
+  const deadline = Date.now() + budgetMs
+  while (Date.now() < deadline) {
+    if (!sameProcess(identity)) return true
+    await sleep(100)
+  }
+  return false
 }
 
 function readEvents(cfg) {
@@ -77,13 +212,19 @@ async function cdpTarget(port, deadline) {
 }
 
 async function boot(tag, opts = {}) {
-  const cfg = join(BASE, tag)
-  const port = 9300 + Math.floor(Math.random() * 400)
-  const child = spawn(electron, ['.', `--remote-debugging-port=${port}`], {
+  const { cfg, env } = scenarioConfig(tag)
+  bootedConfigDirs.add(env.MAHAS_CONFIG_DIR)
+  const server = createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = server.address().port
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  const child = spawn(electron, ['.', '--no-sandbox', '--ozone-platform=x11', `--remote-debugging-port=${port}`], {
     cwd: ROOT,
     env: {
-      ...process.env,
-      XDG_CONFIG_HOME: cfg,
+      ...env,
       ELECTRON_DISABLE_SANDBOX: '1',
       MAHAS_HOOK_DEBUG: '1',
       // headless: window never maps, can't steal focus; MAHAS_FAKE_FOCUS pins
@@ -93,6 +234,7 @@ async function boot(tag, opts = {}) {
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
+  bootedApps.add(child)
   child.stderr.on('data', () => {}) // drain
   const target = await cdpTarget(port, Date.now() + 20000)
   const ws = new WebSocket(target.webSocketDebuggerUrl)
@@ -215,7 +357,7 @@ async function boot(tag, opts = {}) {
       await sleep(250)
     }
   }
-  return { cfg, child, ev, input, waitFor, quit, term, type, dump, focusState, decisions, decisionFor }
+  return { cfg, env, child, ev, input, waitFor, quit, term, type, dump, focusState, decisions, decisionFor }
 }
 
 // ---------- helpers shared by scenarios ----------
@@ -312,6 +454,47 @@ async function scOrphans() {
   )
 }
 
+async function scLifetime() {
+  console.log('\n■ lifetime — minimize, float and detach keep the existing terminal alive')
+  const h = await boot('lifetime')
+  const { wsId } = await mkws(h)
+  const terminal = await h.term()
+  const pane = `window.__mahas.getState().workspaces.find(w => w.id === ${JSON.stringify(wsId)}).panes[${JSON.stringify(terminal.paneId)}]`
+  await h.type(terminal.pty, `${FAKE} --session-id lifetime-session\n`)
+  await h.waitFor(`window.__mahas.getState().resumeSessions['lifetime-session']`, 'lifetime agent started')
+  await h.ev(`window.__lifetimeMount = document.querySelector('.xterm')`)
+  const action = name => h.ev(`window.__mahas.getState()[${JSON.stringify(name)}](${JSON.stringify(terminal.paneId)}, ${JSON.stringify(wsId)})`)
+  const stillLive = async label => {
+    const before = readEvents(h.cfg).filter(e => e.sessionId === 'lifetime-session' && e.event === 'idle').length
+    await h.type(terminal.pty, 'i')
+    const until = Date.now() + 8000
+    while (Date.now() < until && readEvents(h.cfg).filter(e => e.sessionId === 'lifetime-session' && e.event === 'idle').length <= before) {
+      await sleep(100)
+    }
+    ok(readEvents(h.cfg).filter(e => e.sessionId === 'lifetime-session' && e.event === 'idle').length > before &&
+      await ptyForTab(h, terminal.tabId) === terminal.pty, label)
+  }
+  await action('minimizePane')
+  await h.waitFor(`${pane}.minimized === true`, 'pane minimized')
+  await stillLive('minimized pane keeps its PTY and running agent')
+  await action('restorePane')
+  await action('floatPane')
+  await h.waitFor(`${pane}.floating && document.querySelector('.float-inner .xterm')`, 'pane floated')
+  ok(await h.ev(`window.__lifetimeMount === document.querySelector('.xterm')`),
+    'minimize/restore/float preserves the same mounted xterm node')
+  await action('dockPane')
+  await h.ev(`window.mahas.win.detach(${JSON.stringify(wsId)}, ${JSON.stringify(terminal.paneId)}, ${pane})`)
+  await action('detachPane')
+  await sleep(1500)
+  await stillLive('detached window attaches to the same PTY and agent')
+  await h.ev(`window.mahas.win.closeDetached(${JSON.stringify(wsId)}, ${JSON.stringify(terminal.paneId)})`)
+  await h.waitFor(`!${pane}.detached && document.querySelector('.xterm')`, 'pane reattached')
+  await stillLive('reattached pane keeps the same PTY and agent')
+  ok(readEvents(h.cfg).filter(e => e.sessionId === 'lifetime-session' && e.event === 'session-start').length === 1,
+    'layout transitions never respawn the agent')
+  await h.quit()
+}
+
 async function scResume() {
   console.log('\n■ resume — two sessions in one pane restore to their own tabs')
   const h = await boot('resume')
@@ -337,6 +520,8 @@ async function scResume() {
   await h.quit()
 
   // boot 2 — same config dir; state rehydrates, prompt appears, accept it
+  const startsBeforeResume = readEvents(h.cfg).filter(e => e.event === 'session-start' &&
+    (e.sessionId === 'sess-A' || e.sessionId === 'sess-B')).length
   const h2 = await boot('resume')
   const rows = await h2.waitFor(
     `document.querySelectorAll('.resume-list .resume-row').length`,
@@ -352,14 +537,28 @@ async function scResume() {
   while (Date.now() < dl) {
     evs = readEvents(h2.cfg).filter(
       (e) => e.event === 'session-start' && (e.sessionId === 'sess-A' || e.sessionId === 'sess-B')
-    )
+    ).slice(startsBeforeResume)
     if (evs.length >= 2) break
     await sleep(300)
   }
   const bySid = Object.fromEntries(evs.map((e) => [e.sessionId, e.tabId]))
   ok(bySid['sess-A'] === t1.tabId, 'sess-A resumed inside tab 1')
   ok(bySid['sess-B'] === tabB, 'sess-B resumed inside tab 2')
+  // A user exit after resuming must remove the old imported candidate too.
+  const livePtyA = await ptyForTab(h2, t1.tabId)
+  const livePtyB = await ptyForTab(h2, tabB)
+  await h2.type(livePtyA, 'x')
+  await h2.type(livePtyB, 'x')
+  await h2.waitFor(`!window.__mahas.getState().resumeSessions['sess-A'] &&
+    !window.__mahas.getState().resumeSessions['sess-B']`, 'explicit exits clear resume records')
   await h2.quit()
+  const h3 = await boot('resume')
+  await h3.waitFor(`window.mahas.domain.sessions({rootsOnly:true}).then(r => r.ok && r.value.items.length > 0)`,
+    'stored history available after explicit exits')
+  await sleep(1000)
+  ok(await h3.ev(`document.querySelectorAll('.resume-list .resume-row').length === 0`),
+    'ended sessions remain history without another resume prompt')
+  await h3.quit()
 }
 
 async function scAttention() {
@@ -443,16 +642,24 @@ async function scAdopt() {
   const h = await boot('adopt')
   await mkws(h)
   const t = await h.term()
-  const hook = join(h.cfg, 'mahas', 'mahas-hook.cjs')
-  await h.waitFor(`true`, 'warmup', 500) // let the app copy the hook script over
+  // The hook script is a Pack artifact, not a `resources/` file: main installs a
+  // copy into the config dir, but MAHAS_TEST skips the global refresh, so this
+  // fixture drives the shipped Pack script directly. Emitting also passes the
+  // same explicit event/notify paths the app was booted with — inheriting them
+  // from a hosting shell would let the fixture write into a real profile.
+  const hook = join(ROOT, 'integrations', 'packs', 'harness-runtime', 'hooks', 'mahas-hook.cjs')
+  if (!existsSync(hook)) {
+    ok(false, `shipped hook script is missing: ${hook}`)
+    await h.quit()
+    return
+  }
   const emit = (sessionId, extraEnv = {}) =>
     spawnSync(
       process.execPath,
       [hook, 'fake', 'turn-complete', JSON.stringify({ session_id: sessionId, cwd: ROOT })],
       {
         env: {
-          ...process.env,
-          MAHAS_CONFIG_DIR: join(h.cfg, 'mahas'),
+          ...h.env,
           MAHAS_SESSION: 'dead-run-uuid',
           ...extraEnv
         }
@@ -780,6 +987,7 @@ async function scStatus() {
 
 const ALL = {
   orphans: scOrphans,
+  lifetime: scLifetime,
   resume: scResume,
   attention: scAttention,
   status: scStatus,
@@ -805,5 +1013,27 @@ for (const name of list) {
   }
 }
 console.log(`\n${passed} passed, ${failed} failed`)
-rmSync(BASE, { recursive: true, force: true })
+// The app now boots its control plane in MAHAS_TEST too (that is the startup
+// path under test), and the services are detached so they outlive the UI on
+// purpose. Stop the fixture's own children before deleting the scratch root.
+// The set is recorded at spawn time, so it covers every app a scenario booted
+// (including a second app under its own tag) and any scenario that threw
+// before reaching its own `quit()`. Children are identified by their own
+// endpoint file — never by process name, which would also hit an installed
+// mahas the user is running.
+for (const child of bootedApps) {
+  if (child.exitCode !== null || child.signalCode !== null) continue
+  child.kill('SIGTERM')
+  const identity = procIdentity(child.pid)
+  if (identity && !(await waitForExit(identity, 5000))) {
+    child.kill('SIGKILL')
+    if (!(await waitForExit(identity, 3000))) throw new Error(`fixture app did not exit: ${child.pid}`)
+  }
+}
+const stopped = await Promise.allSettled([...bootedConfigDirs].map(stopFixtureDaemons))
+const cleanupErrors = stopped.filter(result => result.status === 'rejected')
+if (cleanupErrors.length) {
+  console.error('cleanup failed; retained fixture:', BASE, cleanupErrors)
+  failed += cleanupErrors.length
+} else rmSync(BASE, { recursive: true, force: true })
 process.exit(failed ? 1 : 0)

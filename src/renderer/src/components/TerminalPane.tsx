@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
-import type { ILink, ILinkProvider } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
@@ -9,149 +8,17 @@ import { useStore, patchTerminalTab, linkTargetPane } from '../store'
 import { reportProcessIdle, reportAgentError } from '../attention'
 import { useT, translate } from '../i18n'
 import { isDetachedWin } from '../detached'
+import { decode, utf8 } from '../features/terminal/codec'
+import { ErrorBannerScanner } from '../features/terminal/errorScan'
+import { makePathLinkProvider } from '../features/terminal/links'
+import { WorkingPulse } from '../features/terminal/workingPulse'
+import { newSessionId, shellTransport } from '../features/terminal/transport'
+import { TERM_THEME } from '../features/terminal/theme'
 import { CtxMenu } from './Menu'
 
-const TERM_THEME = {
-  dark: {
-    background: '#151516',
-    foreground: '#ececef',
-    cursor: '#7aa2f7',
-    cursorAccent: '#0e1114',
-    selectionBackground: '#2a3444',
-    selectionInactiveBackground: '#1d2129'
-  },
-  light: {
-    background: '#f6f6f7',
-    foreground: '#1e2126',
-    cursor: '#4f6ef7',
-    cursorAccent: '#fbfbfc',
-    selectionBackground: '#d4dbf8',
-    selectionInactiveBackground: '#e3e6ea'
-  }
-}
-
-function decode(b64: string): Uint8Array {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return bytes
-}
-
-const utf8 = new TextDecoder()
-
-function stripAnsi(s: string): string {
-  let out = ''
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) !== 27) {
-      out += s[i]
-      continue
-    }
-    // CSI: ESC [ … @-~
-    if (s[i + 1] === '[') {
-      i += 2
-      while (i < s.length) {
-        const c = s.charCodeAt(i)
-        if (c >= 64 && c <= 126) break
-        i++
-      }
-    }
-  }
-  return out
-}
-
-// Devin prints `[Error] Reached free model rate limit…` and stops the turn
-// without a Stop/StopFailure hook. Keep prefixes in sync with mahas-hook.cjs
-// `isFailedStop`.
-const ERROR_BANNER_RE =
-  /(?:^|[\r\n])((?:\[Error\][ \t]*|Rate limited:[ \t]*|Quota exhausted:[ \t]*)[^\r\n]+)/gi
-
-function lastErrorBanner(buf: string): { msg: string; end: number } | null {
-  ERROR_BANNER_RE.lastIndex = 0
-  let hit: { msg: string; end: number } | null = null
-  let m: RegExpExecArray | null
-  while ((m = ERROR_BANNER_RE.exec(buf))) {
-    const msg = (m[1] || '').trim()
-    if (msg) hit = { msg, end: m.index + m[0].length }
-  }
-  return hit
-}
-
-// ── terminal → pane links ────────────────────────────────────────────────
-
-// Whitespace-delimited candidate tokens; per-token rules in extractPath decide
-// what really looks like a file path.
-const PATH_TOKEN_RE = /[^\s'"`()[\]{}<>|;&*]+/g
-
-// Extensionless basenames worth linking.
-const KNOWN_BASENAMES = new Set([
-  'makefile',
-  'dockerfile',
-  'containerfile',
-  'vagrantfile',
-  'jenkinsfile',
-  'gemfile',
-  'rakefile',
-  'justfile',
-  'procfile',
-  'brewfile',
-  'license',
-  'licence',
-  'readme',
-  'changelog',
-  'copying',
-  'notice',
-  'authors',
-  'contributors'
-])
-
-function looksLikePath(p: string): boolean {
-  if (!p || /^(\/|~|~\/|\.{1,2}|\.{1,2}\/)$/.test(p)) return false
-  if (p.startsWith('/') || p.startsWith('~/') || p.startsWith('./') || p.startsWith('../'))
-    return true
-  if (p.includes('/')) return true
-  if (/^\.[\w@+-][\w@+.-]*$/.test(p)) return true // dotfiles: .env, .gitignore
-  // name.ext — single-char extensions need a stem of 2+ chars (skip "e.g")
-  const ext = /\.([A-Za-z][A-Za-z0-9]{0,14})$/.exec(p)
-  if (ext && (ext[1].length > 1 || p.length - ext[1].length >= 3)) return true
-  return KNOWN_BASENAMES.has(p.toLowerCase())
-}
-
-// Extract a linkable path from a raw token: strips leading/trailing junk and an
-// optional `:line[:col]` suffix. Returns the path text plus its bounds inside
-// `token` (bounds include the suffix), or null.
-function extractPath(token: string): { path: string; start: number; end: number } | null {
-  let lo = 0
-  let hi = token.length
-  const lead = /^[^~\w./-]+/.exec(token)
-  if (lead) lo = lead[0].length
-  const trail = /[,.;:!?]+$/.exec(token)
-  if (trail) hi -= trail[0].length
-  if (lo >= hi) return null
-  let p = token.slice(lo, hi)
-
-  // file:// URIs open in the editor; other schemes belong to the web-links addon
-  if (/^file:\/\//i.test(p)) {
-    try {
-      p = decodeURIComponent(new URL(p).pathname)
-    } catch {
-      return null
-    }
-    return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
-  }
-  if (/^[\w.+-]+:\/\//.test(p) || /^(mailto|tel|data|javascript):/i.test(p)) return null
-
-  const lm = /^(.*?):\d+(?::\d+)?$/.exec(p)
-  if (lm?.[1]) p = lm[1]
-  // `key=path` / `--flag=path` — prefer the part after '=' when it is pathy
-  const eq = p.lastIndexOf('=')
-  if (eq >= 0) {
-    const q = p.slice(eq + 1)
-    if (looksLikePath(q)) {
-      lo += eq + 1
-      p = q
-    }
-  }
-  return looksLikePath(p) ? { path: p, start: lo, end: hi } : null
+/** event handlers outlive props — always read the pane fresh from the store */
+function paneAt(wsId: string, paneId: string): PaneState | undefined {
+  return useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
 }
 
 // The leaf a link opens into — a content pane, never the clicked terminal's
@@ -176,59 +43,6 @@ function openLinkedPath(raw: string, wsId: string, paneId: string, tabId: string
         .openFile(abs, abs.split('/').pop() ?? abs, wsId, false, linkTarget(wsId, paneId))
     })
     .catch(() => {})
-}
-
-/** event handlers outlive props — always read the pane fresh from the store */
-function paneAt(wsId: string, paneId: string): PaneState | undefined {
-  return useStore.getState().workspaces.find((x) => x.id === wsId)?.panes[paneId]
-}
-
-function makePathLinkProvider(
-  term: Terminal,
-  wsId: string,
-  paneId: string,
-  tabId: string
-): ILinkProvider {
-  return {
-    provideLinks: (bufferLineNumber, callback) => {
-      const buf = term.buffer.active
-      const line = buf.getLine(bufferLineNumber - 1) // provider lines are 1-based
-      const text = line?.translateToString(true)
-      if (!line || !text) {
-        callback(undefined)
-        return
-      }
-
-      // string index → cell column (wide chars span multiple cells)
-      const col = new Array<number>(text.length)
-      const cell = buf.getNullCell()
-      let si = 0
-      for (let x = 0; x < line.length && si < text.length; x++) {
-        const c = line.getCell(x, cell)
-        if (!c || c.getWidth() === 0) continue
-        const n = c.getChars().length || 1
-        for (let k = 0; k < n && si + k < text.length; k++) col[si + k] = x
-        si += n
-      }
-
-      const links: ILink[] = []
-      for (const m of text.matchAll(PATH_TOKEN_RE)) {
-        const r = extractPath(m[0])
-        if (!r) continue
-        const s = (m.index ?? 0) + r.start
-        const e = (m.index ?? 0) + r.end - 1
-        links.push({
-          range: {
-            start: { x: (col[s] ?? s) + 1, y: bufferLineNumber },
-            end: { x: (col[e] ?? e) + 1, y: bufferLineNumber }
-          },
-          text: r.path,
-          activate: () => openLinkedPath(r.path, wsId, paneId, tabId)
-        })
-      }
-      callback(links.length ? links : undefined)
-    }
-  }
 }
 
 /**
@@ -259,28 +73,12 @@ export function TerminalTabView({
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const lastAgentRef = useRef<string | null>(null)
-  // `working` (tab close-slot pulse): output while an agent owns the shell ≈
-  // a turn in flight — agent TUIs stream/spin while working and go silent at
-  // their prompt. ~1.6 s of silence ends it. Hook events (attention.ts)
-  // refine the same flag.
-  const workingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // attach replays the scrollback tail as `data` — that burst is history,
-  // not a working turn, so activity is ignored briefly after (re)attach
-  const replayUntil = useRef(0)
-  // keystroke echo suppression: typing at the agent's prompt redraws it,
-  // which is output but NOT work — output within ~0.8 s of an input never
-  // lights the flag (it still refreshes an already-lit one, so typing
-  // mid-turn doesn't flicker the light out)
-  const lastInputAt = useRef(0)
-  // a "burst" is output flowing with no >1.6 s gap. Only a burst that keeps
-  // going past ~0.9 s counts as a turn in flight — lone redraws (the attach
-  // replay tail, git/status watcher ticks, the post-turn prompt redraw) are
-  // one-frame blips that must not light the pulse
-  const lastDataAt = useRef(0)
-  const burstStartAt = useRef(0)
-  // rolling tail of stripped pty text — Devin error banners can split across
-  // chunks, and attach replay must not re-fire a historical one
-  const errorScanAt = useRef('')
+  // the working pulse + error-banner scan are per-view state machines over
+  // the pty byte stream — see features/terminal/{workingPulse,errorScan}.ts.
+  // Built inside the mount effect (a ref written during render is not
+  // allowed and would race a StrictMode double-invoke).
+  const pulseRef = useRef<WorkingPulse | null>(null)
+  const errScanRef = useRef<ErrorBannerScanner | null>(null)
   const resolvedTheme = useStore((s) => s.resolvedTheme)
   const termFont = useStore((s) => s.settings.termFont)
   const termFontSize = useStore((s) => s.settings.termFontSize)
@@ -324,7 +122,9 @@ export function TerminalTabView({
         useStore.getState().openUrlInBrowser(uri, wsId, true, linkTarget(wsId, paneId))
       )
     )
-    term.registerLinkProvider(makePathLinkProvider(term, wsId, paneId, tabId))
+    term.registerLinkProvider(
+      makePathLinkProvider(term, (raw) => openLinkedPath(raw, wsId, paneId, tabId))
+    )
     // clipboard chords — xterm forwards every key to the pty, so copy/paste
     // is intercepted before it sees them. Any copy chord (Ctrl+Shift+C,
     // Cmd+C, or plain Ctrl+C) copies the selection; plain Ctrl+C with no
@@ -365,12 +165,12 @@ export function TerminalTabView({
     const existingPty = paneAt(wsId, paneId)?.tabs.find(
       (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
     )?.pty
-    const id = existingPty ?? `${paneId}:${tabId}:${crypto.randomUUID()}`
+    const id = existingPty ?? newSessionId(paneId, tabId)
 
     const refit = (): void => {
       try {
         fit.fit()
-        window.mahas.pty.resize(id, term.cols, term.rows)
+        shell.resize(id, term.cols, term.rows)
       } catch {
         /* not visible yet */
       }
@@ -384,11 +184,15 @@ export function TerminalTabView({
     })
     const raf = requestAnimationFrame(refit)
 
-    const clearWorking = (): void => {
-      if (workingTimer.current) clearTimeout(workingTimer.current)
-      workingTimer.current = null
-      patchTerminalTab(wsId, paneId, tabId, { working: false })
-    }
+    // the unmanaged shell transport — managed executions never flow through
+    // here (see features/terminal/transport.ts)
+    const shell = shellTransport()
+    const pulse = new WorkingPulse((t) => patchTerminalTab(wsId, paneId, tabId, t))
+    const errScan = new ErrorBannerScanner()
+    pulseRef.current = pulse
+    errScanRef.current = errScan
+
+    const clearWorking = (): void => pulse.clear()
     const emitErrorBanner = (msg: string): void => {
       const provider = lastAgentRef.current
       if (!provider) return
@@ -405,94 +209,26 @@ export function TerminalTabView({
         })
       else reportAgentError(provider, wsId, paneId, tabId, clipped)
     }
+    /** the store is the single source — attention.ts can clear the flag on
+     *  hook events, so the pulse reads the tab record instead of mirroring it */
+    const termRec = (): TerminalTab | undefined =>
+      paneAt(wsId, paneId)?.tabs.find((x): x is TerminalTab => x.id === tabId && x.kind === 'term')
+    const noteOutput = (): void => pulse.noteOutput(termRec())
     const noteErrorBanner = (chunk: string): void => {
-      if (Date.now() < replayUntil.current) return
-      const buf = (errorScanAt.current + stripAnsi(chunk)).slice(-2500)
-      const hit = lastErrorBanner(buf)
-      if (hit) {
-        emitErrorBanner(hit.msg)
-        errorScanAt.current = buf.slice(hit.end)
-      } else {
-        errorScanAt.current = buf
-      }
-    }
-    const noteOutput = (): void => {
-      if (!lastAgentRef.current) return
-      const now = Date.now()
-      // replayed scrollback is history — skip it without touching the burst
-      // clocks, so the first live output afterwards starts a fresh burst
-      if (now < replayUntil.current) return
-      // a burst is a DENSE stream — a chunk only continues it while the gap
-      // stays under ~350ms. Sparser trickles (codex's git/status-watcher
-      // redraws in an active repo) can neither light the lamp nor hold it
-      const dense = now - lastDataAt.current < 350
-      if (!dense) burstStartAt.current = now
-      lastDataAt.current = now
-      // the store is the single source — attention.ts can clear the flag on
-      // hook events, so read it instead of mirroring locally
-      const rec = paneAt(wsId, paneId)?.tabs.find(
-        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
-      )
-      // hook/agent-detect latched idle — Codex's prompt TUI is a dense frame
-      // stream, so a quiet window alone never holds. Wait for the user (or a
-      // turn-start) before output may light the lamp again.
-      if (rec?.idleLocked) {
-        burstStartAt.current = now
-        return
-      }
-      const working = rec?.working ?? false
-      if (!working) {
-        // suppressed output isn't turn evidence either — echo redraws and
-        // the quiet window's trailing redraw restart the burst clock instead
-        // of accumulating toward the light
-        if (now - lastInputAt.current < 800 || now < (rec?.quietUntil ?? 0)) {
-          burstStartAt.current = now
-          return
-        }
-        // right after a turn end the bar rises — a relight needs a longer
-        // dense stream, so a post-turn redraw storm can't fake a new turn
-        // and re-stamp the '…ago' clock
-        const need = rec?.turnEndedAt && now - rec.turnEndedAt < 60_000 ? 2000 : 900
-        if (now - burstStartAt.current < need) return
-        patchTerminalTab(wsId, paneId, tabId, {
-          working: true,
-          // a relight soon after the light went out is the same turn
-          // resuming (a tool ran silently for a beat) — keep its start so
-          // the elapsed timer tracks the turn, not the latest burst
-          workingSince:
-            rec?.turnEndedAt && now - rec.turnEndedAt < 20_000 ? (rec.workingSince ?? now) : now
-        })
-      }
-      // a sparse chunk can't hold the light — let the pending silence
-      // deadline stand so periodic redraws can't pin it forever
-      if (!dense) return
-      if (workingTimer.current) clearTimeout(workingTimer.current)
-      workingTimer.current = setTimeout(() => {
-        workingTimer.current = null
-        patchTerminalTab(wsId, paneId, tabId, {
-          working: false,
-          // keep workingSince — a relight within the window above resumes
-          // the same turn's elapsed clock
-          turnEndedAt: Date.now(),
-          // and hold off the lamp briefly — a trailing post-turn redraw
-          // mustn't relight it and re-stamp the clock it just wrote
-          quietUntil: Date.now() + 2000
-        })
-      }, 1600)
+      // attach replay is history — the scanner is reset on attach, so a
+      // historical banner never re-fires
+      const msg = errScan.push(chunk)
+      if (msg) emitErrorBanner(msg)
     }
 
     const offData = term.onData((d) => {
-      lastInputAt.current = Date.now()
       // typing isn't work — composer echoes can't keep a burst alive, else
       // composing a long prompt would itself read as a turn
-      burstStartAt.current = 0
-      const rec = paneAt(wsId, paneId)?.tabs.find(
-        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
-      )
-      if (rec?.idleLocked) patchTerminalTab(wsId, paneId, tabId, { idleLocked: false })
-      window.mahas.pty.write(id, d)
+      pulse.noteInput()
+      if (termRec()?.idleLocked) patchTerminalTab(wsId, paneId, tabId, { idleLocked: false })
+      shell.write(id, d)
     })
-    const offEvent = window.mahas.pty.onEvent((e) => {
+    const offEvent = shell.onEvent((e) => {
       if (e.id !== id) return
       if (e.t === 'data' && e.d) {
         const bytes = decode(e.d)
@@ -518,9 +254,10 @@ export function TerminalTabView({
         // lastAgentRef matters: without it a remount loses the agent→idle
         // transition (prev reads null) AND output can't light `working`
         // until the next agent event
-        replayUntil.current = Date.now() + 400
+        pulse.noteReplay()
         lastAgentRef.current = e.agent ?? null
-        errorScanAt.current = ''
+        pulse.agent = e.agent ?? null
+        errScan.reset()
         clearWorking()
         patchTerminalTab(wsId, paneId, tabId, {
           shell: e.shell,
@@ -541,6 +278,7 @@ export function TerminalTabView({
       else if (e.t === 'agent') {
         const prev = lastAgentRef.current
         lastAgentRef.current = e.agent ?? null
+        pulse.agent = e.agent ?? null
         patchTerminalTab(wsId, paneId, tabId, {
           agent: e.agent ?? null,
           // a freshly detected agent is mid-launch — its startup banner / idle
@@ -563,7 +301,7 @@ export function TerminalTabView({
     const ro = new ResizeObserver(() => {
       try {
         fit.fit()
-        window.mahas.pty.resize(id, term.cols, term.rows)
+        shell.resize(id, term.cols, term.rows)
       } catch {
         /* not visible yet */
       }
@@ -573,16 +311,16 @@ export function TerminalTabView({
     // attach → reuse the live session (host replays its scrollback tail);
     // fall back to a fresh spawn under the same id when it's gone
     if (existingPty) {
-      window.mahas.pty
+      shell
         .attach(id, term.cols, term.rows)
         .then((ok) => {
           if (!ok && !disposed) {
-            window.mahas.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+            shell.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
           }
         })
         .catch(() => {})
     } else {
-      window.mahas.pty.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
+      shell.spawn({ id, cols: term.cols, rows: term.rows, cwd: projectPath })
     }
 
     return () => {
@@ -596,11 +334,8 @@ export function TerminalTabView({
       // stuck green pulse in a pane nobody is watching. Only patch when the
       // lamp is actually on: stamping turnEndedAt unconditionally would
       // mislabel hours-idle sessions as "ended just now"
-      if (workingTimer.current) clearTimeout(workingTimer.current)
-      workingTimer.current = null
-      const rec = paneAt(wsId, paneId)?.tabs.find(
-        (x): x is TerminalTab => x.id === tabId && x.kind === 'term'
-      )
+      pulse.dispose()
+      const rec = termRec()
       if (rec?.working) {
         patchTerminalTab(wsId, paneId, tabId, { working: false, turnEndedAt: Date.now() })
       }
@@ -620,7 +355,7 @@ export function TerminalTabView({
           break
         }
       }
-      if (!ownsSession) window.mahas.pty.kill(id)
+      if (!ownsSession) shell.kill(id)
       termRef.current = null
       fitRef.current = null
     }

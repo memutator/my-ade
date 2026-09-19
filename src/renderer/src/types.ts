@@ -243,24 +243,9 @@ export interface AgentProviderInfo {
   resume?: { cmd: string; args?: string[] }
 }
 
-export interface AgentHookEvent {
-  provider: string
-  event: string
-  cwd?: string
-  sessionId?: string
-  /** pane/tab the emitting shell was spawned into (pty-stamped env) — exact
-   *  attribution, beats cwd/registry guessing */
-  paneId?: string
-  tabId?: string
-  /** true when the event came from a mahas-spawned terminal session */
-  ours?: boolean
-  /** session-rename payload: the new session name */
-  name?: string
-  message?: string
-  /** test events bypass attention gating (hooks:test proves the pipeline) */
-  force?: boolean
-  ts?: number
-}
+// the hook-stream wire type is a contract (mahas-contracts operations/hooks.ts);
+// the renderer re-exports it instead of keeping a drifting copy
+export type { AgentHookEvent } from '../../../packages/mahas-contracts/src/index.ts'
 
 /**
  * A live agent session worth offering to resume after an app restart. One per
@@ -270,6 +255,8 @@ export interface AgentHookEvent {
  * tree, pty exit, tab/pane/workspace close).
  */
 export interface ResumeSession {
+  /** Main-stamped evidence for an app-induced PTY shutdown, imported on boot. */
+  shutdown?: { runId: string; at: number }
   sessionId: string
   provider: string
   cwd?: string
@@ -290,76 +277,52 @@ export interface AgentSessionInfo {
   ts?: number
 }
 
-/** one usage window/bucket on a provider's rate-limit dashboard */
-export interface UsageWindow {
-  id: string
-  label: string
-  /** % of the window already consumed (0–100); undefined = unlimited/none */
-  usedPct?: number
-  /** epoch ms when the window resets */
-  resetAt?: number
-  /** free-form note — 'unlimited', 'x/y remaining', … */
-  detail?: string
-}
+// Legacy usage wire shapes are DEFINED in the preload transport module and
+// re-exported here so UI code has one import path. They describe the old
+// scanner-era channels; the migrated usage UI reads `window.mahas.domain.*`
+// (see src/preload/domain.ts) and keeps these only where a legacy channel is
+// still consumed.
+export type {
+  LedgerProfile,
+  LedgerQuery,
+  LedgerResult,
+  LedgerSession,
+  TokenUse,
+  UsageAuthDone,
+  UsageAuthStart,
+  UsageResult,
+  UsageWindow
+} from '../../preload/index'
+export type {
+  DomainAuthFlow,
+  DomainAuthOutcome,
+  DomainFreshness,
+  DomainQuotaCurrentView,
+  DomainReadiness,
+  DomainSessionsResult,
+  DomainUnidentified,
+  DomainUsageLedgerResult,
+  DomainUsageSourceView,
+  DomainUsageSourcesResult,
+  DomainUsageStatisticRow,
+  DomainUsageStatisticsResult,
+  DomainUsageSummariesResult,
+  DomainUsageSummaryRow
+} from '../../preload/domain'
 
-/** local token totals for one session / harness (src/main/ledger.ts) */
-export interface TokenUse {
-  input: number
-  output: number
-  cached: number
-  reasoning: number
-  total: number
-  costUsd?: number
-}
-
-export interface LedgerQuery {
-  sessionId: string
-  provider: string
-  cwd?: string
-  name?: string
-}
-
-export interface LedgerSession {
-  sessionId: string
-  provider: string
-  title?: string
-  cwd?: string
-  tokens: TokenUse
-  found: boolean
-}
-
-export interface LedgerProfile {
-  provider: string
-  sessionCount: number
-  tokens: TokenUse
-}
-
-export interface LedgerResult {
-  profiles: LedgerProfile[]
-  sessions: LedgerSession[]
-  fetchedAt: number
-}
-
-/** normalized result of a provider usage probe (src/main/usage.ts) */
-export interface UsageResult {
-  ok: boolean
-  provider: string
-  /** plan tier when the provider reports one ('pro', 'plus', …) */
-  plan?: string
-  /** identity recovered from the credentials — distinguishes pooled accounts */
-  account?: string
-  windows: UsageWindow[]
-  /** extra account facts worth a line (credit balance, reset credits) */
-  extra?: string
-  error?: string
-  fetchedAt: number
-}
-
-/** a non-default credential the usage widget also probes — the file (or its
- *  dir) another login lives at, e.g. a CODEX_HOME profile's auth.json */
+/** A credential the usage widget keeps as a DESKTOP record.
+ *
+ *  This is persisted desktop state, not the inventory domain: `harnessId` says
+ *  which CLI reads the file. `provider` is the old serialized name for exactly
+ *  that field — it is NOT a catalog Provider and must never be resolved as one.
+ *  The canonical equivalent (ProviderCredential + ProviderConnection) lives in
+ *  the daemon store and is reached through `window.mahas.domain.usageSources`. */
 export interface UsageAccount {
   id: string
-  provider: string
+  /** old serialized harness selector, kept so existing state hydrates */
+  provider?: string
+  /** explicit replacement for the old `provider` harness selector */
+  harnessId?: string
   path: string
   /** display fallback when the creds themselves carry no identity */
   label?: string

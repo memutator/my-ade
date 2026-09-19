@@ -52,6 +52,8 @@ import { registerMailOps } from './mail/index.ts'
 import { registerLaunchOps, registerJoinOps } from './launch/index.ts'
 import { registerRecoveryOps } from './recovery/index.ts'
 import type { RecoveryDeps } from './recovery/ports.ts'
+import { runExecutionSessionBackfillPass } from './recovery/session-handles.ts'
+import { harnessEvidenceResolver } from './recovery/harness-evidence.ts'
 import { registerResourceOps } from './resources/mod.ts'
 import { registerObservationOps } from './observation/index.ts'
 import { registerMaintenanceOps } from './maintenance/impact-service.ts'
@@ -59,6 +61,8 @@ import { registerClientOps } from './client/ops.ts'
 import type { ClientOpsRegistry } from './client/types.ts'
 import { registerBackupOps } from './operations/backup.ts'
 import { registerOperationGet } from './rpc/operation-get.ts'
+import { composeIntegrationDomains } from './composition-domains.ts'
+import type { RpcAuthenticate } from './rpc/framing.ts'
 import {
   HOST_PROTOCOL_VERSION,
   helloHost,
@@ -84,6 +88,8 @@ export interface ComposeOptions {
   /** default <configDir>/execution-host.sock */
   hostEndpoint?: string
   log?: (line: Record<string, unknown>) => void
+  packsRoot?: string
+  collectionEnabled?: boolean
 }
 
 export interface ComposedRuntime {
@@ -97,7 +103,8 @@ export interface ComposedRuntime {
   hostClient(hostId: string): Promise<HostClient>
   /** the recovery boundary's raw-endpoint resolver */
   hostClientByEndpoint(endpoint: string): Promise<HostClient>
-  close(): void
+  start(authenticate?: RpcAuthenticate): Promise<void>
+  close(): Promise<void>
 }
 
 interface HostSession {
@@ -233,7 +240,12 @@ function selectionTokenSecret(configDir: string): { secret: Uint8Array; keyId: s
   return { secret: new TextEncoder().encode(raw), keyId: 'local-1' }
 }
 
-const OPERATOR_PRINCIPAL_ID = 'operator-local'
+/**
+ * The principal every operator authenticator in this runtime mints. Exported because the
+ * dedicated auth channel accepts operator principals by identity, and that set must be the
+ * same one the authenticator produces.
+ */
+export const OPERATOR_PRINCIPAL_ID = 'operator-local'
 const OPERATOR_ASSIGNMENT_GRANT_ID = 'grant-operator-local'
 const OPERATOR_PROVISIONING_GRANT_ID = 'grant-operator-local-provisioning'
 const SERVICE_PRINCIPAL_ID = 'service:mahasd'
@@ -270,8 +282,8 @@ function upsertSeedGrant(
   db: DatabaseSync,
   row: { id: string; kind: string; principalId: string; scope: unknown; actions: readonly string[] }
 ): void {
-  const existing = db.prepare('SELECT id, revoked_at FROM grants WHERE id=?').get(row.id) as
-    | { id: string; revoked_at: number | null }
+  const existing = db.prepare('SELECT id, revoked_at, kind, scope_json, actions_json FROM grants WHERE id=?').get(row.id) as
+    | { id: string; revoked_at: number | null; kind: string; scope_json: string; actions_json: string }
     | undefined
   if (existing?.revoked_at != null) return
   if (!existing) {
@@ -281,7 +293,8 @@ function upsertSeedGrant(
     ).run(row.id, row.kind, row.principalId, JSON.stringify(row.scope), JSON.stringify(row.actions))
     return
   }
-  db.prepare('UPDATE grants SET kind=?, scope_json=?, actions_json=? WHERE id=?').run(
+  if (existing.kind === row.kind && existing.scope_json === JSON.stringify(row.scope) && existing.actions_json === JSON.stringify(row.actions)) return
+  db.prepare('UPDATE grants SET kind=?, scope_json=?, actions_json=?, revision=revision+1 WHERE id=?').run(
     row.kind,
     JSON.stringify(row.scope),
     JSON.stringify(row.actions),
@@ -775,8 +788,23 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
 
   publishOperatorConnection(configDir, opts.endpoint)
 
+  const domains = await composeIntegrationDomains({ db, registry, configDir,
+    packsRoot: opts.packsRoot, collectionEnabled: opts.collectionEnabled, log,
+    // The auth channel accepts exactly the identity this runtime's operator authenticator
+    // mints; without it the channel is not bound (a socket nobody can authenticate to would
+    // be a weaker path, not a convenience).
+    operatorPrincipals: [OPERATOR_PRINCIPAL_ID],
+    afterRefresh: (database, machineId, pack) => {
+      const result = runExecutionSessionBackfillPass(recoveryDeps, database, { limit: 100,
+        resolveHarness: harnessEvidenceResolver(database, { machineId, pack }) })
+      if (result.migrated || result.unsupported.length) log({ t: 'session.execution-backfill',
+        scanned: result.scanned, migrated: result.migrated, unresolved: result.unsupported.length,
+        cursor: result.nextCursor })
+    } })
+
   return {
     registry,
+    start: (authenticate) => domains.start(authenticate),
     recoveryDeps,
     localHost: localSession
       ? { hostId: localSession.hostId, endpoint: localSession.endpoint }
@@ -791,7 +819,8 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
     },
     hostClient,
     hostClientByEndpoint,
-    close() {
+    async close() {
+      await domains.close()
       for (const s of sessions.values()) s.client.close()
       sessions.clear()
       accessBoundary.unbindAccessDb()

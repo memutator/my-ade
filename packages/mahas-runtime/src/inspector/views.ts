@@ -22,24 +22,19 @@ import type {
   CoverageBinding,
   HarnessProfile,
   ImplementationComponent,
-  MaintenanceBinding,
+  InterfaceMaintenanceRef,
   RoleImplementation,
   ContextRequirement,
   RoleInterface
 } from '../../../mahas-contracts/src/role.ts'
-import type { CommandSurface, Grant } from '../../../mahas-contracts/src/access.ts'
-import type {
-  LaunchPlan,
-  InjectionReceipt,
-  ResidualResource,
-  WorkerJoin,
-  AttemptObservation
-} from '../../../mahas-contracts/src/work.ts'
+import type { ResidualResource } from '../../../mahas-contracts/src/work.ts'
 import type { DomainEvent } from '../../../mahas-contracts/src/observation.ts'
 import type {
   AccessInspectResult,
+  AttachedPhase,
   ContextInspectResult,
   ContextUnknown,
+  GrantInspectSummary,
   HarnessProfileInspectResult,
   ImplementationOffer,
   ImplementationPrepareResult,
@@ -50,15 +45,16 @@ import type {
   LaunchBlocker,
   LaunchPin,
   PlannedComponent,
-  ProcessEvidence,
   RuntimeSnapshotResult,
   RuntimeSubscribeResult,
   SnapshotEntity,
   StageReceipt,
   StageRecord,
   SurfaceDescribeResult,
-  TaskAuthority,
+  SurfaceOperationDescriptor,
   WorkerInspectResult,
+  WorkerInspectTaskAuthority,
+  WorkerJoinEvidence,
   WorkerPrepareResult
 } from './protocol.ts'
 
@@ -247,7 +243,8 @@ export interface InterfaceEditorView {
   iface: RoleInterface
   requirements: ContextRequirement[]
   digest: string
-  maintenanceRefs: MaintenanceBinding[]
+  /** model-derived staleness refs (InterfaceMaintenanceRef, not a binding) */
+  maintenanceRefs: InterfaceMaintenanceRef[]
   /** published implementation candidates for this interface (real rows) */
   offers: ImplementationOffer[]
   /** the observed profile + its supported component kinds (null = unknown) */
@@ -264,7 +261,7 @@ export function projectInterface(
   const kinds = supportedKindsOf(profile?.profile)
   return {
     iface: ifaceRes.interface,
-    requirements: ifaceRes.requirements,
+    requirements: ifaceRes.contextRequirements,
     digest: String(ifaceRes.digest),
     maintenanceRefs: ifaceRes.maintenanceRefs,
     offers: impls ?? [],
@@ -334,29 +331,32 @@ export interface ContextInspectView {
   planned: PlannedComponent[]
   /** load evidence recorded in the real receipt (empty when none) */
   evidence: LoadEvidenceRow[]
-  /** a receipt record exists at all */
+  /** recorded delivery evidence exists at all (one row per receipt revision) */
   hasReceipt: boolean
-  /** an explicit join record exists — attach evidence never implies it */
-  workerJoined: boolean
-  receipt: InjectionReceipt | null
-  workerJoin: WorkerJoin | null
+  /** the recorded receipt revisions, verbatim */
+  attached: AttachedPhase[]
+  /** planned componentIds with no materialized-phase evidence */
+  missing: string[]
   inherited: InheritedInput[]
   /** explicitly unknown inherited inputs — shown, never filled in */
   unknowns: ContextUnknown[]
+  /** the pins this execution/bundle was resolved against */
+  pins: ContextInspectResult['pins']
+  manifestDigest?: string
 }
 
 export function projectContextInspect(res: ContextInspectResult): ContextInspectView {
-  const receipt = res.attachedReceipt ?? null
   return {
     bundleDigest: str(res.bundleDigest),
     executionId: str(res.executionId),
-    planned: res.plannedComponents ?? [],
-    evidence: evidenceRows(receipt),
-    hasReceipt: receipt !== null,
-    workerJoined: res.workerJoin != null,
-    receipt,
-    workerJoin: res.workerJoin ?? null,
-    inherited: res.inheritedInputs ?? [],
+    planned: res.planned,
+    evidence: evidenceRows(res.attached),
+    hasReceipt: res.attached.length > 0,
+    attached: res.attached,
+    missing: res.missing,
+    inherited: res.inherited,
+    pins: res.pins,
+    manifestDigest: res.manifestDigest,
     unknowns: res.unknowns ?? []
   }
 }
@@ -369,82 +369,75 @@ export interface SurfaceOperationRow {
   schema?: unknown
 }
 
-/** the command names the surface record exposes — verbatim, unfiltered */
-export function surfaceOperations(surface: CommandSurface | undefined): SurfaceOperationRow[] {
-  const s = rec(surface)
-  if (!s) return []
-  const schemas = rec(s['schemas'])
-  const rows = new Map<string, SurfaceOperationRow>()
-  for (const a of arr(s['effectiveActions'])) {
-    if (typeof a === 'string') {
-      rows.set(a, { operation: a, schema: schemas?.[a] })
-    } else {
-      const ra = rec(a)
-      const op = str(ra?.['operation']) ?? str(ra?.['name']) ?? str(ra?.['action'])
-      if (op) {
-        rows.set(op, {
-          operation: op,
-          summary: str(ra?.['summary']) ?? str(ra?.['description']),
-          schema: ra?.['schema'] ?? schemas?.[op]
-        })
-      }
-    }
-  }
-  if (schemas) {
-    for (const k of Object.keys(schemas)) {
-      if (!rows.has(k)) rows.set(k, { operation: k, schema: schemas[k] })
-    }
-  }
-  return [...rows.values()]
+/**
+ * the visible command descriptors, verbatim. The surface.describe result IS
+ * the projected surface — the descriptor list already holds exactly the
+ * allowed set, so nothing here re-derives or filters it.
+ */
+export function surfaceOperations(
+  operations: SurfaceOperationDescriptor[] | undefined
+): SurfaceOperationRow[] {
+  return (operations ?? []).map((op) => ({
+    operation: op.name,
+    summary: op.summary ?? undefined,
+    schema: op.inputSchema
+  }))
 }
 
 export interface AccessInspectView {
   /** section 1 — the surface's ALLOWED command list (surface.describe) */
   allowedOperations: SurfaceOperationRow[]
   surfaceDigest?: string
-  visibilityScope?: string
-  surfaceRolePolicyRevision?: string
   /** section 2 — what CURRENT grants actually permit (access.inspect) */
+  /** the inspected subject: member id or the single inspected grant id */
+  memberId?: string
+  grantId?: string
+  policy?: { policyId?: string; policyRevision?: number } | null
   effectiveActions: string[]
-  scopeSummary?: Record<string, unknown>
-  expiry?: number | null
+  /** one row per grant behind the subject — each with its own status */
+  grants: GrantInspectSummary[]
+  /** true when every grant row behind the subject is revoked or expired */
   revoked: boolean
-  grants: Grant[]
 }
 
 export function projectAccessInspect(
   surfaceRes: SurfaceDescribeResult | undefined,
   accessRes: AccessInspectResult | undefined
 ): AccessInspectView {
-  const s = rec(surfaceRes?.surface)
+  const grants = accessRes?.grants ?? []
   return {
-    allowedOperations: surfaceOperations(surfaceRes?.surface),
-    surfaceDigest: surfaceRes?.surfaceDigest ?? str(s?.['digest']),
-    visibilityScope: str(s?.['visibilityScope']),
-    surfaceRolePolicyRevision:
-      s?.['rolePolicyRevision'] !== undefined ? String(s['rolePolicyRevision']) : undefined,
+    allowedOperations: surfaceOperations(surfaceRes?.operations),
+    surfaceDigest: surfaceRes?.surfaceDigest,
+    memberId: accessRes?.memberId,
+    grantId: accessRes?.grantId,
+    policy: accessRes?.policy,
     effectiveActions: accessRes?.effectiveActions ?? [],
-    scopeSummary: accessRes?.scopeSummary,
-    expiry: accessRes?.expiry,
-    revoked: accessRes?.revoked ?? false,
-    grants: accessRes?.grants ?? []
+    grants,
+    // "revoked" is only claimed when there IS a grant row and none is live
+    revoked: grants.length > 0 && grants.every((g) => g.status !== 'active')
   }
 }
 
 // ── launch plan view (worker.prepare — IMP-32 §4.5) ───────────────────────
 
 export interface LaunchPlanView {
-  plan: LaunchPlan
-  planId?: string
+  /** the pinned plan identity + digest (the plan row's own key) */
+  launchPlanId: string
   planDigest?: string
+  state: string
+  /** true when identical pins were already planned (idempotent re-prepare) */
+  existing: boolean
   /** exact pins the plan fixes — shown verbatim, never re-resolved */
   pins: LaunchPin[]
   /** argv array verbatim — a process spec is never a shell string */
   processArgv?: string[]
   processSpecRaw: unknown
   blockers: LaunchBlocker[]
-  requiredComponents: PlannedComponent[]
-  plannedSurfaceDigest?: string
+  /** paths/ids of components the plan requires */
+  requiredComponents: string[]
+  /** the surface the plan pins: digest + the actions it exposes */
+  plannedSurface: { digest: string; actions: string[] }
+  reservations: { reservationId: string; kind: string; mode: string }[]
 }
 
 function pinsOf(pins: unknown): LaunchPin[] {
@@ -468,22 +461,22 @@ function pinsOf(pins: unknown): LaunchPin[] {
 }
 
 export function projectWorkerPrepare(res: WorkerPrepareResult): LaunchPlanView {
-  const plan = rec(res.plan)
   const spec = rec(res.processSpec)
   const argv = spec
     ? arr(spec['argv']).filter((a): a is string => typeof a === 'string')
     : undefined
-  const surface = rec(res.plannedSurface)
   return {
-    plan: res.plan,
-    planId: str(plan?.['launchPlanId']) ?? str(plan?.['id']) ?? str(plan?.['planId']),
-    planDigest: str(plan?.['planDigest']) ?? str(plan?.['digest']),
+    launchPlanId: res.launchPlanId,
+    planDigest: res.digest,
+    state: res.state,
+    existing: res.existing,
     pins: pinsOf(res.pins),
     processArgv: argv && argv.length ? argv : undefined,
     processSpecRaw: res.processSpec,
-    blockers: res.blockers ?? [],
-    requiredComponents: res.requiredComponents ?? [],
-    plannedSurfaceDigest: str(surface?.['digest'])
+    blockers: res.blockers,
+    requiredComponents: res.requiredComponents,
+    plannedSurface: res.plannedSurface,
+    reservations: res.reservations
   }
 }
 
@@ -544,41 +537,53 @@ export function stageRows(receipt: StageReceipt | null | undefined, phase?: stri
 }
 
 export interface WorkerInspectView {
-  executionId?: string
-  memberId?: string
+  executionId: string
+  memberId: string
+  generation: number
+  hostId: string
+  launchPlanId: string
+  planDigest?: string
+  terminalId: string | null
   /** the reported phase — verbatim; not expanded into implied stages */
-  phase?: string
-  liveness?: string
-  executionState?: string
+  phase: string
+  liveness: string
   stages: StageRow[]
   failedStage?: string
   residuals: ResidualResource[]
   nextAllowedActions: string[]
-  processEvidence?: ProcessEvidence
-  taskAuthority?: TaskAuthority
-  join: WorkerJoin | null
-  observations?: AttemptObservation[]
-  receiptRaw?: unknown
+  processEvidence: unknown
+  /** present only when the caller asked the host to probe */
+  probe?: unknown
+  taskAuthority: WorkerInspectTaskAuthority | null
+  /** the join evidence recorded for this execution's current generation */
+  joined: WorkerJoinEvidence | null
+  /** recorded injection receipt revisions, verbatim */
+  injectionReceipts: { phase: string; revision: number }[]
+  /** the cumulative stage receipt — evidence, never a completion verdict */
+  stageReceipt: StageReceipt | null
 }
 
 export function projectWorkerInspect(res: WorkerInspectResult): WorkerInspectView {
-  const exec = rec(res.execution)
   return {
-    executionId:
-      str(exec?.['executionId']) ?? str(exec?.['id']) ?? str((exec?.['execution'] as never) ?? ''),
-    memberId: str(exec?.['memberId']),
-    phase: res.phase ?? str(exec?.['phase']) ?? str(exec?.['state']),
-    liveness: res.liveness ?? str(exec?.['liveness']),
-    executionState: str(exec?.['state']),
-    stages: stageRows(res.receipt, res.phase ?? str(exec?.['state'])),
-    failedStage: res.receipt?.failedStage,
-    residuals: res.residuals ?? res.receipt?.residualResources ?? [],
-    nextAllowedActions: res.receipt?.nextAllowedActions ?? [],
+    executionId: res.executionId,
+    memberId: res.memberId,
+    generation: res.generation,
+    hostId: res.hostId,
+    launchPlanId: res.launchPlanId,
+    planDigest: res.planDigest,
+    terminalId: res.terminalId,
+    phase: res.phase,
+    liveness: res.liveness,
+    stages: stageRows(res.stageReceipt, res.phase),
+    failedStage: res.failedStage,
+    residuals: res.residuals,
+    nextAllowedActions: res.nextAllowedActions,
     processEvidence: res.processEvidence,
+    probe: res.probe,
     taskAuthority: res.taskAuthority,
-    join: res.join ?? null,
-    observations: res.observations,
-    receiptRaw: res.receipt ?? undefined
+    joined: res.joined,
+    injectionReceipts: res.injectionReceipts,
+    stageReceipt: res.stageReceipt
   }
 }
 
@@ -655,16 +660,16 @@ export function projectHarnessProfile(res: HarnessProfileInspectResult): Harness
 
 export interface SurfaceView {
   operations: SurfaceOperationRow[]
-  surfaceDigest?: string
-  visibilityScope?: string
+  surfaceDigest: string
+  /** true when the caller pinned a different digest — the fresh one is returned */
+  stale: boolean
 }
 
 export function projectSurfaceDescribe(res: SurfaceDescribeResult): SurfaceView {
-  const s = rec(res.surface)
   return {
-    operations: surfaceOperations(res.surface),
-    surfaceDigest: res.surfaceDigest ?? str(s?.['digest']),
-    visibilityScope: str(s?.['visibilityScope'])
+    operations: surfaceOperations(res.operations),
+    surfaceDigest: res.surfaceDigest,
+    stale: res.stale
   }
 }
 

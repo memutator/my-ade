@@ -15,8 +15,11 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type {
+  AccessInspectResult,
   AuthenticatedContext,
   ControllerEpoch,
+  GrantInspectSummary,
+  GrantScopeSummary,
   Id
 } from '../../../mahas-contracts/src/index.ts'
 import { withTx } from '../storage/db.ts'
@@ -362,16 +365,8 @@ export interface InspectScopeSummary {
   continuation?: { memberId: string; allowedWakeRoute?: string; budget?: number }
 }
 
-export interface InspectGrantSummary {
-  grantId: string
-  kind: string
-  revision: number
-  actions: string[]
-  scopeSummary: InspectScopeSummary
-  expiresAt: number | null
-  revokedAt: number | null
-  status: 'active' | 'expired' | 'revoked'
-}
+/** the inspected grant summary IS the shared wire row — one shape, not two */
+export type InspectGrantSummary = GrantInspectSummary
 
 function grantStatus(g: GrantRecord, at: number): 'active' | 'expired' | 'revoked' {
   if (g.revokedAt != null) return 'revoked'
@@ -379,7 +374,7 @@ function grantStatus(g: GrantRecord, at: number): 'active' | 'expired' | 'revoke
   return 'active'
 }
 
-function summarizeScope(scope: GrantScope): InspectScopeSummary {
+function summarizeScope(scope: GrantScope): GrantScopeSummary {
   return {
     runId: scope.runId,
     memberId: scope.memberId,
@@ -418,8 +413,16 @@ function summarizeGrant(g: GrantRecord, at: number): InspectGrantSummary {
  * Self (own binding / own grants) or `access.inspect`-scoped view. Returns
  * effective actions, scope summaries, expiry and revocation status — never
  * secret material or other principals' internals (C-ACCESS access.inspect).
+ *
+ * The response IS the shared AccessInspectResult: exactly one subject is
+ * inspected (a member or a single grant), and each grant row carries its own
+ * expiry/revocation/status — so the shape does not need parallel
+ * expiry/revocation arrays that can drift from the rows they describe.
  */
-export function accessInspectOp(txn: AccessOperationContext, payload: unknown): unknown {
+export function accessInspectOp(
+  txn: AccessOperationContext,
+  payload: unknown
+): AccessInspectResult {
   const { db, ctx } = txn
   const p = asRecord(payload ?? {}, 'payload')
   const memberId = optString(p.memberId, 'memberId')
@@ -437,10 +440,11 @@ export function accessInspectOp(txn: AccessOperationContext, payload: unknown): 
     if (!allowed) fail('SCOPE_DENIED', 'cannot inspect a grant outside own bindings or admin scope')
     const summary = summarizeGrant(grant, at)
     return {
-      grant: summary,
+      grantId: grant.id,
+      // a grant view has no role policy pin — it is the grant's own scope
+      policy: null,
       effectiveActions: grantStatus(grant, at) === 'active' ? [...grant.actions] : [],
-      expiry: grant.expiresAt,
-      revocation: grant.revokedAt != null ? { revokedAt: grant.revokedAt } : null
+      grants: [summary]
     }
   }
 
@@ -460,14 +464,8 @@ export function accessInspectOp(txn: AccessOperationContext, payload: unknown): 
   return {
     memberId: mid,
     effectiveActions: actions,
-    policy: policyId ? { policyId, policyRevision } : null,
-    grants: grants.map((g) => summarizeGrant(g, at)),
-    expiry: grants
-      .filter((g) => g.expiresAt != null)
-      .map((g) => ({ grantId: g.id, expiresAt: g.expiresAt })),
-    revocation: grants
-      .filter((g) => g.revokedAt != null)
-      .map((g) => ({ grantId: g.id, revokedAt: g.revokedAt }))
+    policy: policyId ? { policyId, policyRevision: policyRevision ?? undefined } : null,
+    grants: grants.map((g) => summarizeGrant(g, at))
   }
 }
 

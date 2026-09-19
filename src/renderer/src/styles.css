@@ -3714,6 +3714,7 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
 .dash-mix-seg.out { background: var(--tok-out); }
 .dash-mix-seg.cache { background: var(--tok-cache); }
 .dash-mix-seg.think { background: var(--tok-think); }
+.dash-mix-seg.sum { background: var(--accent); }
 .dash-share-mini {
   height: 3px;
   border-radius: 2px;
@@ -3759,6 +3760,15 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
 }
 .dash-sess:hover {
   background: var(--hover);
+}
+.dash-sess-kids {
+  margin-left: 18px;
+  border-left: 1px solid var(--border);
+  padding-left: 6px;
+}
+.dash-sess-sub {
+  color: var(--text-dim);
+  font-weight: 400;
 }
 .dash-sess-t {
   flex: 1;
@@ -3813,6 +3823,189 @@ body.float-active.rz-se, body.float-active.rz-se * { cursor: nwse-resize !import
   font-size: 11px;
   color: var(--text-dim);
   text-align: right;
+}
+/* breakdown axes — one card per rollup family; rows are label | bar | value.
+   Scoped to UsageBreakdowns; the smoke selectors (.dash-stats, .dash-card-v,
+   .dash-kpi-v) are untouched. */
+.dash-axes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.dash-axis {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+}
+.dash-axis-t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.dash-axis-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.dash-axis-l {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-axis-ns {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.dash-axis-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.dash-axis-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.dash-axis-v {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text);
+}
+.dash-axis-p {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 5px;
+}
+/* stored-read coverage: "unknown" and "partial" are states of the data, not of
+   the widget — they are drawn as chips/lines so a total never implies more than
+   the store actually covers */
+.cov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  height: 15px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: var(--hover);
+  white-space: nowrap;
+}
+.cov-chip.ok {
+  color: var(--tok-out);
+  border-color: var(--tok-out);
+}
+.cov-chip.warn {
+  color: var(--tok-cache);
+  border-color: var(--tok-cache);
+}
+.cov-chip.unknown {
+  border-style: dashed;
+}
+.cov-chip.live {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.cov-unknown {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: 10px;
+  margin-right: 2px;
+}
+.dash-covline,
+.dash-fresh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.dash-covline {
+  margin-top: 6px;
+}
+.dash-fresh {
+  padding: 8px 2px 2px;
+}
+.dash-mix.empty {
+  background: repeating-linear-gradient(135deg, var(--hover) 0 4px, transparent 4px 8px);
+  border-radius: 4px;
+}
+.dash-sess-go {
+  width: 12px;
+  height: 12px;
+  align-self: flex-end;
+  color: var(--text-faint);
+}
+.stats-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.stats-card .dash-card-v {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.stats-per {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: normal;
+}
+.stats-buckets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+}
+.stats-bucket {
+  display: grid;
+  grid-template-columns: 62px 1fr auto 12px 12px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.stats-bucket-l {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-bucket-track {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.stats-bucket-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.stats-bucket-v {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 .pact-sep {
   height: 1px;

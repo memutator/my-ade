@@ -26,8 +26,19 @@ import type { DatabaseSync } from 'node:sqlite'
 import { StorageError } from './errors.ts'
 import { sha256Hex } from './blob-store.ts'
 import { withTx } from './transaction.ts'
+import { CATALOG_SCHEMA_SQL } from '../catalog/migration.ts'
+import { INVENTORY_SCHEMA_SQL } from '../inventory/migration.ts'
+import { AUTH_SCHEMA_SQL } from '../inventory/auth/migrations.ts'
+import { INTEGRATION_SCHEMA_SQL } from '../integration/migration.ts'
+import { SESSION_SCHEMA_SQL } from '../sessions/migrations.ts'
+import { COLLECTION_SCHEMA_SQL } from '../observation/collection/migrations.ts'
+import { USAGE_SCHEMA_SQL } from '../metering/usage/migrations.ts'
+import { QUOTA_SCHEMA_SQL } from '../metering/quota/migrations.ts'
+import { USAGE_AGGREGATES_SCHEMA_SQL } from '../metering/aggregates/schema.ts'
+import { USAGE_STATISTICS_SCHEMA_SQL } from '../metering/statistics/schema.ts'
+import { EXECUTION_SESSION_REF_SCHEMA_SQL, EXECUTION_SESSION_BACKFILL_STATE_SCHEMA_SQL } from '../recovery/session-reference-migration.ts'
 
-export const CONTROL_SCHEMA_VERSION = 1
+export const CONTROL_SCHEMA_VERSION = 3
 export const CONTROL_DB_OWNER = 'control'
 
 export interface Migration {
@@ -45,6 +56,29 @@ export const CONTROL_MIGRATIONS: readonly Migration[] = [
     fromVersion: 0,
     toVersion: 1,
     ddl: controlSchemaDdlV1()
+  },
+  {
+    id: 'control-0002-integration-domains',
+    fromVersion: 1,
+    toVersion: 2,
+    ddl: [
+      CATALOG_SCHEMA_SQL,
+      INVENTORY_SCHEMA_SQL,
+      AUTH_SCHEMA_SQL,
+      INTEGRATION_SCHEMA_SQL,
+      SESSION_SCHEMA_SQL,
+      COLLECTION_SCHEMA_SQL,
+      USAGE_SCHEMA_SQL,
+      QUOTA_SCHEMA_SQL,
+      USAGE_AGGREGATES_SCHEMA_SQL,
+      USAGE_STATISTICS_SCHEMA_SQL
+    ].join('\n')
+  },
+  {
+    id: 'control-0003-execution-session-references',
+    fromVersion: 2,
+    toVersion: 3,
+    ddl: [EXECUTION_SESSION_REF_SCHEMA_SQL, EXECUTION_SESSION_BACKFILL_STATE_SCHEMA_SQL].join('\n')
   }
 ]
 
@@ -126,6 +160,11 @@ export function applyMigrations(
   const applied: string[] = []
   for (const m of pending) {
     withTx(db, (tx) => {
+      const currentVersion = schemaVersion(tx) ?? 0
+      if (currentVersion !== m.fromVersion) {
+        throw new StorageError('INVALID_TRANSITION',
+          `migration ${m.id} requires schema v${m.fromVersion}, found v${currentVersion}`)
+      }
       tx.exec(m.ddl)
       setSchemaMeta(tx, 'schema_version', String(m.toVersion))
       setSchemaMeta(tx, 'schema_owner', owner)

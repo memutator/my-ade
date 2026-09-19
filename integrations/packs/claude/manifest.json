@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.claude.files",
+    "name": "Claude local sessions",
+    "publisher": "mahas",
+    "description": "Read-only incremental collection of Claude Code project JSONL files.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "home",
+            "path": ".claude"
+          },
+          {
+            "role": "data",
+            "base": "config",
+            "path": "projects"
+          }
+        ],
+        "executableCandidates": ["claude"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.claude.files",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "claude"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.claude.files.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate config root and projects directory"
+        }
+      },
+      {
+        "id": "mahas.claude.files.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "format": "jsonl",
+          "incremental": "confirmed-newline-byte-offset",
+          "sessionEmission": "with usage batch"
+        }
+      },
+      {
+        "id": "mahas.claude.files.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "delta",
+          "stream": "assistant.message.usage",
+          "cacheContainment": "cache read and creation are contained in input"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node",
+        "constraint": ">=20",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "claude",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Canonical project log collector with confirmed-line checkpoints."
+  }
+}

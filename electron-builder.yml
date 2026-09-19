@@ -3,28 +3,29 @@ productName: Mahas
 directories:
   buildResources: build
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - out/main/**
+  - out/preload/**
+  - out/renderer/**
+  - resources/**
+  - package.json
   - '!node_modules/@homebridge/node-pty-prebuilt-multiarch/**'
 asarUnpack:
   - resources/**
-  - '**/ledger-worker.js'
-  - '**/chunks/*.js'
 extraResources:
+  - from: out/services
+    to: services
+    filter:
+      - '**/*.mjs'
+  - from: integrations/packs
+    to: integrations/packs
   - from: resources/pty-host.cjs
     to: pty-host.cjs
   - from: resources/webview-preload.cjs
     to: webview-preload.cjs
   - from: resources/agents
     to: agents
-  - from: resources/mahas-hook.cjs
-    to: mahas-hook.cjs
-  - from: resources/mahas-opencode-plugin.js
-    to: mahas-opencode-plugin.js
+  # hook transports (mahas-hook.cjs, the opencode plugin pair) ship inside
+  # integrations/packs/harness-runtime and are installed from there
   # pty-host runs under system Node outside the asar — ship node-pty where its
   # require('@homebridge/node-pty-prebuilt-multiarch') can resolve it.
   - from: node_modules/@homebridge/node-pty-prebuilt-multiarch

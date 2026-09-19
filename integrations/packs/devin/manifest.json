@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.devin",
+    "name": "Devin local database",
+    "publisher": "mahas",
+    "description": "Read-only Devin installation, session, and per-inference usage observations.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "xdg-config-home",
+            "path": "devin"
+          },
+          {
+            "role": "data",
+            "base": "xdg-data-home",
+            "path": "devin"
+          }
+        ],
+        "executableCandidates": ["devin"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.devin",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "devin"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.devin.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate namespace and SQLite schema only"
+        }
+      },
+      {
+        "id": "mahas.devin.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "strategy": "bounded full-keyspace reconciliation",
+          "parents": "when present",
+          "deletions": "absence from a wrapped sweep"
+        }
+      },
+      {
+        "id": "mahas.devin.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "delta",
+          "stream": "message_nodes",
+          "dedupe": "latest row per session_id and message_id; rows without a message id keep their own row identity",
+          "cacheContainment": "cache read is additional to input",
+          "deletions": "absence from a wrapped sweep"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node:sqlite",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "devin",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Read-only SQL collector with bounded reconciliation sweeps."
+  }
+}

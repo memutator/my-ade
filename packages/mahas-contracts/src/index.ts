@@ -82,6 +82,16 @@ export type {
 } from './common.ts'
 export { WIRE_FIELD_POLICY } from './common.ts'
 
+// Integration-domain milestone contracts. These modules deliberately use
+// distinct public names (InferenceModel, ProviderCredential,
+// HarnessProviderBinding) where the existing execution domain has a nearby
+// concept with different authority.
+export * from './catalog/index.ts'
+export * from './inventory/index.ts'
+export * from './integration/index.ts'
+export * from './sessions/index.ts'
+export * from './metering/index.ts'
+
 // domain entity id vocabulary (ids.ts) — re-exported flat so consumers keep
 // importing every canonical name from this one path
 export type {
@@ -201,7 +211,6 @@ export type {
   ProvisioningGrant,
   ContinuationGrant,
   Grant,
-  SurfaceOperationDescriptor,
   SurfaceActionsAndSchemas,
   SurfacePolicyPins,
   CommandSurface,
@@ -348,3 +357,62 @@ export {
   CLIENT_OPERATION_NAMES,
   OPERATION_NAMES
 } from './ops.ts'
+export { INTEGRATION_DOMAIN_OPERATIONS } from './operations/domains.ts'
+// Inspector operation wire DTOs — the shared request/result boundary for the
+// C-DISCOVERY / C-REALIZATION / C-ACCESS / C-LAUNCH reads the workbench and
+// the CLI consume.
+export type {
+  AccessInspectPayload,
+  AccessInspectResult,
+  AttachedPhase,
+  ContextInspectPayload,
+  ContextInspectResult,
+  ContextUnknown,
+  GrantInspectSummary,
+  GrantScopeSummary,
+  HarnessProfileInspectPayload,
+  HarnessProfileInspectResult,
+  ImplementationOffer,
+  ImplementationPreparePayload,
+  ImplementationPrepareResult,
+  ImplementationPublishPayload,
+  ImplementationPublishResult,
+  ImplementationRetirePayload,
+  ImplementationRetireResult,
+  InheritedInput,
+  InjectionReceiptPin,
+  InterfaceGetPayload,
+  InterfaceGetResult,
+  LaunchBlocker,
+  LaunchPin,
+  PlannedComponent,
+  RoleImplementationsPayload,
+  RoleImplementationsResult,
+  RuntimeSnapshotPayload,
+  RuntimeSnapshotResult,
+  RuntimeSubscribePayload,
+  RuntimeSubscribeResult,
+  SnapshotEntity,
+  StageReceipt,
+  StageRecord,
+  SurfaceDescribePayload,
+  SurfaceDescribeResult,
+  SurfaceOperationDescriptor,
+  WorkerInspectPayload,
+  WorkerInspectResult,
+  WorkerInspectTaskAuthority,
+  WorkerJoinEvidence,
+  WorkerPreparePayload,
+  WorkerPrepareResult
+} from './operations/inspector.ts'
+// Hook-stream wire types: the NDJSON transport, the desktop relay and the
+// daemon's session.hook.ingest share exactly these declarations.
+export type {
+  AgentHookEvent,
+  AgentHookEventPolicy,
+  AgentHookIngestMeta,
+  AgentHookIngestRecord,
+  AgentHookIngestRequest,
+  AgentHookIngestResult,
+  AgentHookIngestSource
+} from './operations/hooks.ts'

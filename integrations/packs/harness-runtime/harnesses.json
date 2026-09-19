@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "organizations": {
+    "org.anthropic": "Anthropic",
+    "org.cline": "Cline",
+    "org.cognition": "Cognition",
+    "org.github": "GitHub",
+    "org.google": "Google",
+    "org.openai": "OpenAI",
+    "org.opencode": "OpenCode",
+    "org.xai": "xAI",
+    "org.zai": "Z.ai"
+  },
+  "harnesses": {
+    "claude": {
+      "label": "Claude",
+      "publisher": "org.anthropic",
+      "match": [
+        "claude"
+      ],
+      "domain": "claude.ai",
+      "color": "#D97757",
+      "envSignals": [
+        "CLAUDE_PROJECT_DIR"
+      ],
+      "resume": {
+        "executable": "claude",
+        "args": [
+          "--resume",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "claude"
+    },
+    "codex": {
+      "label": "Codex",
+      "publisher": "org.openai",
+      "match": [
+        "codex"
+      ],
+      "domain": "openai.com",
+      "color": "#10A37F",
+      "envSignals": [
+        "CODEX_WORKSPACE_ROOT"
+      ],
+      "resume": {
+        "executable": "codex",
+        "args": [
+          "resume",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "codex",
+      "payloadSignals": [
+        "input-messages",
+        "thread-id"
+      ]
+    },
+    "gemini": {
+      "label": "Gemini",
+      "publisher": "org.google",
+      "match": [
+        "gemini"
+      ],
+      "domain": "gemini.google.com",
+      "color": "#1B72E8",
+      "resume": {
+        "executable": "gemini",
+        "args": [
+          "--resume",
+          "${sessionId}"
+        ]
+      }
+    },
+    "grok": {
+      "label": "Grok",
+      "publisher": "org.xai",
+      "match": [
+        "grok"
+      ],
+      "domain": "grok.com",
+      "color": "#8B8B8B",
+      "envSignals": [
+        "GROK_SESSION_ID",
+        "GROK_HOOK_EVENT",
+        "GROK_WORKSPACE_ROOT"
+      ],
+      "resume": {
+        "executable": "grok",
+        "args": [
+          "--resume",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "grok",
+      "payloadSignals": [
+        "channel_closed",
+        "notificationType"
+      ]
+    },
+    "devin": {
+      "label": "Devin",
+      "publisher": "org.cognition",
+      "match": [
+        "devin"
+      ],
+      "domain": "devin.ai",
+      "color": "#7C7CFF",
+      "envSignals": [
+        "DEVIN_PROJECT_DIR",
+        "DEVIN_SESSION_ID"
+      ],
+      "resume": {
+        "executable": "devin",
+        "args": [
+          "--resume",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "devin",
+      "maintenance": [
+        "sweep-session-locks"
+      ],
+      "lockDir": "${dataHome}/devin/cli/session_locks",
+      "lockPattern": "*.lock",
+      "lockHolder": "devin",
+      "maintenanceTriggers": [
+        "startup",
+        "session-end",
+        "pty-exit",
+        "quit"
+      ]
+    },
+    "zcode": {
+      "label": "ZCode",
+      "publisher": "org.zai",
+      "match": [
+        "zcode"
+      ],
+      "domain": "z.ai",
+      "color": "#084CCF",
+      "resume": {
+        "executable": "zcode",
+        "args": [
+          "--resume",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "zcode"
+    },
+    "cursor": {
+      "label": "Cursor",
+      "match": [
+        "cursor-agent",
+        "cursor"
+      ],
+      "domain": "cursor.com",
+      "color": "#9A9A9A"
+    },
+    "copilot": {
+      "label": "GitHub Copilot",
+      "publisher": "org.github",
+      "match": [
+        "copilot",
+        "gh copilot"
+      ],
+      "domain": "github.com",
+      "color": "#9678E0"
+    },
+    "aider": {
+      "label": "Aider",
+      "match": [
+        "aider"
+      ],
+      "domain": "aider.chat",
+      "color": "#65B741"
+    },
+    "opencode": {
+      "label": "OpenCode",
+      "publisher": "org.opencode",
+      "match": [
+        "opencode"
+      ],
+      "domain": "opencode.ai",
+      "color": "#E5C07B",
+      "resume": {
+        "executable": "opencode",
+        "args": [
+          "--session",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "opencode"
+    },
+    "amp": {
+      "label": "Amp",
+      "match": [
+        "amp"
+      ],
+      "domain": "ampcode.com",
+      "color": "#FF5543"
+    },
+    "cline": {
+      "label": "Cline",
+      "publisher": "org.cline",
+      "match": [
+        "cline"
+      ],
+      "domain": "cline.bot",
+      "color": "#7C3AED",
+      "resume": {
+        "executable": "cline",
+        "args": [
+          "--id",
+          "${sessionId}"
+        ]
+      },
+      "hooks": "cline",
+      "payloadSignals": [
+        "taskId",
+        "workspaceRoots"
+      ]
+    },
+    "fake": {
+      "label": "Fake",
+      "match": [
+        "mahas-fake"
+      ],
+      "color": "#8A8A8A",
+      "resume": {
+        "executable": "node",
+        "args": [
+          "tools/mahas-fake.mjs",
+          "--resume",
+          "${sessionId}"
+        ]
+      },
+      "testOnly": true
+    }
+  },
+  "hookStream": {
+    "transport": "hooks/mahas-hook.cjs",
+    "sourceKind": "hook-stream",
+    "generation": "ndjson-v2",
+    "identityFields": [
+      "sessionId",
+      "parentSessionId",
+      "child",
+      "internalRun",
+      "external",
+      "nativeEvent",
+      "paneId",
+      "tabId",
+      "namespace",
+      "installationId",
+      "machineId"
+    ],
+    "policyFields": [
+      "demote",
+      "stripSession"
+    ],
+    "scoping": "configNamespace carries the harness id; lines emitted by another harness are skipped and reported",
+    "offsetSemantics": "sourceRecordKey offset is the byte offset of the line START; the transport never splits a line and the reader only consumes complete lines"
+  },
+  "profiles": {
+    "claude-code": {
+      "harnessId": "claude",
+      "revision": 1,
+      "executableLocator": {
+        "commands": [
+          "claude"
+        ],
+        "envOverride": "MAHAS_CLAUDE_EXECUTABLE"
+      },
+      "supportedComponents": [
+        "instruction",
+        "skill",
+        "subagent",
+        "tool-config",
+        "launch-config"
+      ],
+      "recipe": {
+        "process": {
+          "executableLocator": {
+            "commands": [
+              "claude"
+            ],
+            "envOverride": "MAHAS_CLAUDE_EXECUTABLE"
+          },
+          "argv": [
+            {
+              "slot": "file",
+              "source": "role/mandatory.md",
+              "flag": "--append-system-prompt-file"
+            },
+            {
+              "slot": "fileText",
+              "source": "task/initial.txt"
+            }
+          ],
+          "stdio": "pty"
+        },
+        "routes": [
+          {
+            "source": "role/mandatory.md",
+            "kind": "argv-file",
+            "target": "--append-system-prompt-file",
+            "required": true
+          },
+          {
+            "source": "task/initial.txt",
+            "kind": "argv-text",
+            "required": true
+          }
+        ]
+      },
+      "pack": {
+        "packId": "builtin.harness-runtime",
+        "revision": 2,
+        "capability": "launch",
+        "implementationId": "harness-runtime.launch.v2"
+      }
+    },
+    "codex-cli": {
+      "harnessId": "codex",
+      "revision": 1,
+      "executableLocator": {
+        "commands": [
+          "codex"
+        ],
+        "envOverride": "MAHAS_CODEX_EXECUTABLE"
+      },
+      "supportedComponents": [
+        "instruction",
+        "skill",
+        "tool-config",
+        "launch-config"
+      ],
+      "recipe": {
+        "process": {
+          "executableLocator": {
+            "commands": [
+              "codex"
+            ],
+            "envOverride": "MAHAS_CODEX_EXECUTABLE"
+          },
+          "argv": [
+            {
+              "slot": "configText",
+              "key": "developer_instructions",
+              "format": "toml-basic-string",
+              "source": "role/mandatory.md"
+            },
+            {
+              "slot": "fileText",
+              "source": "task/initial.txt"
+            }
+          ],
+          "stdio": "pty"
+        },
+        "routes": [
+          {
+            "source": "role/mandatory.md",
+            "kind": "argv-config-text",
+            "target": "developer_instructions",
+            "format": "toml-basic-string",
+            "required": true
+          },
+          {
+            "source": "task/initial.txt",
+            "kind": "argv-text",
+            "required": true
+          }
+        ]
+      },
+      "pack": {
+        "packId": "builtin.harness-runtime",
+        "revision": 2,
+        "capability": "launch",
+        "implementationId": "harness-runtime.launch.v2"
+      }
+    }
+  }
+}

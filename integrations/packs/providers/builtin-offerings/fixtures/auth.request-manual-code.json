@@ -1,0 +1,14 @@
+{
+  "comment": "Synthetic accept case. Auth is an effectful capability, so conformance checks the request schema but never invokes it: the documented example must stay schema-valid and free of material.",
+  "protocolVersion": "1",
+  "operationId": "conformance-auth-manual-code",
+  "capability": "auth",
+  "target": { "kind": "offering", "offeringId": "anthropic/claude" },
+  "contract": { "id": "mahas.integration.auth", "revision": 1 },
+  "pack": { "packId": "pack.provider.builtin-offerings", "revision": 1, "contentDigest": "unused-in-conformance" },
+  "payload": {
+    "offeringId": "anthropic/claude",
+    "action": "login",
+    "input": { "callbackRedirect": "https://console.anthropic.com/oauth/code/callback" }
+  }
+}

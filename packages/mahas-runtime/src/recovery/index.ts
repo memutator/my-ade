@@ -50,3 +50,64 @@ export { reattachExecution } from './reattach.ts'
 export { makeStopHandler } from './stop.ts'
 export { makeResumeHandler } from './resume.ts'
 export { makeReleaseHandler } from './reconciler.ts'
+
+// canonical session bridge — the destination of the LegacyNativeConversation
+// migration (recovery/session-handles.ts). Exported so the composition root and
+// a migration operation can drive the explicit, evidence-required backfill
+// without importing recovery internals.
+export {
+  backfillExecutionSession,
+  backfillLegacyExecutionSessions,
+  canonicalSessionStorePresent,
+  handleProfileEvidence,
+  installationNamespace,
+  legacyHandleFacts,
+  normalizeResumeSupport,
+  resolveExecutionSession,
+  resolveResumeRecipe,
+  runExecutionSessionBackfillPass,
+  stableSessionAttachmentId,
+  stableSessionHandleId,
+  stableSessionId
+} from './session-handles.ts'
+export type {
+  BackfillInput,
+  BackfillOutcome,
+  CanonicalSessionRef,
+  ExecutionSessionBackfillPassPlan,
+  ExecutionSessionBackfillPassResult,
+  HarnessEvidence,
+  LegacyBackfillPlan,
+  LegacyBackfillPointer,
+  LegacyBackfillReport,
+  LegacyHandleFacts,
+  SessionRecipeResolution,
+  SessionRecipeSelection,
+  SessionRefEvidence,
+  SessionResolution,
+  SessionUnresolved,
+  SessionUnresolvedReason
+} from './session-handles.ts'
+
+// production harness/installation evidence for the backfill (registered profile
+// → Pack launcher evidence → local installation; never a name heuristic)
+export {
+  harnessEvidenceResolver,
+  profileHarnessEvidence,
+  registeredProfileEvidence
+} from './harness-evidence.ts'
+export type {
+  HarnessEvidenceOptions,
+  HarnessEvidenceOverride,
+  ProfileHarnessEvidence,
+  RegisteredProfileEvidence
+} from './harness-evidence.ts'
+
+// additive schema for the canonical reference + backfill progress (schema v3/v4)
+export {
+  EXECUTION_SESSION_BACKFILL_STATE_SCHEMA_SQL,
+  EXECUTION_SESSION_BACKFILL_STATE_TABLE,
+  EXECUTION_SESSION_REF_SCHEMA_SQL,
+  EXECUTION_SESSION_REF_TABLE,
+  LEGACY_NATIVE_CONVERSATION_BACKFILL_ID
+} from './session-reference-migration.ts'

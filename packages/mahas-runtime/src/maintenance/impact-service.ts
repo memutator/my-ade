@@ -21,7 +21,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext, QueryResult } from '../../../mahas-contracts/src/common.ts'
 import {
-  fail,
   rowToCandidate,
   type CandidateResolution,
   type ImpactCandidateRow,
@@ -30,6 +29,7 @@ import {
   type ImpactTargetKind,
   type ObserverDeps
 } from './basis-observer.ts'
+import { fail } from './codec.ts'
 import { classifyCandidate, type AuthorizeFn, type ClassifyDecision } from './classification.ts'
 
 // composition-root seams: the detection hooks (basis-observer) and the

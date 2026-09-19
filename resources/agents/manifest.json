@@ -1,88 +1,246 @@
 {
   "claude": {
-    "match": ["claude"],
+    "match": [
+      "claude"
+    ],
     "label": "Claude",
     "domain": "claude.ai",
     "color": "#D97757",
-    "resume": { "cmd": "claude", "args": ["--resume"] }
+    "resume": {
+      "cmd": "claude",
+      "args": [
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "claude",
+      "args": [
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "claude",
+    "publisher": "org.anthropic"
   },
   "codex": {
-    "match": ["codex"],
+    "match": [
+      "codex"
+    ],
     "label": "Codex",
     "domain": "openai.com",
     "color": "#10A37F",
-    "resume": { "cmd": "codex", "args": ["resume"] }
+    "resume": {
+      "cmd": "codex",
+      "args": [
+        "resume"
+      ]
+    },
+    "recipe": {
+      "executable": "codex",
+      "args": [
+        "resume",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "codex",
+    "publisher": "org.openai"
   },
   "gemini": {
-    "match": ["gemini"],
+    "match": [
+      "gemini"
+    ],
     "label": "Gemini",
     "domain": "gemini.google.com",
     "color": "#1B72E8",
-    "resume": { "cmd": "gemini", "args": ["--resume"] }
+    "resume": {
+      "cmd": "gemini",
+      "args": [
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "gemini",
+      "args": [
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "publisher": "org.google"
   },
   "grok": {
-    "match": ["grok"],
+    "match": [
+      "grok"
+    ],
     "label": "Grok",
     "domain": "grok.com",
     "color": "#8B8B8B",
-    "resume": { "cmd": "grok", "args": ["--resume"] }
+    "resume": {
+      "cmd": "grok",
+      "args": [
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "grok",
+      "args": [
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "grok",
+    "publisher": "org.xai"
   },
   "devin": {
-    "match": ["devin"],
+    "match": [
+      "devin"
+    ],
     "label": "Devin",
     "domain": "devin.ai",
     "color": "#7C7CFF",
-    "resume": { "cmd": "devin", "args": ["--resume"] }
+    "resume": {
+      "cmd": "devin",
+      "args": [
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "devin",
+      "args": [
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "devin",
+    "maintenance": [
+      "sweep-session-locks"
+    ],
+    "publisher": "org.cognition"
   },
   "zcode": {
-    "match": ["zcode"],
+    "match": [
+      "zcode"
+    ],
     "label": "ZCode",
     "domain": "z.ai",
     "color": "#084CCF",
-    "resume": { "cmd": "zcode", "args": ["--resume"] }
+    "resume": {
+      "cmd": "zcode",
+      "args": [
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "zcode",
+      "args": [
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "zcode",
+    "publisher": "org.zai"
   },
   "cursor": {
-    "match": ["cursor-agent", "cursor"],
+    "match": [
+      "cursor-agent",
+      "cursor"
+    ],
     "label": "Cursor",
     "domain": "cursor.com",
     "color": "#9A9A9A"
   },
   "copilot": {
-    "match": ["copilot", "gh copilot"],
+    "match": [
+      "copilot",
+      "gh copilot"
+    ],
     "label": "GitHub Copilot",
     "domain": "github.com",
-    "color": "#9678E0"
+    "color": "#9678E0",
+    "publisher": "org.github"
   },
   "aider": {
-    "match": ["aider"],
+    "match": [
+      "aider"
+    ],
     "label": "Aider",
     "domain": "aider.chat",
     "color": "#65B741"
   },
   "opencode": {
-    "match": ["opencode"],
+    "match": [
+      "opencode"
+    ],
     "label": "OpenCode",
     "domain": "opencode.ai",
     "color": "#E5C07B",
-    "resume": { "cmd": "opencode", "args": ["--session"] }
+    "resume": {
+      "cmd": "opencode",
+      "args": [
+        "--session"
+      ]
+    },
+    "recipe": {
+      "executable": "opencode",
+      "args": [
+        "--session",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "opencode",
+    "publisher": "org.opencode"
   },
   "amp": {
-    "match": ["amp"],
+    "match": [
+      "amp"
+    ],
     "label": "Amp",
     "domain": "ampcode.com",
     "color": "#FF5543"
   },
   "cline": {
-    "match": ["cline"],
+    "match": [
+      "cline"
+    ],
     "label": "Cline",
     "domain": "cline.bot",
     "color": "#7C3AED",
-    "resume": { "cmd": "cline", "args": ["--id"] }
+    "resume": {
+      "cmd": "cline",
+      "args": [
+        "--id"
+      ]
+    },
+    "recipe": {
+      "executable": "cline",
+      "args": [
+        "--id",
+        "${sessionId}"
+      ]
+    },
+    "hooks": "cline",
+    "publisher": "org.cline"
   },
   "fake": {
-    "match": ["mahas-fake"],
+    "match": [
+      "mahas-fake"
+    ],
     "label": "Fake",
     "color": "#8A8A8A",
-    "resume": { "cmd": "node", "args": ["tools/mahas-fake.mjs", "--resume"] }
+    "resume": {
+      "cmd": "node",
+      "args": [
+        "tools/mahas-fake.mjs",
+        "--resume"
+      ]
+    },
+    "recipe": {
+      "executable": "node",
+      "args": [
+        "tools/mahas-fake.mjs",
+        "--resume",
+        "${sessionId}"
+      ]
+    },
+    "testOnly": true
   }
 }

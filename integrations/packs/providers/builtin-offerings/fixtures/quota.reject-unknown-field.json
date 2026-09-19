@@ -1,0 +1,15 @@
+{
+  "comment": "Synthetic reject case: the quota request schema is closed, so an unrecognised field is a contract violation rather than something to ignore.",
+  "protocolVersion": "1",
+  "operationId": "conformance-quota-unknown-field",
+  "capability": "quota",
+  "target": { "kind": "connection", "connectionId": "connection-fixture" },
+  "contract": { "id": "mahas.integration.quota", "revision": 1 },
+  "pack": { "packId": "pack.provider.builtin-offerings", "revision": 1, "contentDigest": "unused-in-conformance" },
+  "payload": {
+    "connectionId": "connection-fixture",
+    "credentialMaterial": { "accessToken": "fixture-material-not-a-real-token" },
+    "requestedAt": 1770000000000,
+    "refreshFirst": true
+  }
+}

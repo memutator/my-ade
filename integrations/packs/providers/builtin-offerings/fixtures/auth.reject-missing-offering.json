@@ -1,0 +1,10 @@
+{
+  "comment": "Synthetic reject case: an auth request without an offering cannot be routed to a provider flow.",
+  "protocolVersion": "1",
+  "operationId": "conformance-auth-missing-offering",
+  "capability": "auth",
+  "target": { "kind": "offering", "offeringId": "zai/coding-plan" },
+  "contract": { "id": "mahas.integration.auth", "revision": 1 },
+  "pack": { "packId": "pack.provider.builtin-offerings", "revision": 1, "contentDigest": "unused-in-conformance" },
+  "payload": { "action": "login", "input": {} }
+}

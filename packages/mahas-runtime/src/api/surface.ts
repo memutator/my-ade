@@ -19,20 +19,18 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext, CommandSurface } from '../../../mahas-contracts/src/index.ts'
+import type {
+  SurfaceDescribeResult,
+  SurfaceOperationDescriptor
+} from '../../../mahas-contracts/src/operations/inspector.ts'
 import { mahasError } from './handler-ports.ts'
-import type { OperationRegistryDeps, OperationSpec, RegisteredOperation } from './handler-ports.ts'
+import type { OperationRegistryDeps, RegisteredOperation } from './handler-ports.ts'
 import { canonicalJson } from './admission.ts'
 
 /** per-operation descriptor carried in CommandSurface.schemas — what CLI
- *  help/schema/completion and MCP tool lists are generated from. */
-export interface SurfaceOperationDescriptor {
-  name: string
-  summary: string | null
-  mutation: boolean
-  visibility: OperationSpec['visibility']
-  inputSchema: unknown
-  outputSchema: unknown
-}
+ *  help/schema/completion and MCP tool lists are generated from. The wire
+ *  shape is the shared SurfaceOperationDescriptor. */
+export type { SurfaceDescribeResult, SurfaceOperationDescriptor }
 
 /** the JSON document persisted to command_surfaces.actions_and_schemas_json
  *  and covered by the surface digest */
@@ -118,13 +116,6 @@ function persistSurfaceSnapshot(
 export interface SurfaceDescribeInput {
   operation?: string
   expectedSurfaceDigest?: string
-}
-
-export interface SurfaceDescribeResult {
-  surfaceDigest: string
-  /** true when the caller pinned a different digest — the fresh one is returned */
-  stale: boolean
-  operations: SurfaceOperationDescriptor[]
 }
 
 /**

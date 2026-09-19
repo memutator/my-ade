@@ -1,0 +1,99 @@
+{
+  "comment": "Vendor knowledge for the built-in provider offerings: which credential file each offering already has on a user machine, how to read it, and the loopback shape of its browser sign-in. The runtime never names a vendor; it asks this catalog through the Pack.",
+  "anthropic/claude": {
+    "kind": "manual-code",
+    "format": "claude-credentials-json",
+    "ownership": "user",
+    "label": "claude CLI",
+    "fileNames": [".credentials.json"],
+    "locations": [{ "base": "home", "path": ".claude" }],
+    "callback": null
+  },
+  "openai/chatgpt": {
+    "kind": "pkce",
+    "format": "codex-auth-json",
+    "ownership": "user",
+    "label": "codex CLI",
+    "fileNames": ["auth.json"],
+    "locations": [{ "base": "home", "path": ".codex" }],
+    "callback": {
+      "mode": "provider-registered",
+      "host": "localhost",
+      "port": 1455,
+      "path": "/auth/callback",
+      "redirect": "http://localhost:1455/auth/callback"
+    }
+  },
+  "xai/grok": {
+    "kind": "pkce",
+    "format": "grok-auth-json",
+    "ownership": "user",
+    "label": "grok CLI",
+    "fileNames": ["auth.json"],
+    "locations": [{ "base": "home", "path": ".grok" }],
+    "callback": {
+      "mode": "provider-registered",
+      "host": "127.0.0.1",
+      "port": 56121,
+      "path": "/callback",
+      "redirect": "http://127.0.0.1:56121/callback"
+    }
+  },
+  "google/cloud-code": {
+    "kind": "pkce-dynamic",
+    "format": "gemini-oauth-json",
+    "ownership": "user",
+    "label": "gemini CLI",
+    "fileNames": ["oauth_creds.json"],
+    "locations": [{ "base": "home", "path": ".gemini" }],
+    "callback": { "mode": "dynamic", "host": "127.0.0.1", "path": "/oauth2callback" }
+  },
+  "github/copilot": {
+    "kind": "device",
+    "format": "github-apps-json",
+    "ownership": "user",
+    "label": "copilot plugin",
+    "fileNames": ["apps.json"],
+    "locations": [{ "base": "config", "path": "github-copilot" }],
+    "callback": null
+  },
+  "cline/account": {
+    "kind": "cline-device",
+    "format": "cline-providers-json",
+    "ownership": "user",
+    "label": "cline CLI",
+    "fileNames": ["providers.json"],
+    "locations": [{ "base": "home", "path": ".cline/data/settings" }],
+    "callback": null
+  },
+  "opencode/go": {
+    "kind": "api-key",
+    "format": "opencode-auth-json",
+    "ownership": "user",
+    "label": "opencode CLI",
+    "fileNames": ["auth.json"],
+    "locations": [{ "base": "data", "path": "opencode" }],
+    "callback": null
+  },
+  "zai/coding-plan": {
+    "kind": "api-key",
+    "format": "zai-config-json",
+    "ownership": "user",
+    "label": "zcode CLI",
+    "fileNames": ["config.json"],
+    "locations": [
+      { "base": "home", "path": ".zcode/v2" },
+      { "base": "home", "path": ".zcode/cli" }
+    ],
+    "callback": null
+  },
+  "windsurf/account": {
+    "kind": "api-key",
+    "format": "windsurf-credentials-toml",
+    "ownership": "user",
+    "label": "devin CLI",
+    "fileNames": ["credentials.toml"],
+    "locations": [{ "base": "data", "path": "devin" }],
+    "callback": null
+  }
+}

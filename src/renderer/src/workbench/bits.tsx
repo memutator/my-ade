@@ -6,8 +6,7 @@
 
 import type { ReactNode } from 'react'
 import type { OpErrorKind } from './client.ts'
-import { useWorkbench } from './store.ts'
-import { entryText } from './wire.ts'
+import { useModelHead, useWorkbenchActions, useWorkbenchContext } from './scope.ts'
 
 /** small status chip — tone is semantic, not decorative */
 export function Pill({
@@ -42,12 +41,13 @@ export function KV({ value, empty }: { value: unknown; empty?: string }): React.
   )
 }
 
-export function ListLines({ items }: { items: unknown[] }): React.JSX.Element | null {
+/** preformatted text rows (mappers in view-model.ts own the wording) */
+export function TextLines({ items }: { items: string[] }): React.JSX.Element | null {
   if (!items.length) return null
   return (
     <ul className="wb-lines">
-      {items.map((it, i) => (
-        <li key={i}>{entryText(it)}</li>
+      {items.map((line, i) => (
+        <li key={i}>{line}</li>
       ))}
     </ul>
   )
@@ -128,18 +128,39 @@ export function Field({
 }
 
 export function ContextBar(): React.JSX.Element {
-  const { projectId, modelVersion, runId, setContext } = useWorkbench()
+  const { projectId, modelVersion, runId } = useWorkbenchContext()
+  const { setContext } = useWorkbenchActions()
+  const head = useModelHead()
   return (
-    <div className="wb-row">
-      <Field label="project" value={projectId} onChange={(v) => setContext({ projectId: v })} mono />
-      <Field
-        label="model"
-        value={modelVersion}
-        onChange={(v) => setContext({ modelVersion: v })}
-        mono
-      />
-      <Field label="run" value={runId} onChange={(v) => setContext({ runId: v })} mono />
-    </div>
+    <>
+      <div className="wb-row">
+        <Field
+          label="project"
+          value={projectId}
+          onChange={(v) => setContext({ projectId: v })}
+          mono
+        />
+        <Field
+          label="model pin"
+          value={modelVersion}
+          onChange={(v) => setContext({ modelVersion: v })}
+          mono
+        />
+        <Field label="run" value={runId} onChange={(v) => setContext({ runId: v })} mono />
+      </div>
+      <div className="wb-note">
+        {head ? (
+          <>
+            server current model: <span className="mono">{head.modelVersion}</span>
+            {head.snapshotRevision !== undefined
+              ? ` · snapshot ${head.snapshotRevision}`
+              : ''} · {head.declaredBy}
+          </>
+        ) : (
+          'server current model: unknown — the head is never guessed from an id'
+        )}
+      </div>
+    </>
   )
 }
 

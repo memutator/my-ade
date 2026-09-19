@@ -1,16 +1,34 @@
-// Per-harness hook installers. Electron-free (node builtins only) so the whole
-// module can be exercised with plain node against a fake HOME.
+// Hook installer engine — Electron-free (node builtins only) so the whole
+// module can be exercised with plain node against a synthetic HOME.
 //
-// Each provider knows how to detect its CLI, report whether the mahas hook is
-// installed, and install it. Installers are additive and idempotent: they never
-// remove the user's existing hooks, they back up any file they mutate
-// (<file>.mahas-bak), and they only run when the user clicks Install in Settings.
+// The engine owns the *mechanics* (backups, chaining, idempotence, owned-file
+// refresh); every vendor detail — which events exist, where a config lives,
+// what a hook group looks like, when a refresh is allowed — comes from the
+// builtin.harness-runtime Pack (installers.json / harnesses.json) through
+// packages/mahas-harness-config/src/runtime-pack.ts.
+//
+// Safety rules preserved from the previous per-vendor installers:
+//   · installs are additive and idempotent — an existing user hook group is
+//     kept, never replaced by us;
+//   · any file we mutate is backed up (<file>.mahas-bak);
+//   · a displaced single-slot command (codex notify) is recorded and chained;
+//   · pre-rename ade-hook pointers are ours and are rewritten in place;
+//   · install only runs from an explicit user click — Pack maintenance never
+//     auto-installs (see the Pack's neverAutoInstalls declaration).
 
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { spawnSync } from 'child_process'
-import { mahasConfigDir } from './eventsFile'
+import {
+  expandInstallerPath,
+  installerPlan,
+  installerTokenContext,
+  type HarnessRuntimePack,
+  type InstallerPlan
+} from '../../packages/mahas-harness-config/src/runtime-pack.ts'
+import { loadHarnessRuntimePack } from '../../packages/mahas-harness-config/src/runtime-pack.ts'
+import { harnessRuntimeHookScriptPath } from '../../packages/mahas-harness-config/src/runtime-pack.ts'
 
 export interface HookStatus {
   id: string
@@ -28,24 +46,27 @@ export interface InstallResult {
   detail?: string
 }
 
-interface ProviderDef {
-  id: string
-  label: string
-  bin: string
-  mechanism: string
-  configPath: (home: string) => string
-  installed: (home: string) => boolean
-  install: (home: string, cmd: string, argv: string[], pluginSrc: string) => InstallResult
-  detail?: (home: string) => string | undefined
+export interface HookInstallerSources {
+  pack: HarnessRuntimePack | null
+  hookScriptPath: string | null
 }
 
-function configHome(home: string): string {
-  return process.env.XDG_CONFIG_HOME || path.join(home, '.config')
+/**
+ * Sources for a pack directory — used by tools that exercise the installer
+ * engine without electron (tools/test-hook-migrate.mjs) and by the desktop
+ * through src/main/harnessPack.ts.
+ */
+export function hookInstallerSourcesFromDir(packDir: string): HookInstallerSources {
+  try {
+    const pack = loadHarnessRuntimePack(packDir)
+    return { pack, hookScriptPath: harnessRuntimeHookScriptPath(pack) }
+  } catch {
+    return { pack: null, hookScriptPath: null }
+  }
 }
 
 function binAvailable(bin: string): boolean {
-  const r = spawnSync('sh', ['-c', `command -v ${bin}`], { stdio: 'ignore' })
-  return r.status === 0
+  return spawnSync('sh', ['-c', 'command -v ' + bin], { stdio: 'ignore' }).status === 0
 }
 
 function backup(file: string): void {
@@ -56,490 +77,399 @@ function backup(file: string): void {
   }
 }
 
+function readText(file: string): string {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 function readJson(file: string): Record<string, unknown> | null {
   try {
-    const d = JSON.parse(fs.readFileSync(file, 'utf8'))
-    return d && typeof d === 'object' && !Array.isArray(d) ? (d as Record<string, unknown>) : null
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
   } catch {
     return null
   }
 }
 
-function fileMentions(file: string, needle: string): boolean {
+function writeJson(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  backup(file)
+  fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8')
+}
+
+function mentions(file: string, needle: string): boolean {
+  return readText(file).includes(needle)
+}
+
+function hasLegacy(pack: HarnessRuntimePack | null, text: string): boolean {
+  const markers = pack?.installers.legacy.legacyMarkers ?? ['ade-hook', 'AdeEventsPlugin']
+  return markers.some((marker) => text.includes(marker))
+}
+
+/** Plan for one installer id, or null when the Pack does not declare it. */
+function planFor(
+  pack: HarnessRuntimePack | null,
+  hookScriptPath: string | null,
+  id: string,
+  home: string
+): InstallerPlan | null {
+  if (!pack || !hookScriptPath) return null
+  if (!pack.installers.byId[id]) return null
+  return installerPlan(pack, id, hookScriptPath, home)
+}
+
+/* --------------------------------------------------------------- detection */
+
+export function hookStatuses(
+  sources: HookInstallerSources,
+  home: string = os.homedir()
+): HookStatus[] {
+  const pack = sources.pack
+  if (!pack || !sources.hookScriptPath) return []
+  const statuses: HookStatus[] = []
+  for (const id of Object.keys(pack.installers.byId)) {
+    const plan = planFor(pack, sources.hookScriptPath, id, home)
+    if (!plan) continue
+    if (!binAvailable(plan.installer.bin)) continue
+    statuses.push({
+      id,
+      label: plan.installer.label,
+      mechanism: plan.installer.mechanism,
+      available: true,
+      installed: isInstalled(plan),
+      detail: installedDetail(plan),
+      configPath: plan.configPath
+    })
+  }
+  return statuses
+}
+
+function isInstalled(plan: InstallerPlan): boolean {
+  const kind = plan.installer.kind
+  if (kind === 'plugin-files') {
+    // every file of the set must be present — a lone entry cannot resolve its
+    // sibling at import time, which is exactly how the opencode plugin breaks
+    return plan.files.every((file) => mentions(file.to, plan.marker))
+  }
+  if (kind === 'hook-files') {
+    return plan.events.every((event) => mentions(path.join(plan.configDir, event), plan.marker))
+  }
+  if (kind === 'notify-slot') {
+    const line = readText(plan.configPath)
+      .split('\n')
+      .find((l) => /^\s*notify\s*=/.test(l))
+    return Boolean(line && line.includes(plan.marker))
+  }
+  return mentions(plan.configPath, plan.marker)
+}
+
+function installedDetail(plan: InstallerPlan): string | undefined {
+  const kind = plan.installer.kind
+  if (kind === 'notify-slot') {
+    const line = readText(plan.configPath)
+      .split('\n')
+      .find((l) => /^\s*notify\s*=/.test(l))
+    if (line && !line.includes(plan.marker)) {
+      return 'existing notify command is kept — mahas forwards the payload to it'
+    }
+    return undefined
+  }
+  if (kind !== 'plugin-files') return undefined
+  const missing = plan.files
+    .filter((file) => !fs.existsSync(file.to))
+    .map((file) => path.basename(file.to))
+  const incomplete = plan.files.filter(
+    (file) => fs.existsSync(file.to) && !mentions(file.to, plan.marker)
+  )
+  if (missing.length) return 'missing plugin file(s): ' + missing.join(', ')
+  if (incomplete.length) return 'plugin file(s) do not match the shipped revision'
+  return undefined
+}
+
+/* ------------------------------------------------------------------ install */
+
+export function installHook(
+  id: string,
+  sources: HookInstallerSources,
+  home: string = os.homedir()
+): InstallResult {
+  const pack = sources.pack
+  if (!pack || !sources.hookScriptPath) {
+    return { ok: false, error: 'harness runtime Pack is unavailable — cannot install hooks' }
+  }
+  const plan = planFor(pack, sources.hookScriptPath, id, home)
+  if (!plan) return { ok: false, error: 'unknown provider ' + id }
+  if (!binAvailable(plan.installer.bin)) {
+    return { ok: false, error: plan.installer.bin + ' not found on PATH' }
+  }
   try {
-    return fs.readFileSync(file, 'utf8').includes(needle)
-  } catch {
-    return false
+    ensureHookCopy(home, sources.hookScriptPath)
+    switch (plan.installer.kind) {
+      case 'json-hooks':
+        return installJsonHooks(plan)
+      case 'notify-slot':
+        return installNotifySlot(plan)
+      case 'owned-json-hooks':
+        return installOwnedHooks(plan)
+      case 'hook-files':
+        return installHookFiles(plan)
+      case 'plugin-files':
+        return installPluginFiles(plan)
+      default:
+        return { ok: false, error: 'unsupported installer kind ' + String(plan.installer.kind) }
+    }
+  } catch (error) {
+    return { ok: false, error: String(error instanceof Error ? error.message : error) }
   }
 }
 
-// Append one matcher-group `{hooks:[…command…]}` to `hooks.<event>[]` inside a
-// settings file (`hooks` key for devin, `hooks.events` for zcode, top-level
-// `hooks` for claude). Returns false when nothing was added.
-function appendJsonHook(
-  file: string,
-  event: string,
-  group: Record<string, unknown>,
-  opts: { eventsKey?: boolean; enable?: boolean } = {}
-): InstallResult {
-  const cfg = readJson(file) ?? {}
-  const hooks = (cfg.hooks && typeof cfg.hooks === 'object' ? cfg.hooks : {}) as Record<
+/**
+ * The installed transport is a copy of the Pack's own vendor-facing script; the
+ * config-dir path is what every harness hook command points at, so refreshing
+ * the copy updates every installed harness at once.
+ */
+function ensureHookCopy(home: string, hookScriptSource: string): string {
+  const configDir =
+    process.env.MAHAS_CONFIG_DIR ||
+    path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'mahas')
+  const dest = path.join(configDir, 'mahas-hook.cjs')
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  const source = readText(hookScriptSource)
+  if (!source) throw new Error('hook transport is missing at ' + hookScriptSource)
+  if (readText(dest) !== source) {
+    try {
+      fs.copyFileSync(dest, dest + '.mahas-bak')
+    } catch {
+      /* fresh copy */
+    }
+    fs.writeFileSync(dest, source, { mode: 0o755 })
+  }
+  return dest
+}
+
+function hooksContainer(plan: InstallerPlan): {
+  doc: Record<string, unknown>
+  container: Record<string, unknown>
+} {
+  const doc = readJson(plan.configPath) ?? {}
+  const hooks = (doc.hooks && typeof doc.hooks === 'object' ? doc.hooks : {}) as Record<
     string,
     unknown
   >
-  cfg.hooks = hooks
-  if (opts.enable) hooks.enabled = true
-  const container = (
-    opts.eventsKey
-      ? ((hooks.events && typeof hooks.events === 'object' ? hooks.events : {}) as Record<
-          string,
-          unknown
-        >)
-      : hooks
-  ) as Record<string, unknown>
-  if (opts.eventsKey) hooks.events = container
-  const arr = Array.isArray(container[event]) ? (container[event] as unknown[]) : []
-  const hadMahas = arr.some((g) => JSON.stringify(g).includes('mahas-hook'))
-  const kept = arr.filter((g) => !JSON.stringify(g).includes('ade-hook'))
-  const strippedLegacy = kept.length !== arr.length
-  if (hadMahas) {
-    if (!strippedLegacy) return { ok: true, detail: 'already installed' }
+  doc.hooks = hooks
+  if (plan.installer.enableContainer) hooks.enabled = true
+  if (!plan.installer.container) return { doc, container: hooks }
+  const existing = hooks[plan.installer.container]
+  const nested = (existing && typeof existing === 'object' ? existing : {}) as Record<
+    string,
+    unknown
+  >
+  hooks[plan.installer.container] = nested
+  return { doc, container: nested }
+}
+
+function installJsonHooks(plan: InstallerPlan): InstallResult {
+  if (!plan.group) return { ok: false, error: 'installer declares no hook group template' }
+  const details: string[] = []
+  let wrote = false
+  for (const event of plan.events) {
+    const { doc, container } = hooksContainer(plan)
+    const current = Array.isArray(container[event]) ? (container[event] as unknown[]) : []
+    const ours = current.some((entry) => JSON.stringify(entry).includes(plan.marker))
+    const kept = current.filter((entry) => !hasLegacy(null, JSON.stringify(entry)))
+    const strippedLegacy = kept.length !== current.length
+    if (ours && !strippedLegacy) {
+      details.push('already installed')
+      continue
+    }
+    if (!ours) kept.push(plan.group)
     container[event] = kept
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    backup(file)
-    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
-    return { ok: true, detail: 'removed legacy ade-hook' }
+    writeJson(plan.configPath, doc)
+    wrote = true
+    details.push(ours ? 'removed legacy ade-hook' : '')
   }
-  // a pre-rename 'ade-hook' group is ours — replace it, don't double-register
-  kept.push(group)
-  container[event] = kept
+  void wrote
+  return { ok: true, detail: details.filter(Boolean).join('; ') || undefined }
+}
+
+function installNotifySlot(plan: InstallerPlan): InstallResult {
+  const file = plan.configPath
+  if (!plan.argv.length) return { ok: false, error: 'installer declares no notify argv' }
+  const notifyLine = 'notify = [' + plan.argv.map((a) => JSON.stringify(a)).join(', ') + ']'
+  const lines = readText(file).split('\n')
+  const index = lines.findIndex((l) => /^\s*notify\s*=/.test(l))
+  if (index >= 0) {
+    if (lines[index]!.includes(plan.marker)) return { ok: true, detail: 'already installed' }
+    const legacy = hasLegacy(null, lines[index]!)
+    const previous = parseTomlStringArray(lines[index]!)
+    if (!legacy && previous.length) {
+      // Preserve the displaced command: the hook script re-invokes it with the
+      // same payload, so taking over the single notify slot is not destructive.
+      const table = readJson(plan.forwardFile) ?? {}
+      table[plan.forwardKey ?? plan.id] = previous
+      writeJson(plan.forwardFile, table)
+    }
+    lines[index] = notifyLine
+    backup(file)
+    fs.writeFileSync(file, lines.join('\n'), 'utf8')
+    return { ok: true, detail: 'previous notify command chained after mahas' }
+  }
+  // `notify` is a top-level key: it must precede the first [table] header.
+  const firstTable = lines.findIndex((l) => /^\s*\[/.test(l))
+  if (firstTable >= 0) lines.splice(firstTable, 0, notifyLine)
+  else lines.push(notifyLine)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   backup(file)
-  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
+  fs.writeFileSync(file, lines.join('\n'), 'utf8')
   return { ok: true }
 }
 
 function parseTomlStringArray(line: string): string[] {
-  const i = line.indexOf('[')
-  const j = line.lastIndexOf(']')
-  if (i < 0 || j <= i) return []
-  const inner = line.slice(i + 1, j)
+  const start = line.indexOf('[')
+  const end = line.lastIndexOf(']')
+  if (start < 0 || end <= start) return []
   const out: string[] = []
   const re = /"((?:[^"\\]|\\.)*)"/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(inner))) {
+  let match: RegExpExecArray | null
+  const inner = line.slice(start + 1, end)
+  while ((match = re.exec(inner))) {
     try {
-      out.push(JSON.parse(`"${m[1]}"`))
+      out.push(JSON.parse('"' + match[1] + '"'))
     } catch {
-      out.push(m[1])
+      out.push(match[1]!)
     }
   }
   return out
 }
 
-const HOOK_MARK = 'mahas-hook'
+function installOwnedHooks(plan: InstallerPlan): InstallResult {
+  if (!plan.owned) return { ok: false, error: 'installer declares no owned document' }
+  const text = JSON.stringify(plan.owned, null, 2) + '\n'
+  if (readText(plan.configPath) === text) return { ok: true, detail: 'already installed' }
+  fs.mkdirSync(path.dirname(plan.configPath), { recursive: true })
+  backup(plan.configPath)
+  fs.writeFileSync(plan.configPath, text, 'utf8')
+  return { ok: true }
+}
 
-const PROVIDERS: ProviderDef[] = [
-  {
-    id: 'claude',
-    label: 'Claude',
-    bin: 'claude',
-    mechanism: 'Stop + Notification + SessionStart/End hooks — ~/.claude/settings.json',
-    configPath: (home) => path.join(home, '.claude', 'settings.json'),
-    installed: (home) => fileMentions(path.join(home, '.claude', 'settings.json'), HOOK_MARK),
-    install: (home, cmd) => {
-      const file = path.join(home, '.claude', 'settings.json')
-      const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
-      // Stop = turn end; Notification = permission prompts / idle waits;
-      // SessionStart/SessionEnd track resumable sessions. Installing all
-      // gives each event once — grok/devin compat-load this file too, but
-      // the script relabels provider by env and the tailer dedupes the
-      // double fire.
-      const rs = ['Stop', 'Notification', 'SessionStart', 'SessionEnd'].map((ev) =>
-        appendJsonHook(file, ev, group)
-      )
-      return {
-        ok: rs.every((r) => r.ok),
-        detail:
-          rs
-            .map((r) => r.detail)
-            .filter(Boolean)
-            .join('; ') || undefined
-      }
-    }
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    bin: 'codex',
-    mechanism: 'notify — ~/.codex/config.toml',
-    configPath: (home) => path.join(home, '.codex', 'config.toml'),
-    detail: (home) => {
-      const file = path.join(home, '.codex', 'config.toml')
-      try {
-        const line = fs
-          .readFileSync(file, 'utf8')
-          .split('\n')
-          .find((l) => /^\s*notify\s*=/.test(l))
-        if (line && !line.includes(HOOK_MARK))
-          return 'existing notify command is kept — mahas forwards the payload to it'
-      } catch {
-        /* no file */
-      }
-      return undefined
-    },
-    installed: (home) => {
-      const file = path.join(home, '.codex', 'config.toml')
-      try {
-        const line = fs
-          .readFileSync(file, 'utf8')
-          .split('\n')
-          .find((l) => /^\s*notify\s*=/.test(l))
-        return !!line && line.includes(HOOK_MARK)
-      } catch {
-        return false
-      }
-    },
-    install: (home, _cmd, argv) => {
-      const file = path.join(home, '.codex', 'config.toml')
-      const notifyLine = `notify = [${argv.map((a) => JSON.stringify(a)).join(', ')}]`
-      let text = ''
-      try {
-        text = fs.readFileSync(file, 'utf8')
-      } catch {
-        /* fresh config */
-      }
-      const lines = text.split('\n')
-      const idx = lines.findIndex((l) => /^\s*notify\s*=/.test(l))
-      if (idx >= 0) {
-        if (lines[idx].includes(HOOK_MARK)) return { ok: true, detail: 'already installed' }
-        // Preserve the displaced command: the hook script re-invokes it with the payload.
-        // A pre-rename 'ade-hook' line is ours — replace it, don't chain it.
-        const legacy = lines[idx].includes('ade-hook')
-        const prev = parseTomlStringArray(lines[idx])
-        if (!legacy && prev.length) {
-          const fwdFile = path.join(mahasConfigDir(home), 'notify-forward.json')
-          let table: Record<string, unknown> = {}
-          try {
-            table = JSON.parse(fs.readFileSync(fwdFile, 'utf8'))
-          } catch {
-            /* none yet */
-          }
-          table.codex = prev
-          fs.mkdirSync(path.dirname(fwdFile), { recursive: true })
-          fs.writeFileSync(fwdFile, JSON.stringify(table, null, 2) + '\n', 'utf8')
-        }
-        lines[idx] = notifyLine
-        backup(file)
-        fs.writeFileSync(file, lines.join('\n'), 'utf8')
-        return { ok: true, detail: 'previous notify command chained after mahas' }
-      }
-      // `notify` is a top-level key: it must precede the first [table] header.
-      const firstTable = lines.findIndex((l) => /^\s*\[/.test(l))
-      if (firstTable >= 0) lines.splice(firstTable, 0, notifyLine)
-      else lines.push(notifyLine)
-      fs.mkdirSync(path.dirname(file), { recursive: true })
+function installHookFiles(plan: InstallerPlan): InstallResult {
+  if (!plan.scriptTemplate.length) {
+    return { ok: false, error: 'installer declares no script template' }
+  }
+  fs.mkdirSync(plan.configDir, { recursive: true })
+  let displaced = 0
+  for (const event of plan.events) {
+    const file = path.join(plan.configDir, event)
+    // cline runs every file named after an event, piping the JSON payload on
+    // stdin: our script forwards stdin to mahas-hook, then chains a displaced
+    // user hook kept at <file>.mahas-bak (same preserve-the-incumbent rule as
+    // codex's notify forward).
+    const text = plan.scriptTemplate
+      .map((line) => line.split('$' + '{event}').join(event))
+      .join('\n')
+    const current = readText(file)
+    if (current === text) continue
+    if (current && !current.includes(plan.marker)) {
+      displaced++
       backup(file)
-      fs.writeFileSync(file, lines.join('\n'), 'utf8')
-      return { ok: true }
     }
-  },
-  {
-    id: 'grok',
-    label: 'Grok',
-    bin: 'grok',
-    mechanism:
-      'Stop/StopCancelled/StopFailure + Notification + SessionStart/End — ~/.grok/hooks/mahas.json',
-    configPath: (home) => path.join(home, '.grok', 'hooks', 'mahas.json'),
-    installed: (home) => fileMentions(path.join(home, '.grok', 'hooks', 'mahas.json'), HOOK_MARK),
-    install: (home, cmd) => {
-      const file = path.join(home, '.grok', 'hooks', 'mahas.json')
-      const doc = {
-        description: 'mahas turn notifications',
-        hooks: {
-          Stop: [{ hooks: [{ type: 'command', command: cmd, timeout: 10 }] }],
-          StopCancelled: [{ hooks: [{ type: 'command', command: cmd }] }],
-          StopFailure: [{ hooks: [{ type: 'command', command: cmd }] }],
-          // no matcher: the hook script classifies notificationType itself —
-          // permission_prompt → needs-input, idle_prompt → silent backstop
-          Notification: [{ hooks: [{ type: 'command', command: cmd }] }],
-          // lifecycle — powers the restart-resume session set (no-ops if the
-          // harness never emits them)
-          SessionStart: [{ hooks: [{ type: 'command', command: cmd }] }],
-          SessionEnd: [{ hooks: [{ type: 'command', command: cmd }] }]
-        }
-      }
-      const text = JSON.stringify(doc, null, 2) + '\n'
+    fs.writeFileSync(file, text, { mode: 0o755 })
+    // a stale .mahas-bak holding OUR old script would re-invoke mahas-hook
+    // through the chain — drop it; a user-owned bak stays
+    const bak = file + '.mahas-bak'
+    if (readText(bak).includes(plan.marker)) {
       try {
-        if (fs.readFileSync(file, 'utf8') === text) {
-          return { ok: true, detail: 'already installed' }
-        }
+        fs.unlinkSync(bak)
       } catch {
-        /* fresh file */
+        /* nothing to clean */
       }
-      fs.mkdirSync(path.dirname(file), { recursive: true })
-      backup(file)
-      fs.writeFileSync(file, text, 'utf8')
-      return { ok: true }
-    }
-  },
-  {
-    id: 'devin',
-    label: 'Devin',
-    bin: 'devin',
-    mechanism: 'Stop + PermissionRequest + SessionStart/End hooks — ~/.config/devin/config.json',
-    configPath: (home) => path.join(configHome(home), 'devin', 'config.json'),
-    installed: (home) =>
-      fileMentions(path.join(configHome(home), 'devin', 'config.json'), HOOK_MARK),
-    install: (home, cmd) => {
-      const file = path.join(configHome(home), 'devin', 'config.json')
-      const group = { hooks: [{ type: 'command', command: cmd, timeout: 10 }] }
-      // passive observer: the script prints no decision, so the normal
-      // permission prompt still runs — mahas just gets told it's waiting.
-      // SessionStart/End feed the restart-resume set.
-      const rs = ['Stop', 'PermissionRequest', 'SessionStart', 'SessionEnd'].map((ev) =>
-        appendJsonHook(file, ev, group)
-      )
-      return {
-        ok: rs.every((r) => r.ok),
-        detail:
-          rs
-            .map((r) => r.detail)
-            .filter(Boolean)
-            .join('; ') || undefined
-      }
-    }
-  },
-  {
-    id: 'zcode',
-    label: 'ZCode',
-    bin: 'zcode',
-    mechanism: 'Stop + PermissionRequest + SessionStart/End — ~/.zcode/cli/config.json',
-    configPath: (home) => path.join(home, '.zcode', 'cli', 'config.json'),
-    installed: (home) => fileMentions(path.join(home, '.zcode', 'cli', 'config.json'), HOOK_MARK),
-    install: (home, cmd) => {
-      const file = path.join(home, '.zcode', 'cli', 'config.json')
-      const group = { hooks: [{ type: 'command', command: cmd }] }
-      const opts = { eventsKey: true, enable: true }
-      const rs = ['Stop', 'PermissionRequest', 'SessionStart', 'SessionEnd'].map((ev) =>
-        appendJsonHook(file, ev, group, opts)
-      )
-      return {
-        ok: rs.every((r) => r.ok),
-        detail:
-          rs
-            .map((r) => r.detail)
-            .filter(Boolean)
-            .join('; ') || undefined
-      }
-    }
-  },
-  {
-    id: 'cline',
-    label: 'Cline',
-    bin: 'cline',
-    mechanism: 'event-named hook files — ~/.cline/hooks/<Event>',
-    configPath: (home) => path.join(home, '.cline', 'hooks'),
-    installed: (home) =>
-      fileMentions(path.join(home, '.cline', 'hooks', 'TaskComplete'), HOOK_MARK),
-    install: (home, cmd) => {
-      // cline runs every file named after an event in its hooks search dirs,
-      // piping the JSON payload on stdin. Each of our files forwards stdin to
-      // mahas-hook, then chains a displaced user hook kept at <file>.mahas-bak
-      // (same preserve-the-incumbent rule as codex's notify forward).
-      const dir = path.join(home, '.cline', 'hooks')
-      const events = [
-        'TaskStart',
-        'TaskComplete',
-        'TaskError',
-        'TaskCancel',
-        'UserPromptSubmit',
-        'SessionShutdown'
-      ]
-      const script = (ev: string): string =>
-        [
-          '#!/bin/sh',
-          `# mahas-hook — cline ${ev} lifecycle event`,
-          'PAYLOAD="$(cat)"',
-          `printf '%s' "$PAYLOAD" | ${cmd}`,
-          'BAK="$(dirname "$0")/$(basename "$0").mahas-bak"',
-          'if [ -f "$BAK" ]; then',
-          '  printf \'%s\' "$PAYLOAD" | "$BAK" 2>/dev/null || printf \'%s\' "$PAYLOAD" | sh "$BAK" 2>/dev/null || true',
-          'fi',
-          'exit 0',
-          ''
-        ].join('\n')
-      let displaced = 0
-      fs.mkdirSync(dir, { recursive: true })
-      for (const ev of events) {
-        const file = path.join(dir, ev)
-        const text = script(ev)
-        let cur = ''
-        try {
-          cur = fs.readFileSync(file, 'utf8')
-        } catch {
-          /* absent */
-        }
-        if (cur === text) continue
-        if (cur && !cur.includes(HOOK_MARK)) {
-          displaced++
-          backup(file)
-        }
-        fs.writeFileSync(file, text, { mode: 0o755 })
-        // a stale .mahas-bak holding OUR old script would re-invoke
-        // mahas-hook through the chain — drop it; a user-owned bak stays
-        const bak = `${file}.mahas-bak`
-        try {
-          if (fs.readFileSync(bak, 'utf8').includes(HOOK_MARK)) fs.unlinkSync(bak)
-        } catch {
-          /* no bak to clean */
-        }
-      }
-      return {
-        ok: true,
-        detail: displaced
-          ? `${displaced} existing hook file(s) kept at .mahas-bak — chained after mahas`
-          : undefined
-      }
-    }
-  },
-  {
-    id: 'opencode',
-    label: 'OpenCode',
-    bin: 'opencode',
-    mechanism: 'plugin session.idle/error + permission/question.asked — ~/.config/opencode/plugins',
-    configPath: (home) => path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js'),
-    installed: (home) =>
-      fileMentions(
-        path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js'),
-        'MahasEventsPlugin'
-      ),
-    install: (home, _cmd, _argv, pluginSrc) => {
-      const dest = path.join(configHome(home), 'opencode', 'plugins', 'mahas-events.js')
-      fs.mkdirSync(path.dirname(dest), { recursive: true })
-      let same = false
-      try {
-        same = fs.readFileSync(dest, 'utf8') === fs.readFileSync(pluginSrc, 'utf8')
-      } catch {
-        /* dest absent or unreadable */
-      }
-      if (same) return { ok: true, detail: 'already installed' }
-      backup(dest)
-      fs.copyFileSync(pluginSrc, dest)
-      return { ok: true }
     }
   }
-]
-
-function ensureHookCopy(home: string, hookScriptSrc: string): string {
-  const dest = path.join(mahasConfigDir(home), 'mahas-hook.cjs')
-  fs.mkdirSync(path.dirname(dest), { recursive: true })
-  try {
-    if (
-      !fs.existsSync(dest) ||
-      fs.readFileSync(dest, 'utf8') !== fs.readFileSync(hookScriptSrc, 'utf8')
-    ) {
-      fs.copyFileSync(hookScriptSrc, dest)
-    }
-  } catch {
-    fs.copyFileSync(hookScriptSrc, dest)
-  }
-  return dest
-}
-
-function hookCommand(dest: string, provider: string): string {
-  return `node "${dest}" ${provider}`
-}
-
-export function hookStatuses(
-  hookScriptSrc: string,
-  pluginSrc: string,
-  home: string = os.homedir()
-): HookStatus[] {
-  void hookScriptSrc
-  void pluginSrc
-  return PROVIDERS.filter((p) => binAvailable(p.bin)).map((p) => ({
-    id: p.id,
-    label: p.label,
-    mechanism: p.mechanism,
-    available: true,
-    installed: p.installed(home),
-    detail: p.detail?.(home),
-    configPath: p.configPath(home)
-  }))
-}
-
-export function installHook(
-  providerId: string,
-  hookScriptSrc: string,
-  pluginSrc: string,
-  home: string = os.homedir()
-): InstallResult {
-  const p = PROVIDERS.find((x) => x.id === providerId)
-  if (!p) return { ok: false, error: `unknown provider ${providerId}` }
-  if (!binAvailable(p.bin)) return { ok: false, error: `${p.bin} not found on PATH` }
-  try {
-    const dest = ensureHookCopy(home, hookScriptSrc)
-    const cmd = hookCommand(dest, p.id)
-    const argv = ['node', dest, p.id]
-    return p.install(home, cmd, argv, pluginSrc)
-  } catch (e) {
-    return { ok: false, error: String(e instanceof Error ? e.message : e) }
+  return {
+    ok: true,
+    detail: displaced
+      ? displaced + ' existing hook file(s) kept at .mahas-bak — chained after mahas'
+      : undefined
   }
 }
 
-function hasLegacyHook(file: string): boolean {
-  return fileMentions(file, 'ade-hook') || fileMentions(file, 'AdeEventsPlugin')
+/**
+ * Copy a plugin file *set*. The entry file imports its sibling by relative
+ * path, so a partial install is broken by construction — every file is written
+ * together and the status check treats a missing dependency as not installed.
+ */
+function installPluginFiles(plan: InstallerPlan): InstallResult {
+  if (!plan.files.length) return { ok: false, error: 'installer declares no file set' }
+  const missing = plan.files
+    .filter((file) => !fs.existsSync(file.from))
+    .map((file) => path.basename(file.from))
+  if (missing.length) return { ok: false, error: 'Pack file(s) missing: ' + missing.join(', ') }
+  let changed = false
+  for (const file of plan.files) {
+    const source = readText(file.from)
+    if (readText(file.to) === source) continue
+    fs.mkdirSync(path.dirname(file.to), { recursive: true })
+    backup(file.to)
+    fs.writeFileSync(file.to, source, 'utf8')
+    changed = true
+  }
+  return { ok: true, detail: changed ? undefined : 'already installed' }
 }
 
-// Refresh mahas-owned hook artifacts at startup. The hook script copy under
-// ~/.config/mahas and grok's hook file are ours end-to-end, and the opencode
-// plugin file is a file we own inside opencode's plugins dir — those track
-// the shipped version so fixes land without a re-Install click.
-//
-// User-owned configs (claude settings.json, devin/zcode config.json, codex
-// config.toml) are not claimed from scratch here. But a leftover `ade-hook`
-// pointer is ours: the ade→mahas rename moved ~/.config/ade, so those
-// absolute paths 404 and completion events never arrive. Rewrite them the
-// same way Install does.
+/* ------------------------------------------------------------------ refresh */
+
+/**
+ * Refresh mahas-owned hook artifacts at startup.
+ *
+ * Owned artifacts (the installed transport copy, grok's hook document, cline's
+ * event files, opencode's plugin set) track the shipped Pack revision so fixes
+ * land without a re-Install click. User-owned configs (claude settings.json,
+ * devin/zcode config.json, codex config.toml) are never claimed from scratch —
+ * except for a leftover ade-hook pointer, which is ours: the ade→mahas rename
+ * moved ~/.config/ade, so those absolute paths 404 and completion events never
+ * arrive. Rewriting them is the same write Install performs.
+ */
 export function refreshInstalledHooks(
-  hookScriptSrc: string,
-  pluginSrc: string,
+  sources: HookInstallerSources,
   home: string = os.homedir()
 ): void {
+  const pack = sources.pack
+  if (!pack || !sources.hookScriptPath) return
   try {
-    const dest = ensureHookCopy(home, hookScriptSrc)
-    // sweep pre-rename ade-owned leftovers — they point at ~/.config/ade
-    // paths that no longer exist.
-    for (const f of [
-      path.join(configHome(home), 'opencode', 'plugins', 'ade-events.js'),
-      path.join(home, '.grok', 'hooks', 'ade.json'),
-      path.join(mahasConfigDir(home), 'ade-hook.cjs')
-    ]) {
+    ensureHookCopy(home, sources.hookScriptPath)
+    for (const artifact of pack.installers.legacy.artifacts) {
+      const file = expandInstallerPath(
+        artifact.path,
+        installerTokenContext({
+          home,
+          hookScriptPath: sources.hookScriptPath,
+          harnessId: 'mahas'
+        })
+      )
       try {
-        if (hasLegacyHook(f)) fs.unlinkSync(f)
+        if (hasLegacy(pack, readText(file))) fs.unlinkSync(file)
       } catch {
         /* best-effort */
       }
     }
-    const cmd = (id: string): string => hookCommand(dest, id)
-    const argv = (id: string): string[] => ['node', dest, id]
-    for (const p of PROVIDERS) {
+    for (const id of Object.keys(pack.installers.byId)) {
+      const plan = planFor(pack, sources.hookScriptPath, id, home)
+      if (!plan) continue
       try {
-        const ours = p.installed(home)
-        const legacy = hasLegacyHook(p.configPath(home))
-        const grokLegacy =
-          p.id === 'grok' &&
-          [
-            path.join(home, '.grok', 'hooks', 'ade.json'),
-            path.join(home, '.grok', 'hooks', 'ade.json.ade-bak'),
-            path.join(home, '.grok', 'hooks', 'ade.json.mahas-bak')
-          ].some(hasLegacyHook)
-        if (p.id === 'grok' || p.id === 'opencode' || p.id === 'cline') {
-          if (ours || grokLegacy) p.install(home, cmd(p.id), argv(p.id), pluginSrc)
+        const installed = isInstalled(plan)
+        const legacy =
+          hasLegacy(pack, readText(plan.configPath)) ||
+          plan.legacyArtifacts.some((file) => hasLegacy(pack, readText(file)))
+        if (plan.refresh === 'owned') {
+          if (installed || legacy) installHook(id, sources, home)
           continue
         }
-        if (legacy) p.install(home, cmd(p.id), argv(p.id), pluginSrc)
+        if (plan.refresh === 'legacy' && legacy) installHook(id, sources, home)
       } catch {
         /* best-effort */
       }
@@ -547,4 +477,32 @@ export function refreshInstalledHooks(
   } catch {
     /* best-effort */
   }
+}
+
+/**
+ * Refresh ONLY the config-dir transport copy (`<configDir>/mahas-hook.cjs`),
+ * leaving every harness config under $HOME untouched.
+ *
+ * Split out from refreshInstalledHooks for test runs: the event channel is
+ * config-dir scoped and safe to write, while harness configs live in the real
+ * HOME and must never be rewritten by a test. A run that skips BOTH loses the
+ * transport the Pack's own hook commands point at, so its events can never be
+ * produced in the first place.
+ */
+export function refreshHookTransportCopy(sources: HookInstallerSources): void {
+  if (!sources.pack || !sources.hookScriptPath) return
+  try {
+    ensureHookCopy(os.homedir(), sources.hookScriptPath)
+  } catch {
+    /* best-effort: a missing copy surfaces as a failing harness hook */
+  }
+}
+
+/** Ids whose owned artifacts are refreshed on every start. */
+export function ownedInstallerIds(sources: HookInstallerSources): string[] {
+  const pack = sources.pack
+  if (!pack) return []
+  return Object.entries(pack.installers.byId)
+    .filter(([, installer]) => (installer.refresh ?? 'legacy') === 'owned')
+    .map(([id]) => id)
 }

@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.codex.files",
+    "name": "Codex local sessions",
+    "publisher": "mahas",
+    "description": "Read-only incremental collection of Codex rollout JSONL files.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "home",
+            "path": ".codex"
+          },
+          {
+            "role": "data",
+            "base": "config",
+            "path": "sessions"
+          }
+        ],
+        "executableCandidates": ["codex"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.codex.files",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "codex"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.codex.files.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate config root and sessions directory"
+        }
+      },
+      {
+        "id": "mahas.codex.files.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "format": "jsonl",
+          "incremental": "confirmed-newline-byte-offset",
+          "sessionEmission": "with usage batch"
+        }
+      },
+      {
+        "id": "mahas.codex.files.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "cumulative",
+          "stream": "token_count",
+          "cacheContainment": "cache read is included in input",
+          "counterReset": "decrease opens a new epoch; the reset record is the new baseline"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node",
+        "constraint": ">=20",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "codex",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Canonical local rollout collector with confirmed-line byte checkpoints and reset epochs."
+  }
+}

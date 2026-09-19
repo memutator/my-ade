@@ -1,10 +1,16 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { History, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { agentLabel } from '../agents'
 import { shortPath } from '../utils'
-import { candidateName, resumeCandidates, resumeWorkspaceSessions } from '../resume'
+import {
+  candidateName,
+  resumeCandidates,
+  resumeWorkspaceSessions,
+  subscribeResume,
+  resumeSnapshotVersion
+} from '../resume'
 import AgentIcon from './AgentIcon'
 import Tooltip from './Tooltip'
 
@@ -15,6 +21,7 @@ import Tooltip from './Tooltip'
 // a declined set is simply offered again on the next launch).
 export default function ResumePrompt(): React.JSX.Element | null {
   const activeId = useStore((s) => s.activeWorkspaceId)
+  useSyncExternalStore(subscribeResume, resumeSnapshotVersion)
   useStore((s) => s.resumeSessions) // re-render when records land or drop
   const workspaces = useStore((s) => s.workspaces)
   const [closed, setClosed] = useState<Set<string>>(new Set())

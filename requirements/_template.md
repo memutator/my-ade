@@ -1,6 +1,6 @@
-# ADE <version> — 반영 요구사항 점검표
+# Mahas <version> — 반영 요구사항 점검표
 
-버전: `<version>` (`dist/ade-<version>.AppImage`, `dist/ade_<version>_amd64.deb`)
+버전: `<version>` (`dist/mahas-<version>.AppImage`, `dist/mahas_<version>_amd64.deb`)
 
 <!--
 작성 규칙:

@@ -20,7 +20,13 @@ interface Fixture {
   spawns: number
   materializations: number
   setFault: (value: Fault) => void
-  close: () => void
+  /**
+   * MUST be awaited: closing the runtime unbinds the process-wide access
+   * kernel, and a fire-and-forget close lets that unbind land after the next
+   * fixture bound its own DB — every later authorize() then answers
+   * CONTROL_UNAVAILABLE against a dead kernel.
+   */
+  close: () => Promise<void>
 }
 
 async function fixture(): Promise<Fixture> {
@@ -170,8 +176,8 @@ async function fixture(): Promise<Fixture> {
     setFault(value: typeof fault) {
       fault = value
     },
-    close() {
-      runtime.close()
+    async close() {
+      await runtime.close()
       db.close()
       rmSync(root, { recursive: true, force: true })
     }
@@ -196,7 +202,7 @@ async function run(): Promise<void> {
       assert.equal(f.spawns, 1, 'completed receipt replay must not respawn')
       console.log('PASS retryable failure preserves admission and resumes exactly once')
     } finally {
-      f.close()
+      await f.close()
     }
   }
   for (const fault of ['reject-materialize', 'reject-spawn'] as const) {
@@ -234,7 +240,7 @@ async function run(): Promise<void> {
       assert.equal(f.spawns, count, 'definitive abort is replay only')
       console.log(`PASS ${fault}: admission released, credentials fenced, replay cannot spawn`)
     } finally {
-      f.close()
+      await f.close()
     }
   }
   {
@@ -256,7 +262,7 @@ async function run(): Promise<void> {
       assert.equal(f.spawns, 1, 'unknown spawn must never be retried automatically')
       console.log('PASS lost spawn response preserves binding and forbids duplicate spawn')
     } finally {
-      f.close()
+      await f.close()
     }
   }
   {
@@ -279,7 +285,7 @@ async function run(): Promise<void> {
       assert.equal(f.spawns, 1)
       console.log('PASS legacy definitive failure receipt releases stranded member without respawn')
     } finally {
-      f.close()
+      await f.close()
     }
   }
 }

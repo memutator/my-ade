@@ -25,7 +25,13 @@ interface Fixture {
   calls: () => number
   materializations: () => number
   spawns: () => number
-  close: () => void
+  /**
+   * Tear the fixture down. MUST be awaited: closing the runtime unbinds the
+   * process-wide access kernel, and a fire-and-forget close lets that unbind
+   * land AFTER the next fixture bound its own DB — every authorize() in the
+   * following scenario then answers CONTROL_UNAVAILABLE against a dead kernel.
+   */
+  close: () => Promise<void>
 }
 
 async function fixture(verdict: GateVerdict): Promise<Fixture> {
@@ -123,8 +129,8 @@ async function fixture(verdict: GateVerdict): Promise<Fixture> {
     calls: () => calls,
     materializations: () => materializations,
     spawns: () => spawns,
-    close: () => {
-      runtime.close()
+    close: async () => {
+      await runtime.close()
       db.close()
       rmSync(root, { recursive: true, force: true })
     }
@@ -159,7 +165,7 @@ async function run(): Promise<void> {
       assert.ok(residuals.some((r) => r.kind === 'resource-claim' && r.ref === 'claim-rejected'))
       console.log('PASS rejected workspace never reaches spawn and preserves claim residuals')
     } finally {
-      f.close()
+      await f.close()
     }
   }
 
@@ -188,7 +194,7 @@ async function run(): Promise<void> {
       assert.equal(f.spawns(), 0)
       console.log('PASS unknown workspace preserves uncertainty/claims and forbids replay')
     } finally {
-      f.close()
+      await f.close()
     }
   }
 }

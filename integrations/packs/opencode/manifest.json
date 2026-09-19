@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.opencode",
+    "name": "OpenCode local database",
+    "publisher": "mahas",
+    "description": "Read-only OpenCode installation, session, and cumulative usage observations.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "xdg-config-home",
+            "path": "opencode"
+          },
+          {
+            "role": "data",
+            "base": "xdg-data-home",
+            "path": "opencode"
+          }
+        ],
+        "executableCandidates": ["opencode"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.opencode",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "opencode"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.opencode.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate namespace and SQLite schema only"
+        }
+      },
+      {
+        "id": "mahas.opencode.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "strategy": "bounded full-keyspace reconciliation",
+          "parents": "observed",
+          "timestamps": "unavailable",
+          "deletions": "absence from a wrapped sweep"
+        }
+      },
+      {
+        "id": "mahas.opencode.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "cumulative",
+          "cacheReadContainment": "excluded from input",
+          "cacheWriteContainment": "unknown",
+          "attribution": "unavailable",
+          "deletions": "absence from a wrapped sweep"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node:sqlite",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "opencode",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Read-only SQL collector; the session table has no update watermark, so it is reconciled in bounded keyset sweeps."
+  }
+}

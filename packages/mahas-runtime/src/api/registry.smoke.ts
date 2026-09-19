@@ -15,7 +15,7 @@ import type {
   CommandReceipt,
   CommandRequest
 } from '../../../mahas-contracts/src/index.ts'
-import { OperationRegistry, makeCaller, OPERATION_NAMES } from './registry.ts'
+import { OperationRegistry, makeCaller, OPERATION_NAMES, OPERATION_TABLE } from './registry.ts'
 import type {
   AccessBoundary,
   AdmissionTrace,
@@ -417,8 +417,47 @@ async function main(): Promise<void> {
   }
   check('makeCaller throws OperationCallError', threw)
 
-  // ── 13. OPERATION_NAMES covers the spec table ──
-  check('93 operations indexed', OPERATION_NAMES.length === 93, OPERATION_NAMES.length)
+  // ── 13. OPERATION_NAMES is exactly the central metadata table ──
+  // The count is deliberately NOT hardcoded: the central table grows with each
+  // domain that registers its operations (catalog/inventory/integration/
+  // metering/…). What must stay true is that the projection covers the
+  // metadata table 1:1, that names are unique and well-formed, and that the
+  // frozen spec operations are still indexed.
+  check(
+    'OPERATION_NAMES projects OPERATION_TABLE 1:1',
+    OPERATION_NAMES.length === OPERATION_TABLE.length &&
+      OPERATION_TABLE.every((entry) => OPERATION_NAMES.includes(entry.name)),
+    { names: OPERATION_NAMES.length, table: OPERATION_TABLE.length }
+  )
+  check(
+    'operation names are unique',
+    new Set(OPERATION_NAMES).size === OPERATION_NAMES.length,
+    OPERATION_NAMES.length
+  )
+  check(
+    'operation names are dotted lowerCamel segments',
+    OPERATION_NAMES.every((name) => /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/.test(name))
+  )
+  check(
+    'every metadata entry carries contract + owner',
+    OPERATION_TABLE.every((entry) => entry.contract.length > 0 && entry.owner.length > 0)
+  )
+  const requiredSpecOperations = [
+    'surface.describe',
+    'access.grant',
+    'run.create',
+    'plan.commit',
+    'task.dispatch',
+    'inbox.wait',
+    'worker.start',
+    'host.process.spawn',
+    'runtime.reconcile'
+  ]
+  check(
+    'frozen spec operations stay indexed',
+    requiredSpecOperations.every((name) => OPERATION_NAMES.includes(name)),
+    requiredSpecOperations.filter((name) => !OPERATION_NAMES.includes(name))
+  )
   check('surface.describe indexed', OPERATION_NAMES.includes('surface.describe'))
 
   console.log(`\n${passed} passed, ${failed} failed`)

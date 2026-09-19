@@ -9,32 +9,25 @@
 // and still dies with the app, unchanged.
 //
 // What this makes real today:
-//   · `runtime:status` IPC — the honest readiness verdict of the mahasd
-//     endpoint (packages/mahas-runtime/src/bootstrap.ts probes it for real)
+//   · `runtime:status` IPC — the last authenticated runtime.status verdict
 //   · `exec:*` IPC — the ONLY route managed executions may flow through
 //     (feature boundary): create/query/bind all go handle.client → the
 //     runtime client, never through pty:*. Until IMP-17/23 land the service
-//     every call answers CONTROL_UNAVAILABLE — that is the truth, not a
-//     stub pretending to work.
+//     every call uses the same authenticated mahas-client session.
 //   · `requestRuntimeShutdown` — the shutdown-request forwarding port an
 //     operator surface can call. No UI path reaches it (UI close = detach);
 //     mode is limited to the spec's two honest modes.
 //
-// What is NOT here: daemon spawn, ControllerLease, DB — injected by
-// IMP-17/IMP-23 behind bootstrapRuntime's sessionFactory.
+// What is NOT here: ControllerLease, DB, or execution fabrication. Those
+// remain service responsibilities reached through the operation registry.
 
 import { app, ipcMain } from 'electron'
-import { closeSync, openSync } from 'fs'
-import { spawn } from 'child_process'
 import { join } from 'path'
 import { homedir } from 'os'
-import { bootstrapRuntime } from '../../packages/mahas-runtime/src/index.ts'
-import type { RuntimeHandle } from '../../packages/mahas-runtime/src/index.ts'
-import { connectRpc } from '../../packages/mahas-runtime/src/rpc/index.ts'
-import type { RpcClient } from '../../packages/mahas-runtime/src/rpc/index.ts'
+import { bootstrapRuntime, receiptToControl } from '../../packages/mahas-client/src/index.ts'
+import type { RuntimeHandle } from '../../packages/mahas-client/src/index.ts'
 import type {
   BindViewRequest,
-  CommandReceipt,
   ControlError,
   ControlResult,
   CreateExecutionRequest,
@@ -47,6 +40,12 @@ import type {
   UnbindViewRequest
 } from '../../packages/mahas-contracts/src/index.ts'
 import type { ExecOpRequest, RuntimeSubscribeRequest } from '../preload/index.ts'
+import {
+  logServiceBootstrap,
+  resolveServiceBootstrapPaths,
+  spawnControlPlane
+} from './runtime/serviceBootstrap.ts'
+import { LEGACY_USAGE_ACCOUNTS_ROOT_ENV, legacyUsageAccountsRoot } from './runtime/authClient.ts'
 
 let handle: RuntimeHandle | null = null
 
@@ -58,59 +57,15 @@ let handle: RuntimeHandle | null = null
  * never remembered as a dead service forever, and no call is auto-resent
  * (REQ-14: the operationId reconciles via operation.get).
  */
-let rpc: RpcClient | null = null
-let rpcConnecting: Promise<RpcClient | null> | null = null
-
-async function rpcClient(): Promise<RpcClient | null> {
-  if (rpc) return rpc
-  if (rpcConnecting) return rpcConnecting
-  rpcConnecting = (async () => {
-    if (!handle) return null
-    try {
-      const client = await connectRpc(handle.endpoint.address, { kind: 'operator' })
-      rpc = client
-      return client
-    } catch {
-      return null
-    } finally {
-      rpcConnecting = null
-    }
-  })()
-  return rpcConnecting
-}
-
-function dropRpc(): void {
-  try {
-    rpc?.close()
-  } catch {
-    /* already gone */
-  }
-  rpc = null
-}
-
-function receiptToControl(receipt: CommandReceipt): ControlResult<unknown> {
-  if (receipt.status === 'committed') return { ok: true, value: receipt.result }
-  const code = (receipt.error?.code ?? 'UNKNOWN') as ControlError['code']
-  const retry = receipt.error?.retry
-  const pendingOrUnknown = receipt.status === 'pending' || receipt.status === 'unknown'
-  return {
-    ok: false,
-    error: {
-      code,
-      message:
-        receipt.error?.message ??
-        (pendingOrUnknown
-          ? `${receipt.status}: outcome not yet known`
-          : `operation ended with status ${receipt.status}`),
-      retryable: pendingOrUnknown || retry === 'same-operation' || retry === 'reconcile'
-    }
-  }
-}
-
-// daemon sockets namespace with the same config dir the hook/event channel
-// uses (MAHAS_CONFIG_DIR; dev runs already get mahas-dev — see index.ts)
+// Daemon sockets namespace with the same config dir the hook/event channel
+// uses. This must agree with eventsFile.mahasConfigDir() EXACTLY, including the
+// XDG_CONFIG_HOME fallback: if the daemon resolved a different root than the
+// hook channel, its event ingest would write into one profile while the desktop
+// read events from another. MAHAS_CONFIG_DIR still wins (dev runs set it to
+// mahas-dev; the e2e harness sets it to its scratch dir).
 function runtimeConfigDir(): string {
-  return process.env.MAHAS_CONFIG_DIR ?? join(homedir(), '.config', 'mahas')
+  const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
+  return process.env.MAHAS_CONFIG_DIR || join(base, 'mahas')
 }
 
 function offline(detail: string): ServiceStatus {
@@ -128,53 +83,52 @@ function invalid<T>(message: string): Promise<ControlResult<T>> {
 }
 
 /**
- * Dev control-plane bootstrap (IMP-30): when nothing answers on the mahasd
- * endpoint, spawn the daemons under the SYSTEM node (their entrypoints are
- * TypeScript run via Node's type stripping; Electron's bundled Node is not
- * used). Packaged builds deliberately skip this — the daemon sources are not
- * shipped, and the desktop remains an honest client that reports
- * CONTROL_UNAVAILABLE until an operator runs mahasd.
+ * When an authenticated runtime.status cannot be obtained, start the service
+ * entrypoints under system Node and keep polling the authenticated client.
+ * A reachable socket alone never disables bootstrap or reports readiness.
  *
  * stdin is /dev/zero, not 'ignore': the host treats stdin EOF as "launcher
  * gone" and exits, which is correct for pty-host but wrong for a detached
  * service that must survive UI closes (spec §5).
+ *
+ * MAHAS_TEST does NOT skip this: the desktop's real startup path is what e2e
+ * must exercise, and hook events now require a durable daemon ack before the
+ * renderer sees them. Test isolation comes from the config root instead — the
+ * harness pins MAHAS_CONFIG_DIR/XDG_CONFIG_HOME to a scratch dir, and the
+ * runtime composition isolates scanner/auth roots under <configDir>/test-home.
+ * The services are detached on purpose, so a fixture must stop the children it
+ * started (tools/e2e.mjs stopFixtureDaemons) rather than relying on UI exit.
  */
 async function ensureControlPlane(h: RuntimeHandle): Promise<void> {
-  if (process.env.MAHAS_TEST) return
-  if (app.isPackaged) return
   const current = await h.refresh()
   if (current.readiness === 'ready' || current.readiness === 'degraded') return
 
-  const rootPath = app.getAppPath()
   const configDir = runtimeConfigDir()
-  const nodeBin = process.env.MAHAS_NODE ?? 'node'
-  let stdinFd: number | null = null
+  const paths = resolveServiceBootstrapPaths({
+    packaged: app.isPackaged,
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    configDir,
+    // The auth domain adopts the credential files this profile registered
+    // before the inventory domain existed. It must never guess a desktop
+    // userData path — dev runs and an installed app keep different roots — so
+    // the desktop resolves its own and hands it over through the spawn env.
+    legacyUsageAccountsRoot: legacyUsageAccountsRoot()
+  })
+  if (!paths) {
+    logServiceBootstrap(
+      configDir,
+      `cannot start services: Node 24+ or service entrypoints were not found ` +
+        `(packaged=${app.isPackaged}, appPath=${app.getAppPath()}, ` +
+        `resourcesPath=${process.resourcesPath})`
+    )
+    return
+  }
   try {
-    stdinFd = openSync('/dev/zero', 'r')
-  } catch {
-    stdinFd = null
-  }
-  for (const script of [
-    'packages/mahas-execution-host/src/main.ts',
-    'packages/mahas-runtime/src/main.ts'
-  ]) {
-    try {
-      const child = spawn(nodeBin, [join(rootPath, script), '--config-dir', configDir], {
-        detached: true,
-        stdio: [stdinFd ?? 'ignore', 'ignore', 'ignore'],
-        env: { ...process.env, MAHAS_CONFIG_DIR: configDir }
-      })
-      child.unref()
-    } catch (err) {
-      console.warn(`[runtime] cannot spawn ${script}: ${String(err)}`)
-    }
-  }
-  if (stdinFd !== null) {
-    try {
-      closeSync(stdinFd)
-    } catch {
-      /* already closed */
-    }
+    spawnControlPlane(paths, configDir, process.env, LEGACY_USAGE_ACCOUNTS_ROOT_ENV)
+  } catch (error) {
+    logServiceBootstrap(configDir, `service spawn failed: ${String(error)}`)
+    return
   }
   // give the daemons a bounded window to publish + answer
   for (let i = 0; i < 20; i++) {
@@ -288,17 +242,13 @@ export function registerRuntimeIpc(): void {
       return invalid('exec:op requires an operation name')
     }
     if (!handle) return refuse('runtime not bootstrapped')
-    const client = await rpcClient()
-    if (!client) return refuse(`mahasd at ${handle.endpoint.address} is unavailable`)
     try {
-      const receipt = await client.call(req.operation, req.payload, {
+      const receipt = await handle.client.call(req.operation, req.payload, {
         operationId: req.operationId,
         expectedRevisions: req.expectedRevisions
       })
       return receiptToControl(receipt)
     } catch (err) {
-      // transport-level failure — session is no longer trustworthy
-      dropRpc()
       const message = err instanceof Error ? err.message : String(err)
       return refuse(`mahasd call ${req.operation} failed: ${message}`)
     }

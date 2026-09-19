@@ -38,38 +38,17 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { inTransaction, withTx } from '../storage/transaction.ts'
-import type { ErrorCode, ErrorRetry, MahasError } from '../../../mahas-contracts/src/common.ts'
 
 /* ------------------------------------------------------------------ *
- * shared error + row codec (the other maintenance modules import these)
+ * shared error + row codec
+ *
+ * Defined in ./codec.ts (the other maintenance modules import them from
+ * there); re-exported here because this module has been the import site for
+ * as long as the codec existed, and the smoke tests still reach for it.
  * ------------------------------------------------------------------ */
 
-/** domain verdict thrown by maintenance code — MahasError-shaped on the wire */
-export class MaintenanceError extends Error {
-  readonly code: ErrorCode
-  readonly retry: ErrorRetry
-  readonly details?: unknown
-
-  constructor(
-    code: ErrorCode,
-    message: string,
-    options?: { retry?: ErrorRetry; details?: unknown }
-  ) {
-    super(message)
-    this.name = 'MaintenanceError'
-    this.code = code
-    this.retry = options?.retry ?? 'none'
-    this.details = options?.details
-  }
-
-  toMahasError(): MahasError {
-    return { code: this.code, message: this.message, retry: this.retry, details: this.details }
-  }
-}
-
-export function fail(code: ErrorCode, message: string, details?: unknown): never {
-  throw new MaintenanceError(code, message, { details })
-}
+import { parseJsonColumn, rows } from './codec.ts'
+export { fail, MaintenanceError, parseJsonColumn, rows } from './codec.ts'
 
 /* ------------------------------------------------------------------ *
  * candidate shapes (row codec follows spec/storage.md §3 DDL field names
@@ -156,15 +135,6 @@ export interface ImpactCandidateRow {
   reason: ImpactReason
   resolution: CandidateResolution
   rowid: number
-}
-
-function parseJsonColumn(raw: unknown, fallback: unknown): unknown {
-  if (typeof raw !== 'string' || raw.length === 0) return fallback
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return fallback
-  }
 }
 
 export function rowToCandidate(r: Record<string, unknown>): ImpactCandidateRow {
@@ -330,10 +300,6 @@ interface RoleRow {
   description: string
   boundary_id: string
   horizontal_role_name: string
-}
-
-function rows<T>(db: DatabaseSync, sql: string, ...args: (string | number)[]): T[] {
-  return db.prepare(sql).all(...args) as unknown as T[]
 }
 
 export function diffModelVersions(

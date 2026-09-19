@@ -9,8 +9,8 @@ import { spawnSync } from 'node:child_process'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const home = mkdtempSync(join(tmpdir(), 'mahas-hook-mig-'))
-const hookSrc = join(ROOT, 'resources', 'mahas-hook.cjs')
-const pluginSrc = join(ROOT, 'resources', 'mahas-opencode-plugin.js')
+// the transport and its installers are Pack data now
+const packDir = join(ROOT, 'integrations', 'packs', 'harness-runtime')
 
 mkdirSync(join(home, '.codex'), { recursive: true })
 mkdirSync(join(home, '.claude'), { recursive: true })
@@ -81,9 +81,11 @@ if (bundled.status !== 0) {
 }
 
 const runner = `
-const { refreshInstalledHooks, hookStatuses } = require(${JSON.stringify(bundle)})
-refreshInstalledHooks(${JSON.stringify(hookSrc)}, ${JSON.stringify(pluginSrc)}, ${JSON.stringify(home)})
-const st = hookStatuses(${JSON.stringify(hookSrc)}, ${JSON.stringify(pluginSrc)}, ${JSON.stringify(home)})
+const { refreshInstalledHooks, hookStatuses, hookInstallerSourcesFromDir } = require(${JSON.stringify(bundle)})
+const sources = hookInstallerSourcesFromDir(${JSON.stringify(packDir)})
+if (!sources.pack) throw new Error('harness runtime Pack unavailable')
+refreshInstalledHooks(sources, ${JSON.stringify(home)})
+const st = hookStatuses(sources, ${JSON.stringify(home)})
 console.log(JSON.stringify(st.map((s) => ({ id: s.id, installed: s.installed }))))
 `
 

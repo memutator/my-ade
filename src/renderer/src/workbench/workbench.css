@@ -249,6 +249,12 @@
   font-weight: 600;
 }
 
+/* a retired task stays in the draft (its disposition is explicit) but reads
+   as leaving the plan, never as an ordinary row */
+.wb-card.retired {
+  opacity: 0.55;
+}
+
 .wb-card-role {
   color: var(--text-dim);
   font-size: 11px;

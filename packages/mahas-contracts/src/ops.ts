@@ -9,6 +9,9 @@
 // Constants only — no schemas are duplicated here beyond the name lists; the
 // owning contract defines payload/result semantics.
 
+import { INTEGRATION_DOMAIN_OPERATIONS } from './operations/domains.ts'
+export { INTEGRATION_DOMAIN_OPERATIONS } from './operations/domains.ts'
+
 export const MODEL_OPERATION_NAMES = [
   'project.create',
   'project.get',
@@ -144,6 +147,7 @@ export const CLIENT_OPERATION_NAMES = [
 
 /** every worker/operator-facing name — C-HOST deliberately excluded */
 export const OPERATION_NAMES: readonly string[] = [
+  ...INTEGRATION_DOMAIN_OPERATIONS.map((entry) => entry.name),
   ...MODEL_OPERATION_NAMES,
   ...DISCOVERY_OPERATION_NAMES,
   ...REALIZATION_OPERATION_NAMES,

@@ -18,18 +18,25 @@ import { CtxMenu, type CtxItem } from './Menu'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { useFileIcon } from '../fileIcons'
-
-// posix path helpers — mahas only ever runs on this linux box
-const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
-const dirname = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/'
-const joinPath = (d: string, n: string): string => (d.endsWith('/') ? d : d + '/') + n
-// per-segment encoding — '#' or '?' in a name must not become URL syntax
-const fileUrl = (p: string): string => 'file://' + p.split('/').map(encodeURIComponent).join('/')
-const isHtml = (name: string): boolean => /\.html?$/i.test(name)
-const isUnder = (p: string, dir: string): boolean =>
-  p === dir || p.startsWith(dir.endsWith('/') ? dir : dir + '/')
-
-const DND_MIME = 'application/x-mahas-paths'
+import {
+  basename,
+  dirname,
+  isHtml,
+  isUnder,
+  joinPath,
+  fileUrl,
+  DND_MIME
+} from '../features/files/paths'
+import {
+  createEntry,
+  duplicatePaths,
+  movePaths,
+  copyPaths,
+  renamePath,
+  trashPaths,
+  type FileOpSink
+} from '../features/files/operations'
+import { useTreeState } from '../features/files/treeState'
 
 // clipboard shared by every FileTree instance (sidebar + hover overlay), like
 // VS Code's global explorer clipboard. Not persisted.
@@ -239,28 +246,35 @@ export default function FileTree({
     },
     [onOpenFile]
   )
-  const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({})
-  const [open, setOpen] = useState<Set<string>>(new Set())
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [focused, setFocused] = useState<string | null>(null)
-  const [anchor, setAnchor] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [creating, setCreating] = useState<{ dir: string; kind: 'file' | 'dir' } | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string[] | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-
-  const dirsRef = useRef(dirs)
-  // stable identity, not a ref — TreeNode ref callbacks register row elements
-  // here so keyboard nav can scrollIntoView
-  const [rowEls] = useState(() => new Map<string, HTMLElement>())
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const watchedRef = useRef<Set<string>>(new Set())
 
-  useEffect(() => {
-    dirsRef.current = dirs
-  }, [dirs])
+  const tree = useTreeState(rootPath)
+  const {
+    dirs,
+    open,
+    selected,
+    focused,
+    anchor,
+    flat,
+    focusedEntry,
+    rowEls,
+    setOpen,
+    setSelected,
+    setFocused,
+    setAnchor,
+    setDirOpen,
+    reload,
+    refreshAll,
+    rangeSel,
+    remapPaths,
+    pruneUnder
+  } = tree
 
   const flash = useCallback((msg: string): void => {
     setStatus(msg)
@@ -268,195 +282,30 @@ export default function FileTree({
     statusTimer.current = setTimeout(() => setStatus(null), 4000)
   }, [])
 
-  const reload = useCallback(async (dir: string): Promise<void> => {
-    const entries = await window.mahas.fs.list(dir)
-    setDirs((d) => ({ ...d, [dir]: entries }))
-  }, [])
-
-  const refreshAll = useCallback((): void => {
-    for (const d of Object.keys(dirsRef.current)) void reload(d)
-  }, [reload])
-
-  /* expansion state + directory watches */
-
-  const setDirOpen = useCallback(
-    (dir: string, v: boolean): void => {
-      setOpen((prev) => {
-        if (prev.has(dir) === v) return prev
-        const n = new Set(prev)
-        if (v) n.add(dir)
-        else n.delete(dir)
-        return n
-      })
-      if (v) void reload(dir) // always re-list on expand — never serve stale children
-    },
-    [reload]
+  // the ops layer reconciles the shell (open tabs) and the tree (expansion,
+  // selection) after every mutation — one sink, built once per tree
+  const sink: FileOpSink = useMemo(
+    () => ({ flash, refreshAll, remapPaths, pruneUnder }),
+    [flash, refreshAll, remapPaths, pruneUnder]
   )
-
-  // keep an fs.watch on the root + every expanded dir; main refcounts so the
-  // two tree instances can share a path
-  useEffect(() => {
-    const want = new Set([rootPath, ...open])
-    for (const p of want) if (!watchedRef.current.has(p)) void window.mahas.dir.watch(p)
-    for (const p of watchedRef.current) if (!want.has(p)) void window.mahas.dir.unwatch(p)
-    watchedRef.current = want
-  }, [rootPath, open])
-
-  useEffect(
-    () => () => {
-      for (const p of watchedRef.current) void window.mahas.dir.unwatch(p)
-      watchedRef.current = new Set()
-    },
-    []
-  )
-
-  // a watched dir changed on disk → re-list it (only if we actually show it)
-  useEffect(
-    () =>
-      window.mahas.dir.onChanged((p) => {
-        if (p in dirsRef.current) void reload(p)
-      }),
-    [reload]
-  )
-
-  /* initial load — rootPath changes remount the tree (callers pass key) */
-
-  useEffect(() => {
-    let on = true
-    void window.mahas.fs.list(rootPath).then((e) => on && setDirs((d) => ({ ...d, [rootPath]: e })))
-    return () => {
-      on = false
-    }
-  }, [rootPath])
-
-  /* visible row order — needed for shift-range select and arrow navigation */
-
-  const flat = useMemo(() => {
-    const out: { entry: DirEntry; depth: number }[] = []
-    const walk = (dir: string, depth: number): void => {
-      for (const e of dirs[dir] ?? []) {
-        out.push({ entry: e, depth })
-        if (e.isDir && open.has(e.path)) walk(e.path, depth + 1)
-      }
-    }
-    walk(rootPath, 0)
-    return out
-  }, [dirs, open, rootPath])
-
-  const rangeSel = useCallback(
-    (from: string, to: string): Set<string> => {
-      const i = flat.findIndex((f) => f.entry.path === from)
-      const j = flat.findIndex((f) => f.entry.path === to)
-      if (i < 0 || j < 0) return new Set([to])
-      const [a, b] = i < j ? [i, j] : [j, i]
-      return new Set(flat.slice(a, b + 1).map((f) => f.entry.path))
-    },
-    [flat]
-  )
-
-  const focusedEntry = flat.find((f) => f.entry.path === focused)?.entry ?? null
-
-  useEffect(() => {
-    // container:'nearest' — unscoped scrollIntoView walks every scrollable
-    // ancestor and can drag the root scroller (overflow:hidden doesn't stop
-    // it), sliding the whole app up and pushing the topbar offscreen
-    if (focused)
-      rowEls.get(focused)?.scrollIntoView({
-        block: 'nearest',
-        container: 'nearest'
-      } as ScrollIntoViewOptions)
-  }, [focused, rowEls])
-
-  /* path remap — a renamed/moved dir keeps its expansion + selection */
-
-  const remapPaths = useCallback((oldP: string, newP: string): void => {
-    const map = (p: string): string =>
-      p === oldP ? newP : isUnder(p, oldP) ? newP + p.slice(oldP.length) : p
-    const mapSet = (s: Set<string>): Set<string> => new Set([...s].map(map))
-    setOpen(mapSet)
-    setDirs((d) => {
-      const n: Record<string, DirEntry[]> = {}
-      for (const [k, v] of Object.entries(d)) n[map(k)] = v
-      return n
-    })
-    setSelected(mapSet)
-    setFocused((f) => (f ? map(f) : f))
-    setAnchor((a) => (a ? map(a) : a))
-  }, [])
-
-  // drop deleted paths (and everything under them) from expansion/selection
-  const pruneUnder = useCallback((paths: string[]): void => {
-    const gone = (p: string): boolean => paths.some((d) => isUnder(p, d))
-    setOpen((o) => new Set([...o].filter((p) => !gone(p))))
-    setDirs((d) => {
-      const n = { ...d }
-      let ch = false
-      for (const k of Object.keys(n))
-        if (gone(k)) {
-          delete n[k]
-          ch = true
-        }
-      return ch ? n : d
-    })
-    setSelected((s) => new Set([...s].filter((p) => !gone(p))))
-    setFocused((f) => (f && gone(f) ? null : f))
-    setAnchor((a) => (a && gone(a) ? null : a))
-  }, [])
 
   /* ops */
 
-  const doTrash = useCallback(
-    async (paths: string[]): Promise<void> => {
-      if (!paths.length) return
-      const r = await window.mahas.fs.trash(paths)
-      if (!r.ok) {
-        flash(r.error ?? 'delete failed')
-        if (!r.paths?.length) return
-      }
-      const done = r.paths?.length ? r.paths : paths
-      useStore.getState().closeFilesUnder(done)
-      pruneUnder(done)
-      refreshAll()
-    },
-    [flash, pruneUnder, refreshAll]
-  )
+  const doTrash = useCallback((paths: string[]): void => void trashPaths(sink, paths), [sink])
 
   const doCopy = useCallback(
-    async (paths: string[], destDir: string): Promise<void> => {
-      const r = await window.mahas.fs.copy(paths, destDir)
-      if (!r.ok) flash(r.error ?? 'copy failed')
-      refreshAll()
-    },
-    [flash, refreshAll]
+    (paths: string[], destDir: string): void => void copyPaths(sink, paths, destDir),
+    [sink]
   )
 
-  // duplicate = copy each item next to itself (mixed parents are fine)
   const doDuplicate = useCallback(
-    async (paths: string[]): Promise<void> => {
-      for (const p of paths) {
-        const r = await window.mahas.fs.copy([p], dirname(p))
-        if (!r.ok) flash(r.error ?? 'duplicate failed')
-      }
-      refreshAll()
-    },
-    [flash, refreshAll]
+    (paths: string[]): void => void duplicatePaths(sink, paths),
+    [sink]
   )
 
   const doMove = useCallback(
-    async (paths: string[], destDir: string): Promise<void> => {
-      const r = await window.mahas.fs.move(paths, destDir)
-      if (!r.ok) flash(r.error ?? 'move failed')
-      // remap open-editor tabs + tree state for each source that landed under a new path
-      paths.forEach((p, i) => {
-        const np = r.paths?.[i]
-        if (np && np !== p) {
-          remapPaths(p, np)
-          useStore.getState().remapOpenFile(p, np)
-        }
-      })
-      refreshAll()
-    },
-    [flash, remapPaths, refreshAll]
+    (paths: string[], destDir: string): void => void movePaths(sink, paths, destDir),
+    [sink]
   )
 
   const doPaste = useCallback(
@@ -465,12 +314,12 @@ export default function FileTree({
       if (!c.paths.length) return
       if (c.cut) {
         useTreeClip.setState({ paths: [], cut: false })
-        await doMove(c.paths, destDir)
+        await movePaths(sink, c.paths, destDir)
       } else {
-        await doCopy(c.paths, destDir)
+        await copyPaths(sink, c.paths, destDir)
       }
     },
-    [doCopy, doMove]
+    [sink]
   )
 
   const commitRename = useCallback(
@@ -478,21 +327,15 @@ export default function FileTree({
       setRenaming(null)
       const newName = name.trim()
       if (!newName || newName === entry.name) return
-      const dir = dirname(entry.path)
-      const newPath = joinPath(dir, newName)
-      const r = await window.mahas.fs.rename(entry.path, newPath)
-      if (!r.ok) {
-        flash(r.error ?? 'rename failed')
-        return
-      }
-      remapPaths(entry.path, newPath)
-      useStore.getState().remapOpenFile(entry.path, newPath)
-      setSelected(new Set([newPath]))
-      setFocused(newPath)
-      setAnchor(newPath)
-      void reload(dir)
+      const newPath = joinPath(dirname(entry.path), newName)
+      const landed = await renamePath(sink, entry.path, newPath)
+      if (!landed) return
+      setSelected(new Set([landed]))
+      setFocused(landed)
+      setAnchor(landed)
+      void reload(dirname(entry.path))
     },
-    [flash, remapPaths, reload]
+    [sink, reload, setSelected, setFocused, setAnchor]
   )
 
   const startCreate = useCallback(
@@ -510,19 +353,16 @@ export default function FileTree({
       if (!c) return
       const nm = name.trim()
       if (!nm) return
-      const r = await window.mahas.fs.create(c.dir, nm, c.kind)
-      if (!r.ok || !r.path) {
-        flash(r.error ?? 'create failed')
-        return
-      }
+      const path = await createEntry(sink, c.dir, nm, c.kind)
+      if (!path) return
       void reload(c.dir)
-      setSelected(new Set([r.path]))
-      setFocused(r.path)
-      setAnchor(r.path)
+      setSelected(new Set([path]))
+      setFocused(path)
+      setAnchor(path)
       // a freshly created file opens pinned — the user means to edit it
-      if (c.kind === 'file') openFile(r.path, nm, true)
+      if (c.kind === 'file') openFile(path, nm, true)
     },
-    [creating, flash, reload, openFile]
+    [creating, sink, reload, openFile, setSelected, setFocused, setAnchor]
   )
 
   const cancelEdit = useCallback((): void => {
@@ -566,7 +406,7 @@ export default function FileTree({
       }
       setFocused(entry.path)
     },
-    [anchor, selected, rangeSel]
+    [anchor, selected, rangeSel, setSelected, setFocused, setAnchor]
   )
 
   const onRowClick = useCallback(
@@ -597,7 +437,7 @@ export default function FileTree({
       }
       setMenu({ x: e.clientX, y: e.clientY, entry })
     },
-    [selected]
+    [selected, setSelected, setFocused, setAnchor]
   )
 
   /* drag & drop — move (or Ctrl+copy) into folders, same MIME gates bg drops */
@@ -615,7 +455,7 @@ export default function FileTree({
       e.dataTransfer.setData(DND_MIME, JSON.stringify(paths))
       e.dataTransfer.effectAllowed = 'copyMove'
     },
-    [selected]
+    [selected, setSelected, setFocused, setAnchor]
   )
 
   const onRowDragOver = useCallback(
@@ -767,7 +607,10 @@ export default function FileTree({
       doPaste,
       targetDirFor,
       cancelEdit,
-      openFile
+      openFile,
+      setSelected,
+      setFocused,
+      setAnchor
     ]
   )
 

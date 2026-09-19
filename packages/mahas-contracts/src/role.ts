@@ -187,6 +187,22 @@ export interface MaintenanceBinding {
   componentRef: JsonObject
 }
 
+/**
+ * one reason a role interface can go stale — the model rows the derivation
+ * read (IMP-27 maintenance/impact keys staleness checks on these refs).
+ *
+ * Deliberately NOT a MaintenanceBinding: a binding is an implementation-owned
+ * record on a published implementation, while these refs are derived from the
+ * model snapshot itself (context rows, criteria, contracts, non-goals,
+ * boundaries, the model version). `interface.get` returns these.
+ */
+export interface InterfaceMaintenanceRef {
+  kind: 'context' | 'criterion' | 'contract' | 'non-goal' | 'boundary' | 'model'
+  id: string
+  /** context rows only — repo-relative path of the authored source file */
+  path?: string
+}
+
 /* ── ContextBundle — context_bundles table ────────────────────────────── */
 
 /** manifest_json — what the bundle actually contains; consumed by the

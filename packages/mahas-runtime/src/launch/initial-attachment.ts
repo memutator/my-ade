@@ -358,7 +358,11 @@ export function buildSpawnSpec(
   spec: PlannedProcessSpec,
   ctx: ResolveContext,
   launchEnv: Record<string, string>
-): { spec: SpawnSpec & { initialStdin?: string }; evidence: AttachEvidence[]; stdinBytes?: Uint8Array } {
+): {
+  spec: SpawnSpec & { initialStdin?: string }
+  evidence: AttachEvidence[]
+  stdinBytes?: Uint8Array
+} {
   const resolved = resolveArgv(spec, ctx)
   const argv =
     spec.executable.startsWith('/') && resolved.argv[0] !== spec.executable

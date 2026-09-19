@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "pack.provider.builtin-offerings",
+    "name": "Built-in provider offerings",
+    "publisher": "mahas",
+    "description": "Quota probes migrated from the desktop for the provider offerings mahas currently supports.",
+    "createdAt": 1770000000000,
+    "metadata": { "source": "src/main/usage.ts" }
+  },
+  "revision": {
+    "packId": "pack.provider.builtin-offerings",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "conformanceContracts": [
+      {
+        "contract": { "id": "mahas.integration.quota", "revision": 1 },
+        "capability": "quota",
+        "schemaDigest": "e4138d76654e73c8712a91f6cf8ca2316891290bc04c70cfce1f6d905e9b8163",
+        "semanticsDigest": "83935556e3317d28a468150b984153b468111d428b4c3f66ff9da9225a115393",
+        "conformanceCases": [
+          {
+            "id": "quota-rejects-missing-credential-material",
+            "fixtureRef": "fixtures/quota.reject-missing-material.json",
+            "expected": "reject",
+            "description": "A probe without caller-scoped credential material must be refused by the request schema."
+          },
+          {
+            "id": "quota-rejects-unknown-request-field",
+            "fixtureRef": "fixtures/quota.reject-unknown-field.json",
+            "expected": "reject",
+            "description": "The quota request schema is closed; an unrecognised field is a contract violation."
+          }
+        ]
+      },
+      {
+        "contract": { "id": "mahas.integration.auth", "revision": 1 },
+        "capability": "auth",
+        "schemaDigest": "f7fae4efa79ed281b121f75ee735e564a5838eff59765eec73d5cf890f2c04c5",
+        "semanticsDigest": "d0ba6c4fc7a8c99e7bc3231861266777998c1bf7369ab627bedc0e406b2a57b6",
+        "conformanceCases": [
+          {
+            "id": "auth-rejects-missing-offering",
+            "fixtureRef": "fixtures/auth.reject-missing-offering.json",
+            "expected": "reject",
+            "description": "An auth request without an offering cannot be routed to a provider flow."
+          },
+          {
+            "id": "auth-accepts-manual-code-request",
+            "fixtureRef": "fixtures/auth.request-manual-code.json",
+            "expected": "accept",
+            "description": "The manual-code login request is schema-valid and carries no material. The effect itself is not invoked by conformance."
+          }
+        ]
+      }
+    ],
+    "subjectRefs": [
+      { "kind": "offering", "offeringId": "anthropic/claude" },
+      { "kind": "offering", "offeringId": "openai/chatgpt" },
+      { "kind": "offering", "offeringId": "google/cloud-code" },
+      { "kind": "offering", "offeringId": "github/copilot" },
+      { "kind": "offering", "offeringId": "xai/grok" },
+      { "kind": "offering", "offeringId": "zai/coding-plan" },
+      { "kind": "offering", "offeringId": "opencode/go" },
+      { "kind": "offering", "offeringId": "windsurf/account" },
+      { "kind": "offering", "offeringId": "cline/account" }
+    ],
+    "implementations": [
+      {
+        "id": "builtin-provider-quota-v1",
+        "capability": "quota",
+        "contract": { "id": "mahas.integration.quota", "revision": 1 },
+        "entrypoint": { "mode": "script", "resource": "quota.mjs", "runtime": "node" },
+        "support": { "state": "implemented" },
+        "limits": { "timeoutMs": 15000, "maxOutputBytes": 262144, "maxBatchRecords": 1 },
+        "supportDetails": {
+          "credentialInput": "caller-scoped-material",
+          "offerings": 9,
+          "quotaDeltaIsUsage": false
+        }
+      },
+      {
+        "id": "builtin-provider-auth-v1",
+        "capability": "auth",
+        "contract": { "id": "mahas.integration.auth", "revision": 1 },
+        "entrypoint": { "mode": "script", "resource": "auth.mjs", "runtime": "node" },
+        "support": { "state": "implemented" },
+        "limits": { "timeoutMs": 15000, "maxOutputBytes": 131072 },
+        "supportDetails": {
+          "modes": ["pkce-local-callback", "manual-code", "device-code", "api-key"],
+          "browser": "effect-required",
+          "credentialWrites": "credential-change-only",
+          "locators": "locators.mjs"
+        }
+      }
+    ],
+    "requirements": [
+      { "kind": "platform", "key": "node", "constraint": ">=20", "required": true },
+      { "kind": "permission", "key": "network", "required": true }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Initial externalization of all desktop provider quota and authentication families."
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.cline.files",
+    "name": "Cline local sessions",
+    "publisher": "mahas",
+    "description": "Read-only collection of Cline session message snapshots.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "home",
+            "path": ".cline"
+          },
+          {
+            "role": "data",
+            "base": "environment",
+            "variable": "CLINE_DATA_DIR",
+            "path": "sessions"
+          },
+          {
+            "role": "data",
+            "base": "config",
+            "path": "data/sessions"
+          }
+        ],
+        "executableCandidates": ["cline"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.cline.files",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "cline"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.cline.files.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate config or data root and sessions directory"
+        }
+      },
+      {
+        "id": "mahas.cline.files.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "format": "json-snapshot",
+          "sessionManifest": "sibling session-id.json"
+        }
+      },
+      {
+        "id": "mahas.cline.files.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "delta",
+          "pagination": "bounded message index",
+          "cacheContainment": "cache read and write are contained in input"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node",
+        "constraint": ">=20",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "cline",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Canonical bounded snapshot collector with message-index pagination."
+  }
+}

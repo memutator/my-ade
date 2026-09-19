@@ -1,154 +1,159 @@
-// workbench/TeamView.tsx — preview → 명시 assign (IMP-31 §4.3, §4.5).
+// workbench/TeamView.tsx — preview → 명시 assign (C-WORK).
 //
 // The queue carries candidates from the find view; EACH queued entry still
 // needs its own preview + explicit assign — queueing never assigns and a
-// search rank never becomes a default pick (REQ-04). Provider and consumer
-// for the same initial negotiation can both be queued and assigned
-// independently, so neither side waits on the other's tasks (§4.5).
+// search rank never becomes a default pick (REQ-04). Provider and consumer of
+// the same initial negotiation can both be queued and assigned independently,
+// so neither waits on the other's tasks.
 //
-// assignment.preview shows relations/grant coverage/blockers BEFORE commit
-// and creates nothing; team.assign is the explicit commit — the server
-// re-checks token version + current grants, so STALE_REVISION is a normal
-// answer rendered as its own state.
+// assignment.preview shows relations / grant coverage / blockers BEFORE
+// commit and creates nothing; team.assign is the explicit commit, with the
+// plan CAS (expectedPlanRevision) riding on the commit only. The server
+// re-checks the token's pins and the current grants, so STALE_REVISION is a
+// normal answer rendered as its own state.
 
 import { useState } from 'react'
 import { UserCheck, X } from 'lucide-react'
 import { useT } from '../i18n.ts'
-import { workbenchCaller, opError, opErrorKind, type OpErrorKind } from './client.ts'
+import { opError, opErrorKind, type OpErrorKind } from './client.ts'
 import { assignTeam, getRun, listImplementations, previewAssignment } from './ops.ts'
-import type { AssignQueueEntry } from './store.ts'
-import { isStale, useWorkbench } from './store.ts'
-import type {
-  AssignRequest,
-  AssignResult,
-  AssignmentKind,
-  AssignmentPreview,
-  ImplementationOffer
-} from './contracts.ts'
-import { ContextBar, Field, KV, ListLines, OpError, Pill, Section } from './bits.tsx'
-
-interface AssignForm {
-  assignmentKind: AssignmentKind
-  mandateText: string
-  taskId: string
-  taskRevision: string
-  placementIntent: string
-  expectedPlanRevision: string
-}
-
-const emptyForm: AssignForm = {
-  assignmentKind: 'task',
-  mandateText: '',
-  taskId: '',
-  taskRevision: '',
-  placementIntent: '',
-  expectedPlanRevision: ''
-}
-
-/** placement intent is an object on the wire ({hostId, kind, ...}); the
- //  form takes either raw JSON or a bare host id for the common case */
-function parsePlacement(raw: string): Record<string, unknown> | undefined {
-  const v = raw.trim()
-  if (!v) return undefined
-  if (v.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(v) as unknown
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>
-      }
-    } catch {
-      /* not JSON — treat as a host id */
-    }
-  }
-  return { hostId: v }
-}
+import type { AssignmentPreviewResult, TeamAssignResult } from './contracts.ts'
+import {
+  emptyAssignmentForm,
+  toAssignRequest,
+  toPreviewRequest,
+  type AssignmentForm
+} from './assignment.ts'
+import { type ImplementationOfferView, type ImplementationsViewModel } from './view-model.ts'
+import type { AssignQueueEntry } from './queues.ts'
+import {
+  useAssignQueue,
+  useImplementationChoice,
+  useModelHead,
+  useScopeCaller,
+  useWorkbenchActions,
+  useWorkbenchContext
+} from './scope.ts'
+import { isResultStale } from './store.ts'
+import { ContextBar, Field, KV, OpError, Pill, Section, TextLines } from './bits.tsx'
 
 type Step =
   | { phase: 'form' }
   | { phase: 'previewing' }
-  | { phase: 'previewed'; preview: AssignmentPreview }
+  | { phase: 'previewed'; preview: AssignmentPreviewResult }
   | { phase: 'assigning' }
-  | { phase: 'done'; result: AssignResult }
+  | { phase: 'done'; result: TeamAssignResult }
+
+function ImplRow({
+  impl,
+  selected,
+  onSelect
+}: {
+  impl: ImplementationOfferView
+  selected: boolean
+  onSelect: () => void
+}): React.JSX.Element {
+  return (
+    <label className="wb-impl">
+      <input type="radio" checked={selected} onChange={onSelect} />
+      <span className="mono">
+        {impl.implementationId}@{impl.implementationRevision}
+      </span>
+      <span className="wb-dim">
+        {impl.profileId}@{impl.profileRevision} · {impl.status}/{impl.profileState}
+      </span>
+      <Pill>{impl.support}</Pill>
+      {impl.blockers.map((b, i) => (
+        <Pill key={i} tone="warn">
+          {b.kind}: {b.detail}
+        </Pill>
+      ))}
+    </label>
+  )
+}
 
 function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
   const t = useT()
-  const { runId, latestModelVersion, unqueueCandidate } = useWorkbench()
-  const implChoice = useWorkbench((s) => s.implChoices[entry.card.selectionToken])
-  const chooseImpl = useWorkbench((s) => s.chooseImpl)
-  const [form, setForm] = useState<AssignForm>(emptyForm)
-  const [impls, setImpls] = useState<ImplementationOffer[] | null>(null)
+  const call = useScopeCaller()
+  const { runId } = useWorkbenchContext()
+  const head = useModelHead()
+  const { unqueueCandidate } = useWorkbenchActions()
+  const implChoice = useImplementationChoice(entry.card.selectionToken)
+  const { chooseImpl } = useWorkbenchActions()
+  const [form, setForm] = useState<AssignmentForm>(emptyAssignmentForm)
+  const [impls, setImpls] = useState<ImplementationsViewModel | null>(null)
   const [step, setStep] = useState<Step>({ phase: 'form' })
   const [err, setErr] = useState<{ kind: OpErrorKind; msg: string } | null>(null)
-  const stale = isStale(entry.modelVersion, latestModelVersion)
+  const stale = isResultStale(entry.modelVersion, entry.staleModel, head)
 
-  const patch = (p: Partial<AssignForm>): void => setForm((f) => ({ ...f, ...p }))
+  const patch = (p: Partial<AssignmentForm>): void => setForm((f) => ({ ...f, ...p }))
 
   const fail = (e: unknown): void => {
-    const oe = opError(e)
-    setErr({ kind: opErrorKind(e), msg: oe.message })
+    setErr({ kind: opErrorKind(e), msg: opError(e).message })
     setStep({ phase: 'form' })
   }
 
   const loadImpls = (): void => {
     setErr(null)
-    listImplementations(workbenchCaller(), {
+    listImplementations(call, {
       modelVersion: entry.modelVersion,
       roleId: entry.card.role.id
     })
-      .then((r) => setImpls(r.implementations))
+      .then(setImpls)
       .catch(fail)
   }
 
-  const payload = (): AssignRequest | null => {
-    if (!implChoice) return null
-    return {
-      runId,
-      selectionToken: entry.card.selectionToken,
-      implementationId: implChoice.implementationId,
-      implementationRevision: implChoice.implementationRevision,
-      assignmentKind: form.assignmentKind,
-      mandateText: form.mandateText,
-      taskId: form.taskId || undefined,
-      taskRevision: form.taskRevision ? Number(form.taskRevision) : undefined,
-      placementIntent: parsePlacement(form.placementIntent),
-      expectedPlanRevision: form.expectedPlanRevision
-        ? Number(form.expectedPlanRevision)
-        : undefined
-    }
-  }
-
   const doPreview = (): void => {
-    const req = payload()
-    if (!req) return
+    if (!implChoice || !runId) return
     setStep({ phase: 'previewing' })
     setErr(null)
-    previewAssignment(workbenchCaller(), req)
+    previewAssignment(
+      call,
+      toPreviewRequest(
+        runId,
+        entry.card.selectionToken,
+        implChoice.implementationId,
+        implChoice.implementationRevision,
+        form
+      )
+    )
       .then((preview) => setStep({ phase: 'previewed', preview }))
       .catch(fail)
   }
 
   const doAssign = (): void => {
-    const req = payload()
-    if (!req) return
+    if (!implChoice || !runId) return
     setStep({ phase: 'assigning' })
     setErr(null)
-    assignTeam(workbenchCaller(), req)
+    assignTeam(
+      call,
+      toAssignRequest(
+        runId,
+        entry.card.selectionToken,
+        implChoice.implementationId,
+        implChoice.implementationRevision,
+        form
+      )
+    )
       .then((result) => {
+        // an assign receipt carries no freshness information, so it never
+        // moves the model head — only a discovery/run response can
         setStep({ phase: 'done', result })
-        useWorkbench.getState().noteModelVersion(entry.modelVersion)
       })
       .catch(fail)
   }
 
   const fillPlanRev = (): void => {
     if (!runId) return
-    getRun(workbenchCaller(), { runId, projection: 'coordinator' })
+    getRun(call, { runId, projection: 'coordinator' })
       .then((r) => {
-        const rev = r.planRevision ?? r.run?.currentPlanRevision
+        const rev = r.plan?.revision ?? r.run.currentPlanRevision
         if (rev !== undefined) patch({ expectedPlanRevision: String(rev) })
       })
       .catch(() => {})
   }
+
+  const preview = step.phase === 'previewed' ? step.preview : null
 
   return (
     <div className="wb-card">
@@ -158,6 +163,7 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
         <span className="wb-card-role">
           {entry.card.role.name} · {entry.card.role.horizontalRole}
         </span>
+        <span className="wb-card-role mono">model {entry.modelVersion}</span>
         <button
           className="wb-x"
           onClick={() => unqueueCandidate(entry.card.selectionToken)}
@@ -182,12 +188,15 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
               <select
                 className="wb-in"
                 value={form.assignmentKind}
-                onChange={(e) => patch({ assignmentKind: e.target.value as AssignmentKind })}
+                onChange={(e) =>
+                  patch({ assignmentKind: e.target.value as AssignmentForm['assignmentKind'] })
+                }
               >
                 <option value="task">{t('wbTask')}</option>
                 <option value="coordination">{t('wbCoordination')}</option>
               </select>
             </label>
+            {/* a coordination assignment takes no Task (D-WORK §2) */}
             {form.assignmentKind === 'task' && (
               <>
                 <Field
@@ -205,14 +214,60 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
               </>
             )}
           </div>
+
+          <div className="wb-sub">
+            <span className="wb-sub-l">{t('wbPlacement')}</span>
+            <div className="wb-row">
+              <label className="wb-field">
+                <span className="wb-field-l">kind</span>
+                <select
+                  className="wb-in"
+                  value={form.placementKind}
+                  onChange={(e) =>
+                    patch({ placementKind: e.target.value as AssignmentForm['placementKind'] })
+                  }
+                >
+                  <option value="">—</option>
+                  <option value="folder">folder</option>
+                  <option value="worktree">worktree</option>
+                </select>
+              </label>
+              <Field
+                label="host id"
+                value={form.placementHostId}
+                onChange={(v) => patch({ placementHostId: v })}
+                mono
+              />
+              <Field
+                label="target path"
+                value={form.placementTargetPath}
+                onChange={(v) => patch({ placementTargetPath: v })}
+                mono
+                wide
+              />
+            </div>
+            <div className="wb-row">
+              <Field
+                label="project root"
+                value={form.placementProjectRoot}
+                onChange={(v) => patch({ placementProjectRoot: v })}
+                mono
+                wide
+              />
+              <Field
+                label="checkout id"
+                value={form.placementCheckoutId}
+                onChange={(v) => patch({ placementCheckoutId: v })}
+                mono
+              />
+            </div>
+            <div className="wb-note">
+              only the fields you fill are sent — the server decides what the provisioning grant
+              allows
+            </div>
+          </div>
+
           <div className="wb-row">
-            <Field
-              label={t('wbPlacement')}
-              value={form.placementIntent}
-              onChange={(v) => patch({ placementIntent: v })}
-              mono
-              wide
-            />
             <Field
               label={t('wbExpectedPlanRev')}
               value={form.expectedPlanRevision}
@@ -222,85 +277,79 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
             <button className="wb-btn" onClick={fillPlanRev} disabled={!runId}>
               {t('wbFromRun')}
             </button>
+            <span className="wb-dim">rides on the assign commit only — preview CASes nothing</span>
           </div>
 
-          {/* implementation choice is explicit — list loads on demand,
-              nothing is pre-selected, IMPLEMENTATION_MISSING is a state */}
+          {/* the implementation choice is explicit — the list loads on demand
+              and nothing is pre-selected; IMPLEMENTATION_MISSING is a state */}
           <div className="wb-sub">
             <span className="wb-sub-l">{t('wbImpl')}</span>
             {impls === null ? (
               <button className="wb-btn" onClick={loadImpls}>
                 {t('wbLoadImpl')}
               </button>
-            ) : impls.length === 0 ? (
+            ) : impls.status === 'implementation-missing' || impls.implementations.length === 0 ? (
               <Pill tone="warn">{t('wbNoImpl')}</Pill>
             ) : (
-              impls.map((im) => (
-                <label
-                  key={`${im.implementationId}@${im.implementationRevision}`}
-                  className="wb-impl"
-                >
-                  <input
-                    type="radio"
-                    name={`impl-${entry.card.selectionToken}`}
-                    checked={
-                      implChoice?.implementationId === im.implementationId &&
-                      implChoice?.implementationRevision === im.implementationRevision
-                    }
-                    onChange={() => chooseImpl(entry.card.selectionToken, im)}
-                  />
-                  <span className="mono">
-                    {im.implementationId}@{im.implementationRevision}
-                  </span>
-                  {im.profile && <span className="wb-dim">{im.profile}</span>}
-                  {im.support && <Pill>{im.support}</Pill>}
-                  {im.blockers?.map((b, i) => (
-                    <Pill key={i} tone="warn">
-                      {typeof b === 'string' ? b : (b.detail ?? b.kind ?? JSON.stringify(b))}
-                    </Pill>
-                  ))}
-                </label>
+              impls.implementations.map((impl) => (
+                <ImplRow
+                  key={`${impl.implementationId}@${impl.implementationRevision}`}
+                  impl={impl}
+                  selected={
+                    implChoice?.implementationId === impl.implementationId &&
+                    implChoice?.implementationRevision === impl.implementationRevision
+                  }
+                  onSelect={() => chooseImpl(entry.card.selectionToken, impl)}
+                />
               ))
+            )}
+            {impls && impls.excluded.length > 0 && (
+              <div className="wb-sub">
+                <span className="wb-sub-l">excluded for this host</span>
+                <TextLines
+                  items={impls.excluded.map(
+                    (e) =>
+                      `${e.implementationId}@${e.revision} — needs ${e.missingNeeds.join(', ')}`
+                  )}
+                />
+              </div>
             )}
           </div>
 
-          {step.phase === 'previewed' && (
+          {preview && (
             <div className="wb-drawer">
               <div className="wb-note">{t('wbPreviewNote')}</div>
-              {step.preview.proposedMember && (
-                <div className="wb-sub">
-                  <span className="wb-sub-l">member</span>
-                  <KV value={step.preview.proposedMember} />
-                </div>
-              )}
-              {step.preview.proposedAssignment && (
-                <div className="wb-sub">
-                  <span className="wb-sub-l">assignment</span>
-                  <KV value={step.preview.proposedAssignment} />
-                </div>
-              )}
-              {step.preview.requiredActions.length > 0 && (
+              <div className="wb-sub">
+                <span className="wb-sub-l">proposed member</span>
+                <KV value={preview.proposedMember} />
+              </div>
+              <div className="wb-sub">
+                <span className="wb-sub-l">proposed assignment</span>
+                <KV value={preview.proposedAssignment} />
+              </div>
+              {preview.requiredActions.length > 0 && (
                 <div className="wb-sub">
                   <span className="wb-sub-l">{t('wbRequired')}</span>
-                  <ListLines items={step.preview.requiredActions} />
+                  <TextLines items={preview.requiredActions} />
                 </div>
               )}
-              {step.preview.grantCoverage !== undefined && (
-                <div className="wb-sub">
-                  <span className="wb-sub-l">{t('wbGrantCov')}</span>
-                  <KV value={step.preview.grantCoverage} />
-                </div>
-              )}
-              {step.preview.contextBlockers.length > 0 && (
+              <div className="wb-sub">
+                <span className="wb-sub-l">{t('wbGrantCov')}</span>
+                <KV value={preview.grantCoverage} />
+                {preview.grantCoverage.missing.length > 0 && (
+                  <TextLines items={preview.grantCoverage.missing.map((m) => `missing: ${m}`)} />
+                )}
+              </div>
+              {preview.contextBlockers.length > 0 && (
                 <div className="wb-sub">
                   <span className="wb-sub-l">{t('wbBlockers')}</span>
-                  <ListLines items={step.preview.contextBlockers} />
+                  <TextLines items={preview.contextBlockers} />
                 </div>
               )}
-              {step.preview.resourceConditions.length > 0 && (
+              {preview.resourceConditions.length > 0 && (
                 <div className="wb-sub">
                   <span className="wb-sub-l">{t('wbResCond')}</span>
-                  <ListLines items={step.preview.resourceConditions} />
+                  <TextLines items={preview.resourceConditions} />
                 </div>
               )}
             </div>
@@ -324,7 +373,7 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
               disabled={
                 step.phase !== 'previewed' ||
                 !runId ||
-                (step.phase === 'previewed' && step.preview.contextBlockers.length > 0)
+                (preview !== null && preview.contextBlockers.length > 0)
               }
             >
               <UserCheck className="wb-ico" />
@@ -342,7 +391,8 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
               memberId: step.result.memberId,
               assignmentId: step.result.assignmentId,
               state: step.result.state,
-              effectiveGrantBinding: step.result.effectiveGrantBinding
+              grantId: step.result.effectiveGrantBinding.grantId,
+              actions: step.result.effectiveGrantBinding.actions
             }}
           />
           {/* both sides of an initial negotiation get assigned here, one
@@ -352,7 +402,8 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
             onClick={() => {
               unqueueCandidate(entry.card.selectionToken)
               setStep({ phase: 'form' })
-              setForm(emptyForm)
+              setForm(emptyAssignmentForm())
+              setImpls(null)
             }}
           >
             {t('wbAssignAnother')}
@@ -365,12 +416,17 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
 
 export default function TeamView(): React.JSX.Element {
   const t = useT()
-  const { runId } = useWorkbench()
-  const assignQueue = useWorkbench((s) => s.assignQueue)
+  const { projectId, runId } = useWorkbenchContext()
+  const assignQueue = useAssignQueue()
+  const { clearQueue } = useWorkbenchActions()
 
   return (
     <div className="wb-view">
       <ContextBar />
+      <div className="wb-note">
+        queue scope: project {projectId || '—'} · run {runId || '(no run)'} — a queue belongs to its
+        project/run and never follows you into another one
+      </div>
       {!runId && <div className="wb-note">{t('wbNeedRun')}</div>}
       {assignQueue.length === 0 ? (
         <div className="wb-empty">
@@ -378,7 +434,14 @@ export default function TeamView(): React.JSX.Element {
           {t('wbEmptyQueue')}
         </div>
       ) : (
-        <Section title={`${t('widgetWorkbenchAssign')} · ${assignQueue.length}`}>
+        <Section
+          title={`${t('widgetWorkbenchAssign')} · ${assignQueue.length}`}
+          right={
+            <button className="wb-btn" onClick={clearQueue}>
+              clear
+            </button>
+          }
+        >
           {assignQueue.map((e) => (
             <AssignCard key={e.card.selectionToken} entry={e} />
           ))}

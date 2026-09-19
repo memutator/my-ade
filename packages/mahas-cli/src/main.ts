@@ -13,6 +13,7 @@
 // and points at `mahas operation get` — the CLI never resends a mutation
 // under a fresh id (REQ-14).
 
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import type { MahasError } from '../../mahas-contracts/src/index.ts'
 import { connectRpc, isMahasError, mahasError } from '../../mahas-runtime/src/rpc/index.ts'
@@ -33,7 +34,29 @@ import {
   type SurfaceView
 } from './dynamic-help.ts'
 
-const CLI_VERSION = '0.0.0-imp12'
+/**
+ * The version the CLI reports. The packaged bundle gets it injected at build
+ * time (see tools/build-services.mjs `define`), because a service bundle has no
+ * package.json next to it. A direct source run (`npm run mahas`, which Node
+ * executes with type stripping) falls back to the repo manifest, so the number
+ * is never a hardcoded placeholder that drifts from package.json.
+ */
+declare const __MAHAS_CLI_VERSION__: string | undefined
+const CLI_VERSION =
+  typeof __MAHAS_CLI_VERSION__ === 'string'
+    ? __MAHAS_CLI_VERSION__
+    : ((): string => {
+        try {
+          const manifest = JSON.parse(
+            readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')
+          ) as { version?: string }
+          return typeof manifest.version === 'string' && manifest.version
+            ? manifest.version
+            : '0.0.0-unknown'
+        } catch {
+          return '0.0.0-unknown'
+        }
+      })()
 
 // ── argv parsing ────────────────────────────────────────────────────────────
 

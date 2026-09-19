@@ -27,6 +27,7 @@
 // loadable and lets tests inject boundary doubles.
 
 import { randomUUID } from 'node:crypto'
+import { INTEGRATION_DOMAIN_OPERATIONS } from '../../../mahas-contracts/src/operations/domains.ts'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AuthenticatedContext,
@@ -69,11 +70,8 @@ export {
   runInTransaction
 } from './admission.ts'
 export { projectCommandSurface } from './surface.ts'
-export type {
-  SurfaceDescribeInput,
-  SurfaceDescribeResult,
-  SurfaceOperationDescriptor
-} from './surface.ts'
+export type { SurfaceDescribeInput } from './surface.ts'
+export type { SurfaceDescribeResult, SurfaceOperationDescriptor } from './surface.ts'
 
 // ── operation name 정본 (spec/operations.md — 93 entries, F-025 추가 runtime.unsubscribe) ────────────────────
 // IMP-02 may also export name constants; until it lands this table is the
@@ -87,6 +85,7 @@ export interface OperationNameEntry {
 }
 
 export const OPERATION_TABLE: readonly OperationNameEntry[] = [
+  ...INTEGRATION_DOMAIN_OPERATIONS,
   { name: 'project.create', contract: 'C-MODEL', owner: 'IMP-04' },
   { name: 'project.get', contract: 'C-MODEL', owner: 'IMP-04' },
   { name: 'model.snapshot', contract: 'C-MODEL', owner: 'IMP-04' },

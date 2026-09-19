@@ -28,11 +28,11 @@ export class WorkbenchOpError extends Error {
 
 /** SHARED-APIS connectRpc call signature — payload is a plain JSON value;
  //  the server owns admission, revision checks and idempotency. */
-export type OpCaller = (
+export type OpCaller = <T = unknown>(
   operation: string,
   payload?: unknown,
   opts?: { operationId?: string; expectedRevisions?: Record<string, number> }
-) => Promise<unknown>
+) => Promise<T>
 
 /** pushed runtime event — mirrors contracts.ts RuntimeEvent but stays
  //  local to the seam so subscribe plumbing can evolve with IMP-26. */
@@ -120,7 +120,11 @@ export function opErrorKind(err: unknown): OpErrorKind {
  //  ControlResult envelope unwraps here — a rejected op THROWS
  //  WorkbenchOpError so view code handles errors uniformly. */
 function desktopOpCaller(): OpCaller {
-  return async (operation, payload, opts) => {
+  return async <T>(
+    operation: string,
+    payload?: unknown,
+    opts?: { operationId?: string; expectedRevisions?: Record<string, number> }
+  ): Promise<T> => {
     const res = await window.mahas.exec.op({
       operation,
       operationId: opts?.operationId,
@@ -128,7 +132,10 @@ function desktopOpCaller(): OpCaller {
       expectedRevisions: opts?.expectedRevisions
     })
     if (!res.ok) throw new WorkbenchOpError(res.error.code, res.error.message, res.error.retryable)
-    return res.value
+    // IPC transports JSON and has no generic runtime metadata. This is the
+    // single typed boundary; each operation maps its actual shared DTO before
+    // exposing a view model to React.
+    return res.value as T
   }
 }
 

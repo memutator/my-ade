@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const hook = join(ROOT, 'resources', 'mahas-hook.cjs')
+const hook = join(ROOT, 'integrations', 'packs', 'harness-runtime', 'hooks', 'mahas-hook.cjs')
 const dir = mkdtempSync(join(tmpdir(), 'mahas-err-banner-'))
 const events = join(dir, 'agent-events.log')
 

@@ -10,6 +10,12 @@
 // Ids are plain strings on the wire. Branding is deliberately not applied:
 // the honesty rule is structural (separate fields), not nominal.
 
+// The canonical persistent identity of a native conversation lives in
+// ./sessions/index.ts (HarnessSession + SessionHandle). This module imports
+// those id aliases type-only so an Execution can carry the canonical
+// reference without a second session identity being defined here.
+import type { HarnessSessionId, SessionHandleId } from './sessions/index.ts'
+
 export type MemberId = string
 export type ExecutionId = string
 export type TerminalId = string
@@ -75,7 +81,16 @@ export interface Execution {
   launchPlanId?: string
   processIncarnation?: ProcessIncarnation
   terminalId?: TerminalId
+  /**
+   * Legacy native-conversation id. Kept for migration compatibility only —
+   * `sessionId`/`sessionHandleId` below are the canonical reference, and no
+   * second authoritative copy of a session lives in the execution domain.
+   */
   nativeConversationId?: NativeConversationId
+  /** canonical HarnessSession this execution runs — absent while unresolved */
+  sessionId?: HarnessSessionId
+  /** canonical SessionHandle (resume locator) for that session, when known */
+  sessionHandleId?: SessionHandleId
   state: ExecutionState
   liveness?: ExecutionLiveness
 }

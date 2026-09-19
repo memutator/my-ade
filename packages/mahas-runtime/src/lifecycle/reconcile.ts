@@ -33,6 +33,7 @@ import type {
   RuntimeShutdownRow,
   WithTxFn
 } from './types.ts'
+import { EXECUTION_SESSION_REF_TABLE } from '../recovery/session-reference-migration.ts'
 
 export interface ReconcileScope {
   hostId?: string
@@ -83,13 +84,41 @@ export function loadLeases(db: DatabaseSync): ControllerLeaseRow[] {
 }
 
 export function loadOpenExecutions(db: DatabaseSync, scope?: ReconcileScope): ExecutionRow[] {
+  const sessionRef = executionSessionRefProjection(db)
   const base = `SELECT id, member_id, generation, host_id, launch_plan_id, state, liveness,
-       terminal_id, process_identity_json, native_conversation_json, revision
-     FROM executions WHERE liveness <> 'exited'`
+       terminal_id, process_identity_json, native_conversation_json,
+       ${sessionRef.columns}, executions.revision AS revision
+     FROM executions${sessionRef.join} WHERE liveness <> 'exited'`
   if (scope?.executionId != null)
     return rows<ExecutionRow>(db, `${base} AND id = ?`, scope.executionId)
   if (scope?.hostId != null) return rows<ExecutionRow>(db, `${base} AND host_id = ?`, scope.hostId)
   return rows<ExecutionRow>(db, base)
+}
+
+/**
+ * The canonical execution→session reference is an additive schema-v3 table (the
+ * central migration composes recovery/session-reference-migration.ts). This row
+ * conversion joins it when the database has it and projects NULL when it does
+ * not, so a database that predates the reference keeps loading instead of
+ * failing — and a NULL is read as 'unresolved', never as an empty session id.
+ * The navigation itself lives in recovery/session-handles.ts; reconciliation
+ * only carries the row through.
+ */
+function executionSessionRefProjection(db: DatabaseSync): { columns: string; join: string } {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(EXECUTION_SESSION_REF_TABLE) as { name?: unknown } | undefined
+  if (row === undefined) {
+    return { columns: 'NULL AS session_id, NULL AS session_handle_id', join: '' }
+  }
+  return {
+    columns:
+      'session_ref.session_id AS session_id, session_ref.session_handle_id AS session_handle_id',
+    join:
+      ' LEFT JOIN ' +
+      EXECUTION_SESSION_REF_TABLE +
+      ' session_ref ON session_ref.execution_id = executions.id'
+  }
 }
 
 export function loadPendingEffects(db: DatabaseSync): EffectIntentRow[] {

@@ -15,12 +15,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
 import {
-  fail,
   loadCandidate,
   type CandidateResolution,
   type ImpactCandidateState,
   type ObserverDeps
 } from './basis-observer.ts'
+import { fail } from './codec.ts'
 import {
   candidateTouchesPins,
   normalizeResolutionRef,

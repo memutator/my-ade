@@ -1,43 +1,61 @@
-// workbench/ops.ts — the workbench's typed operation surface.
+// workbench/ops.ts — the workbench's typed operation calls.
 //
-// Every call is an OPERATION NAME through the OpCaller seam (SHARED-APIS:
-// cross-domain work goes by op name, never by sibling internals). Names are
-// the spec/operations.md index — IMP-06 owns responsibility.*/role.*,
-// IMP-13 owns assignment.preview/team.assign/plan.*/run.get, IMP-26 owns
-// runtime.snapshot/subscribe. Mutations carry a fresh operationId (REQ-14);
-// expectedRevisions rides the CommandRequest envelope.
+// One transport (client.ts), one request DTO and one result DTO per
+// operation, both taken from the shared contracts. Reads that the views
+// render as more than a raw payload pass through the explicit projections in
+// view-model.ts; everything else is returned as the canonical DTO so a view
+// reads exactly the field the server sent.
 
 import type { OpCaller } from './client.ts'
 import { newOperationId } from './client.ts'
 import type {
-  AssignRequest,
-  AssignResult,
-  AssignmentPreview,
-  Collaborator,
+  AccessInspectPayload,
+  AccessInspectResult,
+  CollaboratorsResult,
   CollaboratorsRequest,
-  CollaboratorsResponse,
-  CommitPlanRequest,
-  CommitPlanResult,
-  ImplementationOffer,
+  ContextInspectPayload,
+  ContextInspectResult,
   ImplementationsRequest,
-  ImplementationsResponse,
+  ImplementationsResult,
   InspectRequest,
   InspectResult,
+  InterfaceGetPayload,
+  InterfaceGetResult,
   LocateRequest,
-  LocateResponse,
   LocateResult,
-  PlanPatch,
-  PreviewRequest,
-  PreparePlanResult,
-  RunGetRequest,
-  RunProjection,
-  RuntimeSnapshot,
+  PlanCommitRequest,
+  PlanCommitResult,
+  PlanPrepareRequest,
+  PlanPrepareResult,
   SearchRequest,
-  SearchResponse,
-  SnapshotRequest
+  SearchResult,
+  SurfaceDescribePayload,
+  SurfaceDescribeResult,
+  TeamAssignRequest,
+  TeamAssignResult,
+  WorkerInspectPayload,
+  WorkerInspectResult
 } from './contracts.ts'
+import type {
+  AssignmentPreviewRequest,
+  AssignmentPreviewResult,
+  CoordinatorRunProjection,
+  RunGetRequest
+} from './contracts.ts'
+import {
+  toCollaboratorsViewModel,
+  toImplementationsViewModel,
+  toInspectViewModel,
+  toLocateViewModel,
+  toSearchViewModel,
+  type CollaboratorsViewModel,
+  type ImplementationsViewModel,
+  type InspectViewModel,
+  type LocateViewModel,
+  type SearchViewModel
+} from './view-model.ts'
 
-/** spec/operations.md — the exact operation names */
+/** the operation names this workbench consumes (spec/operations.md) */
 export const OP = {
   responsibilitySearch: 'responsibility.search',
   responsibilityInspect: 'responsibility.inspect',
@@ -49,170 +67,126 @@ export const OP = {
   planPrepare: 'plan.prepare',
   planCommit: 'plan.commit',
   teamAssign: 'team.assign',
-  runtimeSnapshot: 'runtime.snapshot',
-  runtimeSubscribe: 'runtime.subscribe'
+  interfaceGet: 'interface.get',
+  contextInspect: 'context.inspect',
+  surfaceDescribe: 'surface.describe',
+  accessInspect: 'access.inspect',
+  workerInspect: 'worker.inspect'
 } as const
 
-// ── queries (no operationId — reads, not mutations) ─────────────
+/* ── C-DISCOVERY reads ─────────────────────────────────────────────────── */
 
-/** C-DISCOVERY — candidates for a human/coordinator to READ, never to
- //  auto-confirm (REQ-04). At least a query or one structural filter is
- //  required by the contract; we send the request verbatim. */
 export async function searchResponsibilities(
   call: OpCaller,
-  req: SearchRequest
-): Promise<SearchResponse> {
-  const raw = (await call(OP.responsibilitySearch, req)) as SearchResponse & {
-    items?: SearchResponse['candidates']
-  }
-  const items = raw.items ?? raw.candidates ?? []
-  return { ...raw, items, candidates: items }
+  request: SearchRequest
+): Promise<SearchViewModel> {
+  const result = await call<SearchResult>(OP.responsibilitySearch, request)
+  return toSearchViewModel(result)
 }
 
-/** coordination | owner resolution — authored view only; a missing one is
- //  reported as missing, not synthesized (REQ-06). */
 export async function inspectResponsibility(
   call: OpCaller,
-  req: InspectRequest
-): Promise<InspectResult> {
-  const raw = (await call(OP.responsibilityInspect, req)) as InspectResult & {
-    boundary?: { responsibility?: string; criteria?: InspectResult['criteria'] }
-  }
-  const boundary = raw.boundary
-  return {
-    ...raw,
-    responsibility: raw.responsibility ?? boundary?.responsibility ?? '',
-    criteria: raw.criteria ?? boundary?.criteria ?? [],
-    viewStatus:
-      raw.viewStatus ??
-      (typeof raw.coordinationView === 'object' && raw.coordinationView !== null
-        ? (raw.coordinationView as { status?: string }).status === 'missing'
-          ? 'missing'
-          : 'present'
-        : raw.coordinationView == null
-          ? 'missing'
-          : 'present')
-  }
+  request: InspectRequest
+): Promise<InspectViewModel> {
+  const result = await call<InspectResult>(OP.responsibilityInspect, request)
+  return toInspectViewModel(result)
 }
 
 export async function locateResponsibility(
   call: OpCaller,
-  req: LocateRequest
-): Promise<LocateResponse> {
-  const raw = (await call(OP.responsibilityLocate, req)) as LocateResponse & {
-    items?: LocateResult[]
-  }
-  const items = (raw.items ?? raw.results ?? []).map((r) => ({
-    ...r,
-    status: r.status === 'resolved' ? 'assigned' : r.status
-  })) as LocateResult[]
-  return { ...raw, items, results: items }
+  request: LocateRequest
+): Promise<LocateViewModel> {
+  const result = await call<LocateResult>(OP.responsibilityLocate, request)
+  return toLocateViewModel(result)
 }
 
 export async function listCollaborators(
   call: OpCaller,
-  req: CollaboratorsRequest
-): Promise<CollaboratorsResponse> {
-  const raw = (await call(OP.responsibilityCollaborators, req)) as CollaboratorsResponse & {
-    items?: Array<{
-      role?: { id?: string; name?: string }
-      relationReasons?: Array<{ kind?: string; contractId?: string; direction?: string }>
-      members?: Array<{ memberId?: string; state?: string }>
-    }>
-  }
-  const items = raw.items
-  if (!items) return raw
-  const collaborators: Collaborator[] = []
-  for (const it of items) {
-    const roleId = it.role?.id ?? ''
-    const roleName = it.role?.name
-    const reasons = it.relationReasons ?? []
-    const members = it.members ?? []
-    if (members.length === 0) {
-      collaborators.push({
-        roleId,
-        roleName,
-        relationReason: reasons[0]?.kind ?? 'same-boundary',
-        contractId: reasons[0]?.contractId,
-        direction: reasons[0]?.direction
-      })
-    } else {
-      for (const m of members) {
-        collaborators.push({
-          roleId,
-          roleName,
-          memberId: m.memberId,
-          memberState: m.state,
-          relationReason: reasons[0]?.kind ?? 'same-boundary',
-          contractId: reasons[0]?.contractId,
-          direction: reasons[0]?.direction
-        })
-      }
-    }
-  }
-  return { ...raw, collaborators }
+  request: CollaboratorsRequest
+): Promise<CollaboratorsViewModel> {
+  const result = await call<CollaboratorsResult>(OP.responsibilityCollaborators, request)
+  return toCollaboratorsViewModel(result)
 }
 
 export async function listImplementations(
   call: OpCaller,
-  req: ImplementationsRequest
-): Promise<ImplementationsResponse> {
-  const raw = (await call(OP.roleImplementations, req)) as ImplementationsResponse & {
-    implementations?: Array<ImplementationOffer & { revision?: number; profileId?: string; profile?: string }>
-  }
-  return {
-    ...raw,
-    implementations: (raw.implementations ?? []).map((im) => ({
-      ...im,
-      implementationRevision: im.implementationRevision ?? im.revision ?? 0,
-      profile: im.profile ?? im.profileId
-    }))
-  }
+  request: ImplementationsRequest
+): Promise<ImplementationsViewModel> {
+  const result = await call<ImplementationsResult>(OP.roleImplementations, request)
+  return toImplementationsViewModel(result)
 }
 
-export function getRun(call: OpCaller, req: RunGetRequest): Promise<RunProjection> {
-  return call(OP.runGet, req) as Promise<RunProjection>
-}
+/* ── C-WORK: preview → explicit assign / plan ──────────────────────────── */
 
-export function runtimeSnapshot(call: OpCaller, req: SnapshotRequest): Promise<RuntimeSnapshot> {
-  return call(OP.runtimeSnapshot, req) as Promise<RuntimeSnapshot>
-}
-
-// ── preview → assign (receipt-bearing mutations) ────────────────
-
-/** assignment.preview — reads relations/grant coverage/blockers and
- //  stamps a preview receipt; creates NO Member/Dispatch/process/grant. */
-export function previewAssignment(call: OpCaller, req: PreviewRequest): Promise<AssignmentPreview> {
-  return call(OP.assignmentPreview, req, {
+/** preview creates nothing — REQ-14 idempotency still rides every mutation */
+export function previewAssignment(
+  call: OpCaller,
+  request: AssignmentPreviewRequest
+): Promise<AssignmentPreviewResult> {
+  return call<AssignmentPreviewResult>(OP.assignmentPreview, request, {
     operationId: newOperationId()
-  }) as Promise<AssignmentPreview>
+  })
 }
 
-/** team.assign — the explicit commit. The server re-checks the
- //  selectionToken's modelVersion/role/implementation against CURRENT
- //  grants and ceiling; STALE_REVISION is a normal answer. */
-export function assignTeam(call: OpCaller, req: AssignRequest): Promise<AssignResult> {
-  return call(OP.teamAssign, req, {
-    operationId: newOperationId()
-  }) as Promise<AssignResult>
+export function assignTeam(call: OpCaller, request: TeamAssignRequest): Promise<TeamAssignResult> {
+  return call<TeamAssignResult>(OP.teamAssign, request, { operationId: newOperationId() })
 }
 
-// ── META DAG edit — prepare → commit, always a new revision ─────
+export function getRun(call: OpCaller, request: RunGetRequest): Promise<CoordinatorRunProjection> {
+  return call<CoordinatorRunProjection>(OP.runGet, request)
+}
 
 export function preparePlan(
   call: OpCaller,
-  runId: string,
-  patch: PlanPatch
-): Promise<PreparePlanResult> {
-  return call(
-    OP.planPrepare,
-    { runId, patch },
-    { operationId: newOperationId() }
-  ) as Promise<PreparePlanResult>
+  request: PlanPrepareRequest
+): Promise<PlanPrepareResult> {
+  return call<PlanPrepareResult>(OP.planPrepare, request, { operationId: newOperationId() })
 }
 
-export function commitPlan(call: OpCaller, req: CommitPlanRequest): Promise<CommitPlanResult> {
-  return call(OP.planCommit, req, {
+export function commitPlan(call: OpCaller, request: PlanCommitRequest): Promise<PlanCommitResult> {
+  return call<PlanCommitResult>(OP.planCommit, request, { operationId: newOperationId() })
+}
+
+/* ── inspector reads ───────────────────────────────────────────────────── */
+
+/**
+ * interface.get by {modelVersion, roleId} — the canonical payload and result.
+ * `contextRequirements` is the flattened clause list the handler returns
+ * alongside `interface.requirements`; both are in the shared DTO.
+ */
+export function getRoleInterface(
+  call: OpCaller,
+  request: InterfaceGetPayload
+): Promise<InterfaceGetResult> {
+  return call<InterfaceGetResult>(OP.interfaceGet, request, {
     operationId: newOperationId()
-  }) as Promise<CommitPlanResult>
+  })
+}
+
+export function inspectContext(
+  call: OpCaller,
+  request: ContextInspectPayload
+): Promise<ContextInspectResult> {
+  return call<ContextInspectResult>(OP.contextInspect, request)
+}
+
+export function describeSurface(
+  call: OpCaller,
+  request: SurfaceDescribePayload
+): Promise<SurfaceDescribeResult> {
+  return call<SurfaceDescribeResult>(OP.surfaceDescribe, request)
+}
+
+export function inspectAccess(
+  call: OpCaller,
+  request: AccessInspectPayload
+): Promise<AccessInspectResult> {
+  return call<AccessInspectResult>(OP.accessInspect, request)
+}
+
+export function inspectWorker(
+  call: OpCaller,
+  request: WorkerInspectPayload
+): Promise<WorkerInspectResult> {
+  return call<WorkerInspectResult>(OP.workerInspect, request)
 }

@@ -137,3 +137,54 @@ export type {
 export * from './codex/components.ts'
 export * from './codex/settings-policy.ts'
 export * from './codex/recipe.ts'
+
+// IMP-D — builtin.harness-runtime Pack data. The Pack revision
+// (integrations/packs/harness-runtime) owns harness labels, match patterns,
+// resume/launch recipes, hook installers and maintenance declarations; these
+// helpers are the only core readers, so adding a harness is a data change.
+export {
+  EVENT_SLOT,
+  HARNESS_RUNTIME_PACK_DIR,
+  HARNESS_RUNTIME_PACK_ID,
+  SESSION_SLOT,
+  argvFromProfile,
+  expandInstallerPath,
+  expandInstallerTemplate,
+  harnessManifestProjection,
+  harnessResumeSupport,
+  harnessRuntimeHookScriptPath,
+  harnessesWithMaintenance,
+  hookCommandText,
+  installerPlan,
+  installerTokenContext,
+  launchProfile,
+  loadHarnessRuntimePack,
+  locatorFromProfile,
+  lockSweepDeclaration,
+  maintenanceActions,
+  resolveBuiltinPacksDir,
+  resumeCommandText,
+  routesFromProfile
+} from './runtime-pack.ts'
+export type {
+  HarnessInstallerFile,
+  HarnessLaunchProfile,
+  HarnessManifestEntry,
+  HarnessRuntimeHarness,
+  HarnessRuntimeInstaller,
+  HarnessRuntimePack,
+  InstallerPlan,
+  InstallerTokenContext,
+  LockSweepDeclaration
+} from './runtime-pack.ts'
+export type { HarnessResumeSupport } from './runtime-pack.ts'
+export { SESSION_SLOT as SESSION_SLOT_TEXT } from './resume-recipe.ts'
+export type { HarnessResumeRecipe } from './resume-recipe.ts'
+
+// Session-lock safety core — pure decision rules with injected IO.
+export { decideSessionLock, sweepSessionLocks } from './session-locks.ts'
+export type {
+  SessionLockDeclaration,
+  SessionLockSweepIo,
+  SessionLockVerdict
+} from './session-locks.ts'

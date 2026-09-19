@@ -1,0 +1,334 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "builtin.harness-runtime",
+    "name": "Built-in harness runtime",
+    "publisher": "mahas",
+    "description": "Process identity, lifecycle events, launch/resume recipes, hook installation and safe harness maintenance.",
+    "createdAt": 1789830000000,
+    "metadata": {
+      "catalog": "harnesses.json",
+      "installers": "installers.json",
+      "hookTransport": "hooks/mahas-hook.cjs",
+      "eventPolicy": "identity-preserving",
+      "dataOwnership": "vendor knowledge (labels, match patterns, recipes, installers, hook classification) lives in this revision",
+      "hookCapability": "events",
+      "hookTransportResource": "hooks/mahas-hook.cjs",
+      "hookTransportGeneration": "ndjson-v2",
+      "offsetSemantics": "sourceRecordKey offsets are byte offsets of the line START; readers consume complete lines only"
+    }
+  },
+  "revision": {
+    "packId": "builtin.harness-runtime",
+    "revision": 2,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "createdAt": 1789930000000,
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "claude"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "codex"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "gemini"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "grok"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "devin"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "zcode"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "cursor"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "copilot"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "aider"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "opencode"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "amp"
+      },
+      {
+        "kind": "harness",
+        "harnessId": "cline"
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node",
+        "constraint": ">=20",
+        "required": true
+      }
+    ],
+    "implementations": [
+      {
+        "id": "harness-runtime.identify.v2",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 5000,
+          "maxOutputBytes": 262144
+        },
+        "supportDetails": {
+          "basis": "executable locator and process signatures from harnesses.json",
+          "installationCreation": "caller-owned; this Pack never enumerates credentials or probes versions"
+        }
+      },
+      {
+        "id": "harness-runtime.launch.v2",
+        "capability": "launch",
+        "contract": {
+          "id": "mahas.integration.launch",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 5000,
+          "maxOutputBytes": 262144
+        },
+        "supportDetails": {
+          "profiles": [
+            "claude-code@1",
+            "codex-cli@1"
+          ],
+          "pinRequired": true,
+          "pinFields": [
+            "packId",
+            "revision",
+            "contentDigest",
+            "implementationId"
+          ],
+          "unknownProfile": "failed with profile.unknown \u2014 never silently substituted"
+        }
+      },
+      {
+        "id": "harness-runtime.resume.v2",
+        "capability": "resume",
+        "contract": {
+          "id": "mahas.integration.resume",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 5000,
+          "maxOutputBytes": 262144
+        },
+        "supportDetails": {
+          "sessionId": "native handle",
+          "unknownHandle": "support=unknown \u2014 a missing native id is never a resume claim",
+          "pinRequired": true
+        }
+      },
+      {
+        "id": "harness-runtime.wake.v2",
+        "capability": "wake",
+        "contract": {
+          "id": "mahas.integration.wake",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 5000,
+          "maxOutputBytes": 262144
+        },
+        "supportDetails": {
+          "automatic": false,
+          "reason": "no harness revision in this Pack declares a verified automatic wake route; durable delivery stays queued for manual resume"
+        }
+      },
+      {
+        "id": "harness-runtime.events.v2",
+        "capability": "events",
+        "contract": {
+          "id": "mahas.integration.events",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "source": "checkpointed NDJSON written by hooks/mahas-hook.cjs",
+          "preservesChildIdentity": true,
+          "preservesExternalRunIdentity": true,
+          "policySeparate": "notification exclusion is recorded in policy{} \u2014 never applied by deleting identity",
+          "partialLine": "the cursor advances only past a confirmed newline"
+        }
+      },
+      {
+        "id": "harness-runtime.maintenance.v2",
+        "capability": "maintenance",
+        "contract": {
+          "id": "mahas.integration.maintenance",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "runtime.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 262144
+        },
+        "supportDetails": {
+          "explicitActions": [
+            "hook-status",
+            "install-hook",
+            "refresh-installed-hooks",
+            "sweep-session-locks"
+          ],
+          "neverAutoInstalls": true,
+          "lockSafety": [
+            "flock-absent",
+            "recorded-pid-dead-or-not-harness"
+          ],
+          "ownsArtifacts": "only files this Pack installs; user hook groups are backed up and chained"
+        }
+      },
+      {
+        "id": "harness-runtime.sessions.unsupported",
+        "capability": "sessions",
+        "support": {
+          "state": "unsupported",
+          "reason": "this revision reads the hook stream only; harness-native session stores are not enumerated"
+        },
+        "limits": {
+          "timeoutMs": 1000,
+          "maxOutputBytes": 1024
+        },
+        "supportDetails": {
+          "unsupported": true
+        },
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        }
+      },
+      {
+        "id": "harness-runtime.usage.unsupported",
+        "capability": "usage",
+        "support": {
+          "state": "unsupported",
+          "reason": "token ledgers are owned by the per-harness collection packs"
+        },
+        "limits": {
+          "timeoutMs": 1000,
+          "maxOutputBytes": 1024
+        },
+        "supportDetails": {
+          "unsupported": true
+        },
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        }
+      },
+      {
+        "id": "harness-runtime.auth.unsupported",
+        "capability": "auth",
+        "support": {
+          "state": "unsupported",
+          "reason": "credentials are owned by the provider offering packs and the inventory secret channel"
+        },
+        "limits": {
+          "timeoutMs": 1000,
+          "maxOutputBytes": 1024
+        },
+        "supportDetails": {
+          "unsupported": true
+        },
+        "contract": {
+          "id": "mahas.integration.auth",
+          "revision": 1
+        }
+      },
+      {
+        "id": "harness-runtime.quota.unsupported",
+        "capability": "quota",
+        "support": {
+          "state": "unsupported",
+          "reason": "quota probes are owned by the provider offering packs"
+        },
+        "limits": {
+          "timeoutMs": 1000,
+          "maxOutputBytes": 1024
+        },
+        "supportDetails": {
+          "unsupported": true
+        },
+        "contract": {
+          "id": "mahas.integration.quota",
+          "revision": 1
+        }
+      }
+    ],
+    "releaseNotes": "Owns identify/launch/resume/wake/events/maintenance for the built-in harnesses as Pack data: labels, match patterns, recipes, installers and hook classification leave core; hook events keep native child/external identity and record the notification policy separately."
+  }
+}

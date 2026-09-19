@@ -1,0 +1,10 @@
+{
+  "comment": "Synthetic reject case: the quota contract requires caller-scoped credential material, so a probe without it must never reach a provider.",
+  "protocolVersion": "1",
+  "operationId": "conformance-quota-missing-material",
+  "capability": "quota",
+  "target": { "kind": "connection", "connectionId": "connection-fixture" },
+  "contract": { "id": "mahas.integration.quota", "revision": 1 },
+  "pack": { "packId": "pack.provider.builtin-offerings", "revision": 1, "contentDigest": "unused-in-conformance" },
+  "payload": { "connectionId": "connection-fixture", "requestedAt": 1770000000000 }
+}

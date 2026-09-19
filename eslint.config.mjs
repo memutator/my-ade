@@ -4,6 +4,96 @@ import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
 import eslintPluginReact from 'eslint-plugin-react'
 import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
+import {
+  REPO_ROOT,
+  discoverPackages,
+  formatBoundaryIssue,
+  specifiersAreTypeOnly,
+  validateImport
+} from './tools/boundary-policy.mjs'
+
+const boundaryPackages = discoverPackages(REPO_ROOT)
+
+/**
+ * `no-restricted-imports` compares raw strings, so ../../.. depth changes can
+ * bypass it. This rule resolves the target package before applying the
+ * dependency graph. tools/check-boundaries.mjs uses the same policy for every
+ * source file and its temporary fixtures, including the `import { type X }`
+ * form that typescript-eslint reports as a value clause with type-marked
+ * specifiers.
+ */
+const mahasBoundaryPlugin = {
+  rules: {
+    'resolved-package-imports': {
+      meta: {
+        type: 'problem',
+        docs: { description: 'enforce resolved mahas package dependency boundaries' },
+        schema: []
+      },
+      create(context) {
+        const filename = context.filename ?? context.getFilename()
+        const inspect = (node, source, typeOnly) => {
+          if (!source || typeof source.value !== 'string') return
+          const boundaryIssue = validateImport({
+            root: REPO_ROOT,
+            packages: boundaryPackages,
+            filename,
+            specifier: source.value,
+            typeOnly
+          })
+          if (!boundaryIssue) return
+          context.report({
+            node: source,
+            message: formatBoundaryIssue({
+              filename,
+              specifier: source.value,
+              issue: boundaryIssue,
+              root: REPO_ROOT
+            })
+          })
+        }
+        const literalArgument = (node) => {
+          const [argument] = node.arguments ?? []
+          return argument?.type === 'Literal' && typeof argument.value === 'string' ? argument : null
+        }
+        const importClauseIsTypeOnly = (node) => {
+          if (node.importKind === 'type') return true
+          const specifiers = node.specifiers ?? []
+          const named = specifiers.filter((specifier) => specifier.type === 'ImportSpecifier')
+          return named.length === specifiers.length && specifiersAreTypeOnly(named)
+        }
+        const exportSpecifiersAreTypeOnly = (node) => {
+          if (node.exportKind === 'type') return true
+          if (!node.specifiers || node.specifiers.length === 0) return false
+          return specifiersAreTypeOnly(node.specifiers)
+        }
+        return {
+          ImportDeclaration(node) {
+            inspect(node, node.source, importClauseIsTypeOnly(node))
+          },
+          ExportNamedDeclaration(node) {
+            if (node.source) inspect(node, node.source, exportSpecifiersAreTypeOnly(node))
+          },
+          ExportAllDeclaration(node) {
+            inspect(node, node.source, node.exportKind === 'type')
+          },
+          ImportExpression(node) {
+            inspect(node, node.source, false)
+          },
+          CallExpression(node) {
+            const dynamicImport = node.callee?.type === 'Import'
+            const requireCall = node.callee?.type === 'Identifier' && node.callee.name === 'require'
+            if (dynamicImport || requireCall) inspect(node, literalArgument(node), false)
+          },
+          TSImportType(node) {
+            const argument = node.argument?.literal ?? node.argument
+            inspect(node, argument, true)
+          }
+        }
+      }
+    }
+  }
+}
 
 export default defineConfig(
   { ignores: ['**/node_modules', '**/dist', '**/out', 'resources/**', 'tools/**', 'mahas-architecture/**'] },
@@ -28,144 +118,43 @@ export default defineConfig(
       ...eslintPluginReactRefresh.configs.vite.rules
     }
   },
-  // ── IMP-01 package boundary (see packages/README.md) ───────────────────
-  // The packages/* dependency direction is enforced at import level:
-  //   contracts  ← harness-config, execution-host, runtime, cli
-  //   harness-config ← runtime, cli      execution-host: contracts only
-  //   runtime    ← cli, src/main         src/preload+renderer: contracts
-  //   types only (never the runtime repository); packages never import src/.
+  eslintConfigPrettier,
+  // Plain JavaScript (Pack collectors, hook scripts, CLI helpers) carries no
+  // type annotations, so rules that require them are noise, not findings.
+  // @electron-toolkit's own escape hatch uses `files: ['*.js', '*.mjs']`, which
+  // in flat config matches only top-level files — a nested collector under
+  // integrations/packs/** keeps the TypeScript rules applied to it. These two
+  // entries re-state the intent with patterns that actually match, and give
+  // each module system its real sourceType (`.cjs` may use `require`).
   {
-    files: ['packages/mahas-contracts/**/*'],
+    files: ['**/*.{js,mjs}'],
+    languageOptions: { sourceType: 'module' },
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['../../mahas-*', '../../mahas-*/**', '../../../src/**'],
-              message:
-                'mahas-contracts is the shared base — it must not import other packages or desktop src'
-            }
-          ]
-        }
-      ]
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-explicit-any': 'off'
     }
   },
   {
-    files: ['packages/mahas-harness-config/**/*'],
+    files: ['**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' },
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: [
-                '../../mahas-runtime/**',
-                '../../mahas-execution-host/**',
-                '../../mahas-cli/**',
-                '../../../src/**'
-              ],
-              message: 'harness-config depends on mahas-contracts only'
-            }
-          ]
-        }
-      ]
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-require-imports': 'off'
     }
   },
   {
-    files: ['packages/mahas-execution-host/**/*'],
+    files: [
+      'packages/**/*.{ts,tsx,mts,cts}',
+      'src/main/**/*.{ts,tsx,mts,cts}',
+      'src/preload/**/*.{ts,tsx,mts,cts}',
+      'src/renderer/**/*.{ts,tsx,mts,cts}'
+    ],
+    plugins: {
+      'mahas-boundaries': mahasBoundaryPlugin
+    },
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: [
-                '../../mahas-runtime/**',
-                '../../mahas-cli/**',
-                '../../mahas-harness-config/**',
-                '../../../src/**'
-              ],
-              message:
-                'execution-host is a separate daemon — it depends on contracts only, never on the runtime internals it serves'
-            }
-          ]
-        }
-      ]
+      'mahas-boundaries/resolved-package-imports': 'error'
     }
-  },
-  {
-    files: ['packages/mahas-runtime/**/*'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['../../mahas-execution-host/**', '../../mahas-cli/**', '../../../src/**'],
-              message:
-                'runtime depends on contracts + harness-config — it is not imported into or importing host/cli/desktop internals'
-            }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    files: ['packages/mahas-cli/**/*'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['../../mahas-execution-host/**', '../../../src/**'],
-              message:
-                'the CLI is a client of contracts/runtime/harness-config — never of execution-host internals or desktop src'
-            }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    files: ['src/main/**/*'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/packages/mahas-execution-host/**', '**/packages/mahas-cli/**'],
-              message:
-                'the desktop composes contracts/runtime/harness-config — it spawns the execution-host by path, never imports it'
-            }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    files: ['src/preload/**/*', 'src/renderer/**/*'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: [
-                '**/packages/mahas-runtime/**',
-                '**/packages/mahas-execution-host/**',
-                '**/packages/mahas-cli/**',
-                '**/packages/mahas-harness-config/**'
-              ],
-              message:
-                'the renderer contract port is mahas-contracts type imports + the window.mahas IPC surface — never the runtime repository (IMP-01 §4.2)'
-            }
-          ]
-        }
-      ]
-    }
-  },
-  eslintConfigPrettier
+  }
 )

@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "tokens": {
+    "~": "$HOME",
+    "${configHome}": "XDG_CONFIG_HOME or $HOME/.config",
+    "${configDir}": "MAHAS_CONFIG_DIR or ${configHome}/mahas"
+  },
+  "runtime": {
+    "hookScript": "hooks/mahas-hook.cjs",
+    "hookCommand": "node \"${hookScriptPath}\" ${harnessId}"
+  },
+  "legacy": {
+    "markers": [
+      "mahas-hook"
+    ],
+    "legacyMarkers": [
+      "ade-hook",
+      "AdeEventsPlugin"
+    ],
+    "artifacts": [
+      {
+        "path": "${configHome}/opencode/plugins/ade-events.js"
+      },
+      {
+        "path": "~/.grok/hooks/ade.json"
+      },
+      {
+        "path": "${configDir}/ade-hook.cjs"
+      }
+    ],
+    "forwardFile": "${configDir}/notify-forward.json"
+  },
+  "installers": {
+    "claude": {
+      "label": "Claude",
+      "bin": "claude",
+      "harnessId": "claude",
+      "refresh": "legacy",
+      "mechanism": "Stop + Notification + SessionStart/End hooks — ~/.claude/settings.json",
+      "kind": "json-hooks",
+      "config": "~/.claude/settings.json",
+      "events": [
+        "Stop",
+        "Notification",
+        "SessionStart",
+        "SessionEnd"
+      ],
+      "group": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${hookCommand}",
+            "timeout": 10
+          }
+        ]
+      }
+    },
+    "codex": {
+      "label": "Codex",
+      "bin": "codex",
+      "harnessId": "codex",
+      "refresh": "legacy",
+      "mechanism": "notify — ~/.codex/config.toml",
+      "kind": "notify-slot",
+      "config": "~/.codex/config.toml",
+      "notifyArgv": [
+        "node",
+        "${hookScriptPath}",
+        "codex"
+      ],
+      "forwardKey": "codex"
+    },
+    "grok": {
+      "label": "Grok",
+      "bin": "grok",
+      "harnessId": "grok",
+      "refresh": "owned",
+      "mechanism": "Stop/StopCancelled/StopFailure + Notification + SessionStart/End — ~/.grok/hooks/mahas.json",
+      "kind": "owned-json-hooks",
+      "config": "~/.grok/hooks/mahas.json",
+      "events": [
+        "Stop",
+        "StopCancelled",
+        "StopFailure",
+        "Notification",
+        "SessionStart",
+        "SessionEnd"
+      ],
+      "owned": {
+        "description": "mahas turn notifications",
+        "hooks": {
+          "Stop": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}",
+                  "timeout": 10
+                }
+              ]
+            }
+          ],
+          "StopCancelled": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}"
+                }
+              ]
+            }
+          ],
+          "StopFailure": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}"
+                }
+              ]
+            }
+          ],
+          "Notification": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}"
+                }
+              ]
+            }
+          ],
+          "SessionStart": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}"
+                }
+              ]
+            }
+          ],
+          "SessionEnd": [
+            {
+              "hooks": [
+                {
+                  "type": "command",
+                  "command": "${hookCommand}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "legacyArtifacts": [
+        "~/.grok/hooks/ade.json",
+        "~/.grok/hooks/ade.json.ade-bak",
+        "~/.grok/hooks/ade.json.mahas-bak"
+      ]
+    },
+    "devin": {
+      "label": "Devin",
+      "bin": "devin",
+      "harnessId": "devin",
+      "refresh": "legacy",
+      "mechanism": "Stop + PermissionRequest + SessionStart/End hooks — $XDG_CONFIG_HOME/devin/config.json",
+      "kind": "json-hooks",
+      "config": "${configHome}/devin/config.json",
+      "events": [
+        "Stop",
+        "PermissionRequest",
+        "SessionStart",
+        "SessionEnd"
+      ],
+      "group": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${hookCommand}",
+            "timeout": 10
+          }
+        ]
+      }
+    },
+    "zcode": {
+      "label": "ZCode",
+      "bin": "zcode",
+      "harnessId": "zcode",
+      "refresh": "legacy",
+      "mechanism": "Stop + PermissionRequest + SessionStart/End — ~/.zcode/cli/config.json",
+      "kind": "json-hooks",
+      "config": "~/.zcode/cli/config.json",
+      "container": "hooks.events",
+      "enableContainer": true,
+      "events": [
+        "Stop",
+        "PermissionRequest",
+        "SessionStart",
+        "SessionEnd"
+      ],
+      "group": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${hookCommand}"
+          }
+        ]
+      }
+    },
+    "cline": {
+      "label": "Cline",
+      "bin": "cline",
+      "harnessId": "cline",
+      "refresh": "owned",
+      "mechanism": "event-named hook files — ~/.cline/hooks/<Event>",
+      "kind": "hook-files",
+      "config": "~/.cline/hooks",
+      "events": [
+        "TaskStart",
+        "TaskComplete",
+        "TaskError",
+        "TaskCancel",
+        "UserPromptSubmit",
+        "SessionShutdown"
+      ],
+      "script": [
+        "#!/bin/sh",
+        "# mahas-hook — cline ${event} lifecycle event",
+        "PAYLOAD=\"$(cat)\"",
+        "printf '%s' \"$PAYLOAD\" | ${hookCommand}",
+        "BAK=\"$(dirname \"$0\")/$(basename \"$0\").mahas-bak\"",
+        "if [ -f \"$BAK\" ]; then",
+        "  printf '%s' \"$PAYLOAD\" | \"$BAK\" 2>/dev/null || printf '%s' \"$PAYLOAD\" | sh \"$BAK\" 2>/dev/null || true",
+        "fi",
+        "exit 0",
+        ""
+      ],
+      "backupSuffix": ".mahas-bak"
+    },
+    "opencode": {
+      "label": "OpenCode",
+      "bin": "opencode",
+      "harnessId": "opencode",
+      "refresh": "owned",
+      "mechanism": "plugin session.idle/error + permission/question.asked — $XDG_CONFIG_HOME/opencode/plugins",
+      "kind": "plugin-files",
+      "config": "${configHome}/opencode/plugins/mahas-events.js",
+      "marker": "MahasEventsPlugin",
+      "files": [
+        {
+          "from": "hooks/mahas-opencode-plugin.js",
+          "to": "${configHome}/opencode/plugins/mahas-events.js"
+        },
+        {
+          "from": "hooks/opencode-runtime.js",
+          "to": "${configHome}/opencode/plugins/opencode-runtime.js"
+        }
+      ]
+    }
+  }
+}
+

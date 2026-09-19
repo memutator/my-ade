@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.zcode",
+    "name": "ZCode local database",
+    "publisher": "mahas",
+    "description": "Read-only ZCode installation, session, and per-request usage observations.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "home",
+            "path": ".zcode"
+          },
+          {
+            "role": "data",
+            "base": "home",
+            "path": ".zcode"
+          }
+        ],
+        "executableCandidates": ["zcode"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.zcode",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "zcode"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.zcode.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate namespace and SQLite schema only"
+        }
+      },
+      {
+        "id": "mahas.zcode.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "strategy": "bounded full-keyspace reconciliation",
+          "parents": "when present",
+          "deletions": "absence from a wrapped sweep"
+        }
+      },
+      {
+        "id": "mahas.zcode.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "delta",
+          "primaryStream": "model_usage",
+          "fallbackStream": "turn_usage",
+          "cacheContainment": "cache read is contained in input; reasoning is contained in output",
+          "deletions": "absence from a wrapped sweep"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node:sqlite",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "zcode",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Read-only SQL collector with bounded reconciliation sweeps."
+  }
+}

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AgentHookEvent,
   BindViewRequest,
   ClientViewBinding,
   ControlResult,
@@ -10,6 +11,32 @@ import type {
   ServiceStatus,
   UnbindViewRequest
 } from '../../packages/mahas-contracts/src/index.ts'
+import type {
+  DomainAuthFlow,
+  DomainAuthFileImportRequest,
+  DomainAuthFileImportResult,
+  DomainAuthOutcome,
+  DomainAuthRefreshRequest,
+  DomainAuthSecretRequest,
+  DomainAuthStartRequest,
+  DomainAuthSubmitCodeRequest,
+  DomainCollectionRequest,
+  DomainCollectionRequestResult,
+  DomainCollectionSourcesResult,
+  DomainSessionDetailResult,
+  DomainSessionsRequest,
+  DomainSessionsResult,
+  DomainSourceRemovalResult,
+  DomainSourceRemovalRequest,
+  DomainUsageLedgerRequest,
+  DomainUsageLedgerResult,
+  DomainUsageSourcesRequest,
+  DomainUsageSourcesResult,
+  DomainUsageStatisticsRequest,
+  DomainUsageStatisticsResult,
+  DomainUsageSummariesResult,
+  DomainUsageSummaryRequest
+} from './domain'
 
 export interface PtySpawnOpts {
   id: string
@@ -117,20 +144,9 @@ export interface GitInfo {
   wtRoot?: string
 }
 
-export interface AgentHookEvent {
-  provider: string
-  event: string
-  cwd?: string
-  sessionId?: string
-  /** set by the tailer: true when the event carries this instance's session */
-  ours?: boolean
-  /** session-rename payload: the new session name */
-  name?: string
-  message?: string
-  /** hooks:test synthetic events bypass attention gating */
-  force?: boolean
-  ts?: number
-}
+// one declaration for the whole app: the hook-stream wire type lives in
+// mahas-contracts (operations/hooks.ts) and is re-exported, never re-declared
+export type { AgentHookEvent }
 
 export interface AgentHookStatus {
   id: string
@@ -198,6 +214,9 @@ export interface TokenUse {
   reasoning: number
   total: number
   costUsd?: number
+  /** token components the stored reading reports as unknown (projected to 0
+   *  in the numbers above so old arithmetic keeps working) */
+  unknownComponents?: string[]
 }
 
 export interface LedgerSession {
@@ -207,6 +226,8 @@ export interface LedgerSession {
   cwd?: string
   tokens: TokenUse
   found: boolean
+  /** attribution status of the newest stored entry (legacy rows carried none) */
+  attribution?: 'verified' | 'observed' | 'inferred' | 'unknown' | 'superseded'
 }
 
 export interface LedgerProfile {
@@ -290,6 +311,75 @@ const mahas = {
     // honest readiness of the control-plane endpoint — 'degraded' means a
     // socket answered but no versioned session is negotiated yet
     status: (): Promise<ServiceStatus> => ipcRenderer.invoke('runtime:status')
+  },
+  // ── canonical domain reads and actions ──────────────────────────────────
+  // Every read below answers from the daemon's stored domain (catalog,
+  // inventory, metering, sessions, usage ledger, collection state). No desktop
+  // code scans a harness file or calls a provider to answer a query; when the
+  // store has no answer the seam says so (readiness/diagnostics) instead of
+  // substituting a locally recomputed number.
+  //
+  // Collection is a SEPARATE mutation: `requestCollection` queues durable work
+  // for the daemon scheduler, and opening or re-reading a view never triggers
+  // it. Provider sign-in goes through the daemon's dedicated auth channel — a
+  // secret is deposited there once and only a handle is returned, so nothing
+  // secret-bearing crosses this bridge.
+  domain: {
+    usageSources: (
+      req?: DomainUsageSourcesRequest
+    ): Promise<ControlResult<DomainUsageSourcesResult>> =>
+      ipcRenderer.invoke('domain:usage.sources', req),
+    usageLedger: (req: DomainUsageLedgerRequest): Promise<ControlResult<DomainUsageLedgerResult>> =>
+      ipcRenderer.invoke('domain:usage.ledger', req),
+    usageSummaries: (
+      req?: DomainUsageSummaryRequest
+    ): Promise<ControlResult<DomainUsageSummariesResult>> =>
+      ipcRenderer.invoke('domain:usage.summaries', req),
+    usageStatistics: (
+      req?: DomainUsageStatisticsRequest
+    ): Promise<ControlResult<DomainUsageStatisticsResult>> =>
+      ipcRenderer.invoke('domain:usage.statistics', req),
+    sessions: (req?: DomainSessionsRequest): Promise<ControlResult<DomainSessionsResult>> =>
+      ipcRenderer.invoke('domain:sessions.list', req),
+    sessionDetail: (sessionId: string): Promise<ControlResult<DomainSessionDetailResult>> =>
+      ipcRenderer.invoke('domain:sessions.detail', sessionId),
+    collectionSources: (): Promise<ControlResult<DomainCollectionSourcesResult>> =>
+      ipcRenderer.invoke('domain:collection.sources'),
+    /** close a canonical source (the connection is recorded as removed; stored
+     *  usage history stays) */
+    removeSource: (
+      req: DomainSourceRemovalRequest
+    ): Promise<ControlResult<DomainSourceRemovalResult>> =>
+      ipcRenderer.invoke('domain:usage.removeSource', req?.connectionId),
+    /** queue durable collection work for the daemon scheduler (mutation) */
+    requestCollection: (
+      req?: DomainCollectionRequest
+    ): Promise<ControlResult<DomainCollectionRequestResult>> =>
+      ipcRenderer.invoke('domain:collection.request', req),
+    authStart: (req: DomainAuthStartRequest): Promise<ControlResult<DomainAuthFlow>> =>
+      ipcRenderer.invoke('domain:auth.start', req),
+    authSubmitCode: (req: DomainAuthSubmitCodeRequest): Promise<ControlResult<DomainAuthOutcome>> =>
+      ipcRenderer.invoke('domain:auth.submitCode', req),
+    /** provider secret entry — write-only, never returned or logged */
+    authSaveSecret: (req: DomainAuthSecretRequest): Promise<ControlResult<DomainAuthOutcome>> =>
+      ipcRenderer.invoke('domain:auth.saveSecret', req),
+    /** observe a running flow (browser callback / device poll happens daemon-side) */
+    authPoll: (flowId: string): Promise<ControlResult<DomainAuthFlow>> =>
+      ipcRenderer.invoke('domain:auth.poll', flowId),
+    authStatus: (flowId: string): Promise<ControlResult<DomainAuthFlow | null>> =>
+      ipcRenderer.invoke('domain:auth.status', flowId),
+    authCancel: (flowId: string): Promise<ControlResult<null>> =>
+      ipcRenderer.invoke('domain:auth.cancel', flowId),
+    /** re-run the stored connection's credential refresh (same-account material
+     *  revision CAS; an account swap is a new connection, not a refresh) */
+    authRefresh: (req: DomainAuthRefreshRequest): Promise<ControlResult<DomainAuthOutcome>> =>
+      ipcRenderer.invoke('domain:auth.refresh', req),
+    /** import one existing credential file as a canonical read-only locator
+     *  (the daemon probes the path; material never crosses this bridge) */
+    authImportFile: (
+      req: DomainAuthFileImportRequest
+    ): Promise<ControlResult<DomainAuthFileImportResult>> =>
+      ipcRenderer.invoke('domain:auth.importFile', req)
   },
   file: {
     openDialog: (): Promise<string | null> => ipcRenderer.invoke('file:openDialog'),

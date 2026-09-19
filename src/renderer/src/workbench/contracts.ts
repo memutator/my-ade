@@ -1,443 +1,118 @@
-// workbench/contracts.ts — wire shapes for the 팀장 workbench (IMP-31).
+// workbench/contracts.ts — the ONE import site for the canonical workbench
+// operation DTOs (mahas-contracts/operations/{discovery,workbench,inspector}).
 //
-// These are the OPERATION PAYLOAD shapes the workbench sends/reads for
-// C-DISCOVERY (IMP-06), C-WORK preview/assign/plan (IMP-13) and
-// C-OBSERVATION snapshot/subscribe (IMP-26). The contracts fix the field
-// lists (spec/contracts/discovery-assignment.md, work.md,
-// observation-client.md); the operation OWNERS fix the envelope — this file
-// codes against the documented shapes, never against peer internals.
+// This module declares no wire shape of its own. It re-exports the shared
+// payloads so every workbench component has one import site, and so the
+// renderer cannot drift into a private copy of a server payload — a local
+// alias that "looks about right" is exactly the failure mode the shared
+// contracts exist to prevent.
 //
-// Entity types are the SHARED-APIS canonical names from mahas-contracts
-// (IMP-02, landing in parallel): `import type` from the promised modules so
-// this surface converges on the real model when it lands — nothing local
-// redefines them. Until IMP-02 lands the type imports below are unresolved
-// on purpose; tsc settles then. Ids/revisions are plain strings/numbers on
-// the wire (identity.ts convention — branding is deliberately not applied).
+// Reads go through ./view-model.ts (explicit projections onto the canonical
+// DTOs); writes use the request DTOs below verbatim. Ops are called by name
+// through ./client.ts — the renderer never imports mahas-runtime.
 
-import type {
-  Boundary,
-  Criterion,
-  NonGoal,
-  Role
-} from '../../../../packages/mahas-contracts/src/rdd.ts'
-import type {
-  Assignment,
-  InputBinding,
-  Member,
-  OutputSlot,
-  Run,
-  TaskEdge,
-  TaskSpec
-} from '../../../../packages/mahas-contracts/src/work.ts'
-import type { RoleImplementation } from '../../../../packages/mahas-contracts/src/role.ts'
-import type { DomainEvent } from '../../../../packages/mahas-contracts/src/observation.ts'
-
-// re-export the canonical names the views consume — one import site carries
-// the pending-IMP-02 resolution instead of every component
+// ── C-DISCOVERY ──────────────────────────────────────────────────────────
 export type {
-  Assignment,
-  Boundary,
-  Criterion,
-  DomainEvent,
-  InputBinding,
-  Member,
-  NonGoal,
-  OutputSlot,
-  Role,
-  RoleImplementation,
-  Run,
-  TaskEdge,
-  TaskSpec
-}
+  AmbiguityGroup,
+  AvailabilityBlocker,
+  BoundarySummary,
+  CandidateCard,
+  Collaborator,
+  CollaboratorReason,
+  CollaboratorsRequest,
+  CollaboratorsResult,
+  ContractTension,
+  CoordinationView,
+  CriterionSummary,
+  ImplementationAvailability,
+  ImplementationsRequest,
+  ImplementationsResult,
+  InspectPerspective,
+  InspectRequest,
+  InspectResult,
+  LocateClaimant,
+  LocateRequest,
+  LocateResult,
+  LocatedPath,
+  MatchReason,
+  MemberAvailability,
+  RelationshipRef,
+  RoleSummary,
+  ScopeCoverage,
+  SearchRequest,
+  SearchResult,
+  SearchStatus,
+  UnmatchedPath
+} from '../../../../packages/mahas-contracts/src/operations/discovery.ts'
 
-// ── C-DISCOVERY · responsibility.search ─────────────────────────
-// Contract: SearchRequest = projectId, modelVersion?, query?, paths[],
-// contractIds[], horizontalRoleNames[], scopeBoundaryId?, cursor?, limit.
-// At least a query OR one structural filter is required.
+// ── C-WORK (plan / assignment / run projection) ──────────────────────────
+export type {
+  AssignmentKind,
+  AssignmentPreviewRequest,
+  AssignmentPreviewResult,
+  AssignmentProjection,
+  AttemptDisposition,
+  CoordinatorRunProjection,
+  EdgePatch,
+  InputBindingWire,
+  MemberProjection,
+  OutputSlotWire,
+  PendingInput,
+  PlanCommitRequest,
+  PlanCommitResult,
+  PlanPatch,
+  PlanPrepareRequest,
+  PlanPrepareResult,
+  PlanProjection,
+  RunGetRequest,
+  RunProjection,
+  TaskEdgeProjection,
+  TaskEligibility,
+  TaskSpecPatch,
+  TaskSpecProjection,
+  TeamAssignRequest,
+  TeamAssignResult
+} from '../../../../packages/mahas-contracts/src/operations/workbench.ts'
 
-export interface SearchRequest {
-  projectId: string
-  modelVersion?: string
-  query?: string
-  paths?: string[]
-  contractIds?: string[]
-  horizontalRoleNames?: string[]
-  scopeBoundaryId?: string
-  cursor?: string
-  limit?: number
-}
+// ── inspector / realization / access / launch reads ──────────────────────
+export type {
+  AccessInspectPayload,
+  AccessInspectResult,
+  AttachedPhase,
+  ContextInspectPayload,
+  ContextInspectResult,
+  ContextUnknown,
+  GrantInspectSummary,
+  GrantScopeSummary,
+  InheritedInput,
+  InjectionReceiptPin,
+  InterfaceGetPayload,
+  InterfaceGetResult,
+  LaunchBlocker,
+  LaunchPin,
+  PlannedComponent,
+  StageReceipt,
+  StageRecord,
+  SurfaceDescribePayload,
+  SurfaceDescribeResult,
+  SurfaceOperationDescriptor,
+  WorkerInspectPayload,
+  WorkerInspectResult,
+  WorkerInspectTaskAuthority,
+  WorkerJoinEvidence
+} from '../../../../packages/mahas-contracts/src/operations/inspector.ts'
 
-/** contract projection: boundary{id,name,responsibility,criteria} */
-export interface CardBoundary {
-  id: string
-  name: string
-  responsibility: string
-  criteria: Criterion[]
-}
-
-/** contract projection: role{id,name,description,horizontalRole} */
-export interface CardRole {
-  id: string
-  name: string
-  description: string
-  horizontalRole: string
-}
-
-/** one match explanation — path / contract / text hit (lexical aid, never
- //  an expertise score: REQ-04, C-DISCOVERY §검색 표현) */
-export interface MatchReason {
-  kind?: string
-  detail?: string
-  path?: string
-  contractId?: string
-}
-
-/** a contract/contains/same-boundary relation worth showing the 팀장 */
-export interface RelationshipRef {
-  kind?: string
-  reason?: string
-  boundaryId?: string
-  roleId?: string
-  contractId?: string
-  direction?: string
-  detail?: string
-}
-
-/** observed availability — implementation OR member. Carries an observation
- //  time; it is current information, never a future-execution guarantee. */
-export interface AvailabilityEntry {
-  state?: string
-  summary?: string
-  detail?: string
-  observedAt?: number
-  memberId?: string
-  memberState?: string
-  implementationId?: string
-  implementationRevision?: number
-  profile?: string
-}
-
-export interface ScopeCoverage {
-  covered?: string[]
-  uncovered?: string[]
-  summary?: string
-}
-
-/** C-DISCOVERY CandidateCard — note what is NOT here: implementation file
- //  contents (REQ-06) and any assign action. selectionToken is opaque
- //  integrity data for preview/assign, not bearer authorization. */
-export interface CandidateCard {
-  boundary: CardBoundary
-  role: CardRole
-  matchReasons: MatchReason[]
-  relationshipRefs: RelationshipRef[]
-  implementationAvailability: AvailabilityEntry[]
-  memberAvailability: AvailabilityEntry[]
-  scopeCoverage?: ScopeCoverage
-  selectionToken: string
-}
-
-export interface AmbiguityGroup {
-  reason?: string
-  paths?: string[]
-  candidateRoleIds?: string[]
-  [k: string]: unknown
-}
-
-export interface SearchResponse {
-  /** server C-DISCOVERY field */
-  items?: CandidateCard[]
-  /** alias kept for views — ops maps items → candidates */
-  candidates: CandidateCard[]
-  unmatchedPaths: string[]
-  ambiguityGroups: AmbiguityGroup[]
-  nextCursor?: string
-  modelVersion: string
-  status?: string
-  staleModel?: boolean
-}
-
-// ── C-DISCOVERY · responsibility.inspect ────────────────────────
-
-export type InspectPerspective = 'coordination' | 'owner'
-
-export interface InspectRequest {
-  projectId: string
-  modelVersion: string
-  boundaryId: string
-  perspective: InspectPerspective
-}
-
-/** coordination resolution: 책임·기준·직접 자식 책임·contract 긴장·
- //  non-goals·role 목록. An authored upper view may be absent — the server
- //  says so explicitly; the UI must not paper it over with a fresh summary
- //  (REQ-06, C-DISCOVERY inspect). */
-export interface InspectCoordinationView {
-  status?: 'authored' | 'missing' | 'not-requested' | string
-  clauses?: {
-    clauseId?: string
-    requiredMeaning?: string
-    deliveryClass?: string
-    contextId?: string
-    criterionRef?: string
-  }[]
-  sourceInterfaces?: string[]
-}
-
-export interface InspectResult {
-  responsibility: string
-  criteria: Criterion[]
-  children: Boundary[]
-  contractTensions: RelationshipRef[]
-  nonGoals: NonGoal[]
-  roles: Role[]
-  boundary?: CardBoundary
-  /** authored coordination view — object from the server, string legacy */
-  coordinationView?: InspectCoordinationView | string | null
-  viewStatus?: 'present' | 'missing' | 'authored' | string
-}
-
-// ── C-DISCOVERY · responsibility.locate ─────────────────────────
-
-export interface LocateRequest {
-  projectId: string
-  modelVersion?: string
-  paths: string[]
-}
-
-export type LocateStatus = 'assigned' | 'ambiguous' | 'unassigned' | 'resolved' | 'invalid'
-
-export interface LocateResult {
-  path: string
-  status: LocateStatus
-  boundaryId?: string
-  boundaryName?: string
-  roles?: CardRole[]
-  claimants?: unknown[]
-  /** competing territories when ambiguous — never silently tie-broken */
-  candidates?: CardBoundary[]
-}
-
-export interface LocateResponse {
-  items?: LocateResult[]
-  results: LocateResult[]
-  modelVersion?: string
-}
-
-// ── C-DISCOVERY · responsibility.collaborators ──────────────────
-
-export interface CollaboratorsRequest {
-  projectId: string
-  modelVersion: string
-  roleId: string
-  runId?: string
-}
-
-export type RelationReason = 'same-boundary' | 'contract' | 'contains'
-
-/** a related role, resolved to a Run member address ONLY when a real Member
- //  exists — unassigned relations return the role alone (no invented
- //  address, C-DISCOVERY collaborators). */
-export interface Collaborator {
-  roleId: string
-  roleName?: string
-  memberId?: string
-  memberState?: string
-  relationReason: RelationReason | string
-  contractId?: string
-  direction?: string
-}
-
-export interface CollaboratorsResponse {
-  items?: unknown[]
-  collaborators: Collaborator[]
-}
-
-// ── C-DISCOVERY · role.implementations ──────────────────────────
-
-export interface ImplementationsRequest {
-  modelVersion: string
-  roleId: string
-  hostId?: string
-  componentNeeds?: string[]
-}
-
-/** implementationRevision/interfaceDigest/profile/support/blockers —
- //  'documented' vs 'verified' support stays distinct; a missing
- //  implementation is a result state, not a fallback (C-DISCOVERY). */
-export interface ImplementationOffer {
-  implementationId: string
-  implementationRevision: number
-  revision?: number
-  interfaceDigest?: string
-  profile?: string
-  profileId?: string
-  support?: string
-  blockers?: string[] | { kind?: string; detail?: string }[]
-}
-
-export interface ImplementationsResponse {
-  implementations: ImplementationOffer[]
-}
-
-// ── C-WORK · assignment.preview / team.assign ───────────────────
-
-export type AssignmentKind = 'coordination' | 'task'
-
-export interface PreviewRequest {
-  runId: string
-  selectionToken: string
-  /** the explicitly chosen implementation from role.implementations */
-  implementationId?: string
-  implementationRevision: number
-  assignmentKind: AssignmentKind
-  mandateText: string
-  taskId?: string
-  taskRevision?: number
-  placementIntent?: Record<string, unknown>
-}
-
-/** preview receipt — shows relations/feasibility BEFORE commit; no Member,
- //  Dispatch, process or grant is created by asking (C-DISCOVERY preview). */
-export interface AssignmentPreview {
-  proposedMember?: Member
-  proposedAssignment?: Assignment
-  requiredActions: string[]
-  grantCoverage?: unknown
-  contextBlockers: string[]
-  resourceConditions: string[]
-}
-
-export interface AssignRequest extends PreviewRequest {
-  expectedPlanRevision?: number
-}
-
-export interface AssignResult {
-  memberId: string
-  assignmentId: string
-  effectiveGrantBinding?: unknown
-  state?: string
-}
-
-// ── C-WORK · plan.prepare / plan.commit / run.get ───────────────
-
-/** a TaskSpecRevision payload inside a PlanPatch — taskId absent = a new
- //  task in the draft; revision identifies the spec version being replaced. */
-export interface PlanTaskDraft {
-  taskId?: string
-  revision?: number
-  title: string
-  requirementText: string
-  ownerRoleId?: string
-  assignedMemberId?: string
-  inputBindings?: InputBinding[]
-  outputSlots?: OutputSlot[]
-  inputs?: InputBinding[]
-  outputs?: OutputSlot[]
-  settlementPolicy?: unknown
-}
-
-/** execution-order edge only — 'talking to each other' is NEVER an edge
- //  (work.md Plan 문법). requiredOutputs names the predecessor slots the
- //  successor waits on. */
-export interface PlanEdgeDraft {
-  fromTask: string
-  toTask: string
-  requiredOutputs: string[]
-  settlementRequirement?: string
-}
-
-/** what happens to an existing attempt when its TaskSpec is revised —
- //  required for active attempts; never implied (work.md). */
-export interface AttemptDisposition {
-  taskId: string
-  dispatchId?: string
-  action: 'keep' | 'revoke' | 'replace' | string
-  disposition?: 'keep' | 'stop' | string
-}
-
-/** work.md: PlanPatch = {basePlanRevision, tasks, edges, retireTaskIds,
- //  activeAttemptDisposition} — all endpoints in the same Run. */
-export interface PlanPatch {
-  basePlanRevision: number
-  tasks: PlanTaskDraft[]
-  edges: PlanEdgeDraft[]
-  retireTaskIds?: string[]
-  activeAttemptDisposition?: AttemptDisposition[]
-}
-
-export interface PreparePlanRequest {
-  runId: string
-  patch: PlanPatch
-}
-
-export interface PreparePlanResult {
-  candidatePlanId: string
-  digest: string
-  structuralErrors: string[]
-  unresolvedInputs: string[]
-}
-
-export interface CommitPlanRequest {
-  candidatePlanId: string
-  digest: string
-  expectedPlanRevision: number
-}
-
-export interface CommitPlanResult {
-  planRevision: number
-  eligibility?: unknown
-}
-
-export interface RunGetRequest {
-  runId: string
-  projection: 'coordinator' | 'member'
-}
-
-/** coordinator projection of a Run — the contract returns Run/Plan state
- //  plus allowed relation views; the workbench reads tasks/edges/members
- //  tolerantly (whatever the run.get owner projects). */
-export interface RunProjection {
-  run?: Run
-  planRevision?: number
-  planTasks?: TaskSpec[]
-  planEdges?: TaskEdge[]
-  tasks?: TaskSpec[]
-  edges?: TaskEdge[]
-  members?: Member[]
-  [k: string]: unknown
-}
-
-// ── C-OBSERVATION · runtime.snapshot / runtime.subscribe ────────
-
-export interface SnapshotRequest {
-  scope?: unknown
-  projectionPurpose?: string
-}
-
-/** epoch+sequence cursor and the visible entity projection — a snapshot is
- //  replayable state for UI recovery, never a completion verdict
- //  (C-OBSERVATION, REQ-23). */
-export interface RuntimeSnapshot {
-  epoch: number
-  sequence: number
-  visibilityDigest?: string
-  entities: Record<string, unknown[]>
-}
-
-export interface SubscribeRequest {
-  scope?: unknown
-  epoch: number
-  afterSequence: number
-  visibilityDigest?: string
-}
-
-/** one pushed runtime event — cursor fields let the client detect a gap
- //  (SNAPSHOT_REQUIRED → re-snapshot, never silently resync). */
-export interface RuntimeEvent {
-  sequence: number
-  epoch?: number
-  kind?: string
-  entity?: unknown
-  snapshotRequired?: boolean
-}
+// ── domain records the inspector lanes project ───────────────────────────
+export type { CommandSurface, GrantScope } from '../../../../packages/mahas-contracts/src/access.ts'
+export type {
+  ContextRequirement,
+  InterfaceMaintenanceRef,
+  JudgmentScope,
+  RoleInterface
+} from '../../../../packages/mahas-contracts/src/role.ts'
+export type {
+  ExecutionRecord,
+  ResidualResource,
+  WorkerJoin
+} from '../../../../packages/mahas-contracts/src/work.ts'
+export type { ExecutionLiveness } from '../../../../packages/mahas-contracts/src/identity.ts'

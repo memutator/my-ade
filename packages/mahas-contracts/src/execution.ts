@@ -11,6 +11,9 @@
 //   ProcessIncarnation — one OS birth (identity.ts)
 //   TerminalRecord     — host-owned terminal, independent of any view
 //                        (resource.ts)
+//   HarnessSession / SessionHandle — the persistent native-session identity
+//                        and resume locator a managed execution references
+//                        (sessions/index.ts)
 
 export type {
   Execution,
@@ -46,6 +49,21 @@ export type {
   DispatchPhase,
   DispatchAuthorityState
 } from './work.ts'
+
+// canonical native-session reference of a managed execution — the destination
+// of the LegacyNativeConversation → HarnessSession/SessionHandle migration
+export type {
+  HarnessSession,
+  HarnessSessionId,
+  SessionAttachment,
+  SessionAttachmentId,
+  SessionEvidenceRef,
+  SessionHandle,
+  SessionHandleId,
+  SessionNamespaceAlias,
+  SessionNamespaceAliasId,
+  SessionResumeSupport
+} from './sessions/index.ts'
 
 export type {
   TerminalRecord,

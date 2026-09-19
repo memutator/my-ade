@@ -404,7 +404,8 @@ export function loadInterfaceByDigest(
  * was already recorded (content addressing makes recompute idempotent).
  */
 function parseStoredRequirements(parsed: unknown, boundaryId: string): ContextRequirement[] {
-  if (Array.isArray(parsed)) return toContextRequirements(parsed as DerivedRequirement[], boundaryId)
+  if (Array.isArray(parsed))
+    return toContextRequirements(parsed as DerivedRequirement[], boundaryId)
   if (parsed !== null && typeof parsed === 'object') {
     const o = parsed as RoleInterfaceRequirements
     if (Array.isArray(o.contextRequirements)) return o.contextRequirements
@@ -451,14 +452,13 @@ export interface InterfaceGetInput {
   roleId: string
 }
 
-export interface InterfaceGetResult {
-  interface: RoleInterface
-  digest: RoleInterfaceDigest
-  contextRequirements: ContextRequirement[]
-  maintenanceRefs: InterfaceMaintenanceRef[]
-  /** model status at read time — consumers decide freshness policy */
-  modelStatus: string
-}
+/**
+ * interface.get returns the shared wire DTO (mahas-contracts/operations/
+ * inspector) — one shape for the runtime, the CLI and the workbench, with
+ * `contextRequirements` flattened alongside `interface.requirements`.
+ */
+export type { InterfaceGetResult } from '../../../mahas-contracts/src/operations/inspector.ts'
+import type { InterfaceGetResult } from '../../../mahas-contracts/src/operations/inspector.ts'
 
 /** admission target resolution — read-only, called by the registry pipeline */
 export function interfaceGetTargets(_txn: TxnContext, payload: unknown): TargetRef[] {

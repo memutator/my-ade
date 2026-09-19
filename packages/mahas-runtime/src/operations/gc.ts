@@ -47,7 +47,13 @@ export const PIN_TARGET_KINDS = {
   message: { table: 'messages', keyColumn: 'id' },
   context_bundle: { table: 'context_bundles', keyColumn: 'digest' },
   work_envelope: { table: 'work_envelopes', keyColumn: 'digest' },
-  external_blob: { table: 'content_blobs', keyColumn: 'digest' }
+  external_blob: { table: 'content_blobs', keyColumn: 'digest' },
+  harness_session: { table: 'harness_sessions', keyColumn: 'id' },
+  collection_source: { table: 'collection_sources', keyColumn: 'id' },
+  collection_batch: { table: 'collection_batches', keyColumn: 'id' },
+  usage_entry: { table: 'usage_entries', keyColumn: 'id' },
+  usage_reading: { table: 'usage_reading_facets', keyColumn: 'observation_id' },
+  integration_pack: { table: 'integration_packs', keyColumn: 'id' }
 } as const
 
 export type PinTargetKind = keyof typeof PIN_TARGET_KINDS

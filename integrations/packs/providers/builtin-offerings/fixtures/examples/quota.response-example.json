@@ -1,0 +1,21 @@
+{
+  "comment": "Documented response shape for a successful quota probe, as the runtime decoder expects it.",
+  "providerMeasuredAt": 1770000000000,
+  "identityClaims": [],
+  "planClaims": [{ "key": "plan", "value": "max", "observedAt": 1770000000000, "evidence": [{ "description": "provider quota response" }] }],
+  "meters": [
+    {
+      "key": "5h",
+      "label": "5-hour window",
+      "resource": "provider-quota",
+      "scope": "5h",
+      "unit": "ratio",
+      "utilization": 0.2,
+      "remaining": 0.8,
+      "availability": "known",
+      "period": { "kind": "rolling", "resetAt": 1770003600000 }
+    }
+  ],
+  "entitlements": [],
+  "status": "success"
+}

@@ -140,6 +140,8 @@ export interface MahasdOptions {
   /** test seams */
   exitProcess?: (code: number) => void
   log?: (line: Record<string, unknown>) => void
+  collectionEnabled?: boolean
+  packsRoot?: string
 }
 
 export interface MahasdHandle {
@@ -402,6 +404,8 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
         endpoint: socketPath,
         controllerEpoch: lifecycle.epoch,
         controllerIdentity: identity,
+        collectionEnabled: opts.collectionEnabled,
+        packsRoot: opts.packsRoot,
         log
       })
       composed = runtime
@@ -545,11 +549,12 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
 
   // 8. teardown — the only way out after the shutdown record completes
   let tornDown = false
+  let teardownFinished = false
   const teardown = async (): Promise<void> => {
     if (tornDown) return
     tornDown = true
     lifecycle.readiness.setState('stopping')
-    composed?.close()
+    await composed?.close()
     log({ t: 'mahasd.teardown', endpoint: socketPath })
     try {
       if (lifecycle.instanceId) {
@@ -572,13 +577,15 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
     await recordBootMarker(paths.bootJournal, 'stopped', launchNonce).catch(() => {})
     lifecycle.readiness.setState('stopped')
     log({ t: 'mahasd.stopped', endpoint: socketPath })
+    teardownFinished = true
     exitProcess(0)
   }
   lifecycle.setTeardownHook(() => teardown())
 
   // 9. startup reconcile — blocks writable readiness until the pass FINISHES
   const reconcilePromise = lifecycle.startupReconcile().then(
-    (report) => {
+    async (report) => {
+      await composed?.start(operatorAuth)
       log({
         t: 'mahasd.ready',
         epoch: lifecycle.epoch,
@@ -622,7 +629,7 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
         handle.shutdown('leave-executions', { reason: 'handle.close' })
       }
       // teardown resolves when the daemon has fully stopped
-      while (!tornDown) await new Promise((r) => setTimeout(r, 10))
+      while (!teardownFinished) await new Promise((r) => setTimeout(r, 10))
     }
   }
 

@@ -107,7 +107,15 @@ export interface ExecutionRow {
   liveness: string
   terminal_id: string | null
   process_identity_json: string
+  /** legacy migration-compatibility handle; superseded by the canonical ref */
   native_conversation_json: string
+  /**
+   * Canonical session reference (additive columns owned by the central
+   * migration; NULL while unresolved). reconciliation only converts the row —
+   * the resolution logic lives in recovery/session-handles.ts.
+   */
+  session_id: string | null
+  session_handle_id: string | null
   revision: number
 }
 

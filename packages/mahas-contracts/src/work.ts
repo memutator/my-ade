@@ -53,6 +53,7 @@ import type {
   TerminalId
 } from './identity.ts'
 import type { AuthorizationTarget } from './access.ts'
+import type { HarnessSessionId, SessionHandleId } from './sessions/index.ts'
 
 /* ── Run / Member / Assignment (runs, members, assignments) ───────────── */
 
@@ -360,14 +361,33 @@ export interface ExecutionRecord {
   liveness: ExecutionLiveness
   terminalId?: TerminalId
   processIdentity: ProcessIncarnation | unknown
+  /**
+   * Migration-compatibility copy of the native handle captured at launch.
+   * It is no longer an authoritative session record: the persistent identity
+   * is `HarnessSession` + `SessionHandle` (./sessions/index.ts), reached via
+   * `sessionId`/`sessionHandleId`. Readers must prefer the canonical
+   * reference and treat this JSON as evidence about where a handle came from.
+   */
   nativeConversation?: NativeConversation
+  /** canonical HarnessSession this execution runs — absent until resolved */
+  sessionId?: HarnessSessionId
+  /** canonical SessionHandle (resume locator) recorded for that session */
+  sessionHandleId?: SessionHandleId
   revision: Revision
   /** epoch-ms bookkeeping where the owner keeps it alongside the row */
   createdAt?: EpochMillis
   updatedAt?: EpochMillis
 }
 
-/** native history re-entry point — a hint, never a liveness proof */
+/**
+ * Legacy native history re-entry point — a hint, never a liveness proof.
+ *
+ * Superseded by `HarnessSession` (identity) + `SessionHandle` (resume
+ * support, installation, locator). This shape survives only so pre-migration
+ * rows keep parsing: a consumer resolves it through the canonical session
+ * store and must not treat a populated instance as the authoritative session
+ * copy. New writers record a canonical handle instead of extending this.
+ */
 export interface NativeConversation {
   harnessProfileId?: Id
   nativeId?: string

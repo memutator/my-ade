@@ -21,13 +21,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
 import {
-  fail,
   inUnit,
   loadCandidate,
   type ImpactCandidateRow,
   type MaintenanceLink,
   type ObserverDeps
 } from './basis-observer.ts'
+import { fail } from './codec.ts'
 
 /* ------------------------------------------------------------------ *
  * resolution refs — what a `resolved` verdict may point at

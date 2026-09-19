@@ -21,10 +21,24 @@ import { mahasdWorkerEndpoint } from '../rpc/endpoints.ts'
 import { getContentBlob } from '../storage/db.ts'
 import { issueBootstrapCredential } from './bootstrap-credential.ts'
 import {
+  currentRevision,
+  ExecutionTransitionError,
+  SPAWN_NEVER_ADMITTED,
+  spawnFailureVerdict,
+  transitionExecution as transitionExecutionRow
+} from './stage-adapters.ts'
+import {
+  findRow,
+  getRow,
+  type ExecutionRow,
+  type GrantRow,
+  type LaunchPlanRow,
+  type MemberRow
+} from './rows.ts'
+import {
   asMahasError,
   describeError,
   emitEvent,
-  getRow,
   mahasError,
   runSql,
   tx,
@@ -58,55 +72,6 @@ import {
 
 // ---------------------------------------------------------------------------
 // storage projections
-
-interface LaunchPlanRow {
-  id: string
-  assignment_id: string
-  assignment_revision: number
-  digest: string
-  bundle_digest: string
-  envelope_digest: string
-  surface_digest: string
-  state: string
-  process_spec_json: string
-  pins_json: string
-  reservations_json: string
-}
-interface ExecutionRow {
-  id: string
-  member_id: string
-  generation: number
-  host_id: string
-  launch_plan_id: string
-  state: ExecutionState
-  liveness: ExecutionLiveness
-  terminal_id: string | null
-  process_identity_json: string
-  native_conversation_json: string
-  revision: number
-}
-interface GrantRow {
-  id: string
-  revoked_at: number | null
-  expires_at: number | null
-}
-interface MemberRow {
-  id: string
-  generation: number
-  current_execution_id: string | null
-  state: string
-  revision: number
-}
-
-/** thrown-host errors that prove the spawn was never admitted → definitive
- *  negative, NOT unknown. GRANT_REVOKED is omitted: after the OS call is
- *  in-flight a revoked grant is not proof the process never started. */
-const SPAWN_NEVER_ADMITTED = new Set([
-  'HOST_PROTOCOL_MISMATCH',
-  'UNAUTHENTICATED',
-  'SCOPE_DENIED',
-  'STALE_EXECUTION'
-])
 
 /** worker socket stamped into the connection file — never the operator path */
 function workerEndpointFrom(deps: ResolvedDeps): string {
@@ -351,7 +316,7 @@ export async function workerStart(
 
 function sharedExecution(ctx: StageCtx): ExecutionRow | null {
   return ctx.shared.executionId
-    ? getRow<ExecutionRow>(ctx.db, 'SELECT * FROM executions WHERE id=?', ctx.shared.executionId)
+    ? findRow<ExecutionRow>(ctx.db, 'SELECT * FROM executions WHERE id=?', ctx.shared.executionId)
     : null
 }
 
@@ -397,7 +362,7 @@ function releaseDefinitivePreSpawnAdmission(ctx: StageCtx, stage: DrivenStageNam
     const dispatch = getRow<{ id: string; task_id: string }>(
       db,
       "SELECT id, task_id FROM dispatches WHERE execution_id=? AND authority_state='active'",
-      shared.executionId
+      shared.executionId ?? null
     )
     if (dispatch) {
       runSql(
@@ -1455,7 +1420,7 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
       throw e // already recorded above with the right verdict
     }
     tx(db, () => {
-      setEffectState(db, eid, m && SPAWN_NEVER_ADMITTED.has(m.code) ? 'rejected' : 'unknown', {
+      setEffectState(db, eid, spawnFailureVerdict(m?.code), {
         error: describeError(e)
       })
     })
@@ -1576,18 +1541,7 @@ async function stageAwaitingJoin(ctx: StageCtx): Promise<StageOutcome> {
 // ---------------------------------------------------------------------------
 // execution state transitions (S-LIFECYCLE §1 table)
 
-const ALLOWED: Record<ExecutionState, ExecutionState[]> = {
-  preparing: ['starting', 'exited', 'abandoned'],
-  starting: ['awaiting_join', 'start_unknown', 'exited'],
-  start_unknown: ['awaiting_join', 'exited'], // probe/reconcile only; no re-start
-  awaiting_join: ['ready', 'exited', 'stopping'],
-  ready: ['ready', 'stopping', 'exited'],
-  stopping: ['exited', 'stop_unknown'],
-  stop_unknown: ['exited'],
-  exited: [],
-  abandoned: []
-}
-
+/** execution state transitions — table + guard live in stage-adapters.ts */
 function transitionExecution(
   ctx: StageCtx,
   to: ExecutionState,
@@ -1596,40 +1550,22 @@ function transitionExecution(
   const { db, deps, shared } = ctx
   if (!shared.executionId) return
   tx(db, () => {
-    const row = getRow<ExecutionRow>(db, 'SELECT * FROM executions WHERE id=?', shared.executionId)
-    if (!row) return
-    if (row.state === to && (!liveness || row.liveness === liveness)) return
-    if (!ALLOWED[row.state]?.includes(to)) {
-      throw mahasError(
-        'INVALID_TRANSITION',
-        `execution ${row.state} → ${to} not allowed`,
-        'reconcile'
+    try {
+      transitionExecutionRow(
+        db,
+        shared.executionId!,
+        to,
+        liveness,
+        (executionId, revision, type, payload) =>
+          emitEvent(db, deps, executionId, revision, type, payload as Record<string, unknown>, {})
       )
+    } catch (e) {
+      if (e instanceof ExecutionTransitionError) {
+        throw mahasError('INVALID_TRANSITION', e.message, 'reconcile')
+      }
+      throw e
     }
-    runSql(
-      db,
-      'UPDATE executions SET state=?, liveness=?, revision=revision+1 WHERE id=?',
-      to,
-      liveness ?? row.liveness,
-      shared.executionId
-    )
-    emitEvent(
-      db,
-      deps,
-      shared.executionId!,
-      row.revision + 1,
-      `execution.${to}`,
-      { from: row.state },
-      {}
-    )
   })
-}
-
-function currentRevision(db: DatabaseSync, executionId: string): number {
-  return (
-    getRow<{ revision: number }>(db, 'SELECT revision FROM executions WHERE id=?', executionId)
-      ?.revision ?? 1
-  )
 }
 
 /** restore shared context from already-confirmed stage receipts */
@@ -1704,9 +1640,9 @@ export async function workerInspect(
   const p = payload as InspectInput
   let exec: ExecutionRow | null = null
   if (typeof p.executionId === 'string') {
-    exec = getRow<ExecutionRow>(db, 'SELECT * FROM executions WHERE id=?', p.executionId)
+    exec = findRow<ExecutionRow>(db, 'SELECT * FROM executions WHERE id=?', p.executionId)
   } else if (typeof p.memberId === 'string') {
-    exec = getRow<ExecutionRow>(
+    exec = findRow<ExecutionRow>(
       db,
       'SELECT * FROM executions WHERE member_id=? ORDER BY generation DESC LIMIT 1',
       p.memberId

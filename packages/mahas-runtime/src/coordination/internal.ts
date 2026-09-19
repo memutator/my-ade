@@ -109,6 +109,16 @@ export function parseJson<T>(raw: unknown, what: string): T {
   }
 }
 
+/**
+ * A nullable text column read as `undefined` when absent.
+ * The canonical session reference on an execution row is additive: a database
+ * that predates the column, or a row whose value is NULL, means 'no reference' —
+ * which is not the same as an empty id and is never reported as one.
+ */
+function optionalRef(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 /* ------------------------------------------------------------------ */
 /* payload validation                                                  */
 /* ------------------------------------------------------------------ */
@@ -427,6 +437,10 @@ export function toExecutionRecord(r: Record<string, unknown>): ExecutionRecord {
       r.native_conversation_json,
       `executions(${r.id}).native_conversation_json`
     ),
+    // canonical session reference — legacy native_conversation_json above is the
+    // migration-compatibility copy, these two are the durable reference
+    sessionId: optionalRef(r.session_id),
+    sessionHandleId: optionalRef(r.session_handle_id),
     revision: num(r.revision) as Revision
   } as ExecutionRecord
 }

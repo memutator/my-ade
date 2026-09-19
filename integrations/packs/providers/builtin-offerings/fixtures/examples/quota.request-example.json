@@ -1,0 +1,14 @@
+{
+  "comment": "Documented request shape for a quota probe. Not a conformance case: a quota accept case would call the provider, so the pack only declares schema-reject cases.",
+  "protocolVersion": "1",
+  "operationId": "example-quota-probe",
+  "capability": "quota",
+  "target": { "kind": "connection", "connectionId": "connection-fixture" },
+  "contract": { "id": "mahas.integration.quota", "revision": 1 },
+  "pack": { "packId": "pack.provider.builtin-offerings", "revision": 1, "contentDigest": "unused-in-example" },
+  "payload": {
+    "connectionId": "connection-fixture",
+    "credentialMaterial": { "accessToken": "fixture-material-not-a-real-token" },
+    "requestedAt": 1770000000000
+  }
+}

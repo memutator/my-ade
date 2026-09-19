@@ -13,6 +13,17 @@
 //     can never inherit a past conversation (INTERFACE_STALE → fresh)
 //   · a verified resume recipe: resume_candidates row whose support_state
 //     is positive AND whose native handle matches what the caller presents
+//
+// The recipe can come from either store:
+//   · LEGACY — resume_candidates.native_handle_json matched against the
+//     nativeHandle the caller presents (unchanged; migration compatibility);
+//   · CANONICAL — a HarnessSession/SessionHandle resolved through
+//     recovery/session-handles.ts. The caller may select a sessionHandle; with
+//     no selection at all the execution's own canonical reference decides,
+//     which is the destination of the migration (no handle on the wire).
+//     Only a handle with resumeSupport 'supported' is a recipe, the plan's
+//     harness-profile pin must still be evidenced, and an unresolved session
+//     is refused rather than guessed.
 // Effects on admission: prior generation's credentials revoked, inbox
 // fencing for the old consumer generation, new generation reserved and the
 // SAME launch plan returned for a subsequent worker.start — resume itself
@@ -38,13 +49,21 @@ import {
 } from './ports.ts'
 import { assertCurrentControllerEpoch, probeProcess } from './identity-probe.ts'
 import { applyProbeVerdict, reattachExecution, type ReattachResult } from './reattach.ts'
+import {
+  resolveResumeRecipe,
+  type CanonicalSessionRef,
+  type SessionRecipeSelection
+} from './session-handles.ts'
 
 export interface WorkerResumePayload {
   memberId: string
   priorExecutionId: string
   resumeKind: 'reattach' | 'native-resume' | 'fresh'
   newAssignment?: { assignmentId: string; assignmentRevision: number }
+  /** legacy (migration compatibility) native handle */
   nativeHandle?: NativeConversation
+  /** canonical session/handle selection — the destination of the migration */
+  sessionHandle?: SessionRecipeSelection
   expectedPins?: {
     launchPlanId?: string
     bundleDigest?: string
@@ -67,6 +86,16 @@ export interface WorkerResumeResult {
   planDigest?: string
   planReusable?: boolean
   nativeHandle?: NativeConversation
+  /** canonical session the admitted recipe belongs to (native-resume) */
+  canonicalSession?: {
+    sessionId: string
+    handleId: string | null
+    namespace: string
+    resumeSupport: string
+    harnessProfileId: string | null
+  }
+  /** which evidence established the canonical reference */
+  sessionEvidence?: string
   fencedDeliveryIds?: string[]
   basis: string
   nextAllowedActions: string[]
@@ -90,6 +119,10 @@ function readResumePayload(payload: unknown): WorkerResumePayload {
     typeof p.nativeHandle === 'object' && p.nativeHandle !== null
       ? (p.nativeHandle as NativeConversation)
       : undefined
+  const sessionHandle =
+    typeof p.sessionHandle === 'object' && p.sessionHandle !== null
+      ? (p.sessionHandle as SessionRecipeSelection)
+      : undefined
   const expectedPins =
     typeof p.expectedPins === 'object' && p.expectedPins !== null
       ? (p.expectedPins as WorkerResumePayload['expectedPins'])
@@ -100,6 +133,7 @@ function readResumePayload(payload: unknown): WorkerResumePayload {
     resumeKind: kind,
     newAssignment,
     nativeHandle,
+    sessionHandle,
     expectedPins
   }
 }
@@ -331,7 +365,8 @@ async function resumeByNativeHandle(
   }
 
   const handle = input.nativeHandle
-  if (!handle || typeof handle.nativeId !== 'string' || handle.nativeId.length === 0) {
+  const selection = input.sessionHandle
+  if (handle && (typeof handle.nativeId !== 'string' || handle.nativeId.length === 0)) {
     throw failure(
       'INJECTION_UNSUPPORTED',
       'native-resume requires a nativeHandle with a nativeId',
@@ -348,15 +383,44 @@ async function resumeByNativeHandle(
   }
   assertSameRoleInterfaceBundle(member, plan, input.expectedPins)
 
-  const candidates = resumeCandidatesFor(db, exec.id)
-  const candidate = findResumeCandidate(candidates, handle, plan)
-  if (!candidate) {
-    throw failure(
-      'INJECTION_UNSUPPORTED',
-      `no supported resume recipe for execution ${exec.id} with nativeId ${handle.nativeId} — native resume requires a verified route`,
-      'none',
-      { candidateCount: candidates.length }
-    )
+  // the plan's profile pin governs BOTH stores — a changed profile may not
+  // inherit a past conversation, and absent profile evidence is a refusal
+  const planProfile = plan.pins['harnessProfileId'] ?? plan.pins['profileId']
+  const profileId = typeof planProfile === 'string' ? planProfile : null
+
+  // LEGACY recipe: resume_candidates matched against the presented handle
+  let candidateId: string | null = null
+  let canonical: { ref: CanonicalSessionRef; evidence: string } | null = null
+  if (handle) {
+    const candidates = resumeCandidatesFor(db, exec.id)
+    const candidate = findResumeCandidate(candidates, handle, plan)
+    if (!candidate) {
+      throw failure(
+        'INJECTION_UNSUPPORTED',
+        `no supported resume recipe for execution ${exec.id} with nativeId ${handle.nativeId} — native resume requires a verified route`,
+        'none',
+        { candidateCount: candidates.length }
+      )
+    }
+    candidateId = candidate.id
+  } else {
+    // CANONICAL recipe: a stored SessionHandle on the execution's HarnessSession.
+    // No selection means "the execution already knows its session": the bridge
+    // resolves it from the explicit reference, the attachment, or exact native-id
+    // equality — and refuses when none of those exists.
+    const recipe = resolveResumeRecipe(db, exec, { profileId, selection })
+    if (recipe.kind !== 'recipe') {
+      if (recipe.kind === 'unresolved' && recipe.reason === 'session-store-absent') {
+        throw failure(
+          'CONTROL_UNAVAILABLE',
+          `canonical session reference cannot be read: ${recipe.detail}`,
+          'reconcile',
+          { verdict: recipe.reason }
+        )
+      }
+      throw failure('INJECTION_UNSUPPORTED', recipe.detail, 'none', { verdict: recipe.reason })
+    }
+    canonical = { ref: recipe.ref, evidence: recipe.evidence }
   }
 
   // old process must be dead or in controlled quiescence — evidence, not timeout
@@ -431,8 +495,16 @@ async function resumeByNativeHandle(
     { operation: 'worker.resume', priorExecutionId: workingExec.id },
     {
       newGeneration,
-      nativeHandle: handle,
-      resumeCandidateId: candidate.id,
+      nativeHandle: handle ?? null,
+      resumeCandidateId: candidateId,
+      canonical: canonical
+        ? {
+            sessionId: canonical.ref.sessionId,
+            handleId: canonical.ref.handleId,
+            namespace: canonical.ref.namespace,
+            evidence: canonical.evidence
+          }
+        : null,
       launchPlanId: plan.id,
       fencedDeliveries: fencedDeliveryIds.length
     }
@@ -452,12 +524,27 @@ async function resumeByNativeHandle(
     launchPlanId: plan.id,
     planDigest: plan.digest,
     planReusable,
-    nativeHandle: handle,
+    ...(handle ? { nativeHandle: handle } : {}),
+    ...(canonical
+      ? {
+          canonicalSession: {
+            sessionId: canonical.ref.sessionId,
+            handleId: canonical.ref.handleId,
+            namespace: canonical.ref.namespace,
+            resumeSupport: canonical.ref.resumeSupport,
+            harnessProfileId: canonical.ref.harnessProfileId
+          },
+          sessionEvidence: canonical.evidence
+        }
+      : {}),
     fencedDeliveryIds,
-    basis:
-      'old process proven dead, resume recipe verified against the same role/interface/bundle pins — ' +
-      'the native handle is admitted for a NEW process generation (separate start intent + new credential); ' +
-      'resume itself spawns nothing',
+    basis: canonical
+      ? 'old process proven dead, canonical session recipe verified against the same role/interface/bundle pins — ' +
+        'the session handle is admitted for a NEW process generation (separate start intent + new credential); ' +
+        'resume itself spawns nothing'
+      : 'old process proven dead, resume recipe verified against the same role/interface/bundle pins — ' +
+        'the native handle is admitted for a NEW process generation (separate start intent + new credential); ' +
+        'resume itself spawns nothing',
     nextAllowedActions: planReusable ? ['worker.start'] : ['worker.prepare', 'worker.start']
   }
 }
@@ -477,6 +564,13 @@ function resumeFresh(
     throw failure(
       'INVALID_TRANSITION',
       'a fresh resume does not accept nativeHandle — carrying a past conversation into a changed role is exactly what fresh forbids',
+      'none'
+    )
+  }
+  if (input.sessionHandle) {
+    throw failure(
+      'INVALID_TRANSITION',
+      'a fresh resume does not accept sessionHandle — a canonical session reference is still a past conversation',
       'none'
     )
   }

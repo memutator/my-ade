@@ -2,6 +2,21 @@
 
 **상태:** 구현 전 규범 명세와 Task 배정 패키지. **제품명:** mahas. **대체 범위:** 이전 mahas 개정안의 문서 구성, RDD 파일 정본, 축약된 실행 계층, 단일 구현 계획을 대체한다.
 
+## 이 디렉터리를 지금 어떻게 읽는가
+
+이 패키지는 **역사 기록과 규범 명세**다. 현재 동작의 정본이 아니다.
+
+| 부분 | 의미 |
+|---|---|
+| [spec/](spec/architecture.md), [requirements.md](requirements.md), [acceptance.md](acceptance.md) | 서비스 계층의 규범 명세. 여기 적힌 규칙은 현재 문서로 승계되며, 충돌하면 현재 코드와 [docs/architecture/](../docs/architecture/overview.md)가 우선한다. |
+| [implementation-plan/](implementation-plan/README.md), [review-plan/](review-plan/README.md), [verification-plan/](verification-plan/README.md), [records/](records/README.md) | Task 배정 패키지와 그 시점의 검토·검증 evidence. **과거 결과를 현재 코드의 검증 결과로 재표시하지 않는다.** |
+| 현재 동작·계약·수명·마이그레이션·검증 | [docs/README.md](../docs/README.md) |
+
+이 문서가 "구현 전"이라고 표시한 시점과 달리 `mahasd`·`execution-host`·공통
+client는 저장소에 구현되어 있다. 어디까지 실제로 동작하는지는
+[docs/architecture/domains/README.md](../docs/architecture/domains/README.md)와
+[docs/development/verification.md](../docs/development/verification.md)를 본다.
+
 ## 무엇부터 읽는가
 
 | 독자·상황 | 지금 읽을 문서 | 얻어야 하는 판단 |
@@ -55,4 +70,4 @@ RDD와 역할 구현·권한·작업·실행 원장은 **mahas.sqlite**가 정�
 
 이 패키지는 사용자의 RDD 합의와 첨부된 두 정적 실행 분석 보고서를 기반으로 한 신규 설계다. 보고서의 scope는 고정 스냅샷이며 현재 mahas 저장소의 코드 실행 결과로 확대하지 않는다. 외부 문서는 S-INJECTION의 실제 CLI 시작 옵션과 S-STORAGE의 SQLite 동작을 확인하는 데만 사용했고 해당 절에 확인 범위를 표시했다.
 
-원 저장소 수정, 프로그램 빌드, 실제 하네스 실행, 보안·장애 시험은 이 제출에서 수행하지 않았다. [문서 제출 확인](verification-plan/submission-status.md)은 링크·DAG·연산 소유자·DDL 형식 등 **문서 정합성**만 다룬다. VER Task의 제품 실행 결과는 아직 not-run이다.
+이 제출 시점에는 원 저장소 수정, 프로그램 빌드, 실제 하네스 실행, 보안·장애 시험을 수행하지 않았다. [문서 제출 확인](verification-plan/submission-status.md)은 링크·DAG·연산 소유자·DDL 형식 등 **문서 정합성**만 다루며, 여기 적힌 VER Task의 실행 결과는 이 패키지 작성 시점의 상태다. 그 뒤 구현된 코드의 실제 검증 결과는 [docs/development/verification.md](../docs/development/verification.md)에 있다.

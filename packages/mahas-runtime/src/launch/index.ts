@@ -21,7 +21,11 @@ export function registerLaunchOps(
   const d = resolveDeps(deps)
 
   const launchTargets = (txn: TxnContext, payload: unknown): TargetRef[] => {
-    const p = (payload ?? {}) as { assignmentId?: string; launchPlanId?: string; executionId?: string }
+    const p = (payload ?? {}) as {
+      assignmentId?: string
+      launchPlanId?: string
+      executionId?: string
+    }
     const targets: TargetRef[] = []
     if (typeof p.assignmentId === 'string' && p.assignmentId) {
       targets.push({ kind: 'assignment', id: p.assignmentId })
@@ -32,7 +36,9 @@ export function registerLaunchOps(
         .prepare('SELECT pins_json FROM launch_plans WHERE id=?')
         .get(p.launchPlanId) as { pins_json?: string } | undefined
       try {
-        const pins = row?.pins_json ? (JSON.parse(row.pins_json) as { run?: { id?: string }; member?: { id?: string } }) : {}
+        const pins = row?.pins_json
+          ? (JSON.parse(row.pins_json) as { run?: { id?: string }; member?: { id?: string } })
+          : {}
         if (pins.run?.id) targets.push({ kind: 'run', id: pins.run.id })
         if (pins.member?.id) targets.push({ kind: 'member', id: pins.member.id })
       } catch {

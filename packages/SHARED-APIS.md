@@ -1,5 +1,11 @@
 # Shared kernel APIs — coordinator-fixed convergence contract
 
+> **Status: historical.** This was the IMP-era convergence contract for the
+> service work — frozen, kept as the record of what the tasks coded against.
+> For the contracts the code actually serves today see
+> [docs/architecture/contracts/README.md](../docs/architecture/contracts/README.md)
+> and [docs/architecture/domains/README.md](../docs/architecture/domains/README.md).
+
 Every IMP task codes against THESE signatures. Owners implement them exactly;
 consumers call them and do not invent local duplicates. Cross-domain work is
 invoked by **operation name through the OperationRegistry** (spec §operations.md);

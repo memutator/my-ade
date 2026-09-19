@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mahas Pack Authoring"
+  short_description: "Author and verify a mahas integration Pack"
+  default_prompt: "Add a mahas integration Pack that observes a vendor from local evidence and verify it with synthetic fixtures."

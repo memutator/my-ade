@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "pack": {
+    "id": "mahas.grok.files",
+    "name": "Grok local sessions",
+    "publisher": "mahas",
+    "description": "Read-only collection of Grok session usage snapshots.",
+    "createdAt": 1770000000000,
+    "metadata": {
+      "discovery": {
+        "roots": [
+          {
+            "role": "config",
+            "base": "home",
+            "path": ".grok"
+          },
+          {
+            "role": "data",
+            "base": "config",
+            "path": "sessions"
+          }
+        ],
+        "executableCandidates": ["grok"],
+        "capabilities": ["identify", "sessions", "usage"]
+      }
+    }
+  },
+  "revision": {
+    "packId": "mahas.grok.files",
+    "revision": 1,
+    "contentDigest": "",
+    "runnerProtocol": "1",
+    "subjectRefs": [
+      {
+        "kind": "harness",
+        "harnessId": "grok"
+      }
+    ],
+    "implementations": [
+      {
+        "id": "mahas.grok.files.identify.v1",
+        "capability": "identify",
+        "contract": {
+          "id": "mahas.integration.identify",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 10000,
+          "maxOutputBytes": 1048576,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "evidence": "candidate config root and sessions directory"
+        }
+      },
+      {
+        "id": "mahas.grok.files.sessions.v1",
+        "capability": "sessions",
+        "contract": {
+          "id": "mahas.integration.sessions",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "format": "json-snapshot",
+          "pagination": "one session per source"
+        }
+      },
+      {
+        "id": "mahas.grok.files.usage.v1",
+        "capability": "usage",
+        "contract": {
+          "id": "mahas.integration.usage",
+          "revision": 1
+        },
+        "entrypoint": {
+          "mode": "script",
+          "resource": "collector.mjs",
+          "runtime": "node"
+        },
+        "support": {
+          "state": "implemented"
+        },
+        "limits": {
+          "timeoutMs": 30000,
+          "maxOutputBytes": 4194304,
+          "maxBatchRecords": 1000
+        },
+        "supportDetails": {
+          "mode": "cumulative",
+          "cacheContainment": "cache read is included in input",
+          "revisions": "content signature; a rewritten snapshot is a correction of the same counter"
+        }
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "platform",
+        "key": "node",
+        "constraint": ">=20",
+        "required": true
+      },
+      {
+        "kind": "executable",
+        "key": "grok",
+        "required": false
+      },
+      {
+        "kind": "permission",
+        "key": "read-installation-data-namespace",
+        "required": true
+      }
+    ],
+    "createdAt": 1770000000000,
+    "releaseNotes": "Canonical snapshot collector with a content-signature fast path."
+  }
+}

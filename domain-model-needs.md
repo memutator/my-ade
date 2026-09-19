@@ -1,5 +1,12 @@
 # 도메인 모델 재정의 필요성
 
+> **Status: historical.** This is the motivation document that argued for the
+> domain remodel — kept as the record of why the flat `provider → fetcher →
+> windows` model was replaced. For the model that landed see
+> [domain-model-design.md](domain-model-design.md) (semantics) and
+> [docs/architecture/domains/README.md](docs/architecture/domains/README.md)
+> (what exists where).
+
 현재 usage 위젯의 도메인 모델은 `provider → fetcher → windows` 평면 구조다.
 실제 LLM/agent 시장의 구조와 어긋나서, 표현하지 못하는 사실과 하드코딩으로 떠받치는
 구현이 쌓이고 있다. UI를 더 고치기 전에 도메인 모델부터 다시 잡아야 한다.

@@ -119,19 +119,6 @@ export type Grant = AssignmentGrant | ProvisioningGrant | ContinuationGrant
 
 /* ── CommandSurface — command_surfaces table ──────────────────────────── */
 
-/** per-operation descriptor carried in schemas — what CLI help/schema/
- *  completion and MCP tool lists are generated from (REQ-09: hidden
- *  operations never appear) */
-export interface SurfaceOperationDescriptor {
-  name: string
-  summary?: string | null
-  mutation?: boolean
-  visibility?: string
-  inputSchema?: unknown
-  outputSchema?: unknown
-  [key: string]: unknown
-}
-
 /** actions_and_schemas_json — the visible op set plus its schemas */
 export interface SurfaceActionsAndSchemas {
   effectiveActions: string[]

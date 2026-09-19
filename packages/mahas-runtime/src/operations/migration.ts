@@ -21,13 +21,14 @@ import type { DatabaseSync } from 'node:sqlite'
 import { existsSync, readFileSync } from 'node:fs'
 import type { MigrationReceipt } from '../../../mahas-contracts/src/observation.ts'
 import { genId, nowMs, opsError, requireStorageDeps, type StorageOpsDeps } from './support.ts'
+import { CONTROL_SCHEMA_VERSION } from '../storage/migrations.ts'
 
 // ---------------------------------------------------------------------------
 // Schema version gate
 // ---------------------------------------------------------------------------
 
-/** the only control-db schema this binary can write (spec/storage.md §3 = v1) */
-export const CONTROL_SCHEMA_VERSION = 1
+/** Same version gate as the database opener; never maintain a second version. */
+export { CONTROL_SCHEMA_VERSION }
 /** lowest schema this binary can still read */
 export const MIN_SUPPORTED_SCHEMA_VERSION = 1
 

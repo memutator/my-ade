@@ -46,8 +46,8 @@ function hookPath() {
     join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'mahas')
   const installed = join(configDir, 'mahas-hook.cjs')
   if (existsSync(installed)) return installed
-  // last resort: the repo copy next to this script — covers runs outside Mahas
-  return join(HERE, '..', 'resources', 'mahas-hook.cjs')
+  // last resort: the Pack's own transport in the repo — covers runs outside Mahas
+  return join(HERE, '..', 'integrations', 'packs', 'harness-runtime', 'hooks', 'mahas-hook.cjs')
 }
 
 const sessionId =

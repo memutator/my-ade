@@ -28,6 +28,7 @@ import type {
 import type { HostClient } from '../hostClient.ts' // IMP-17 — type only
 import type { OperationRegistry } from '../api/registry.ts' // IMP-11 — type only
 import type { TargetRef } from '../access/authorize.ts' // IMP-10 — type only
+import { EXECUTION_SESSION_REF_TABLE } from './session-reference-migration.ts'
 
 // ---------------------------------------------------------------------------
 // Injected ports (SHARED-APIS.md signatures; wired by the composition root)
@@ -170,13 +171,35 @@ export function requireNumber(v: unknown, field: string): number {
 // storage row shapes (spec/storage.md §3 → camelCase; storage-internal)
 // ---------------------------------------------------------------------------
 
-/** D-EXEC §1 — executions.native_conversation_json payload shape */
+/**
+ * D-EXEC §1 — executions.native_conversation_json payload shape.
+ *
+ * LEGACY / migration-compatibility only (see recovery/session-handles.ts):
+ * the persistent identity of a native conversation is HarnessSession +
+ * SessionHandle (mahas-contracts/src/sessions), and an execution references
+ * it through `session_id`/`session_handle_id`. This JSON stays readable so
+ * pre-migration rows keep resolving, but it is never the authoritative
+ * session copy and new code must not write a fuller session state here.
+ */
 export interface NativeConversation {
   harnessProfileId: string
   nativeId: string
   capturedBy: string
   capturedAt: number
   resumeSupport?: 'supported' | 'unsupported' | 'unknown'
+}
+
+/**
+ * Canonical session reference carried by an execution row.
+ * The reference itself is the additive schema-v3 row in
+ * `canonical_execution_sessions` (see session-reference-migration.ts); it is
+ * read defensively, so a database without that table resolves to `null`
+ * instead of failing, and the reference stays optional until a real link
+ * exists.
+ */
+export interface ExecutionSessionRef {
+  sessionId: string | null
+  sessionHandleId: string | null
 }
 
 export interface RuntimeInstanceRow {
@@ -215,7 +238,12 @@ export interface ExecutionRow {
   liveness: ExecutionLiveness
   terminalId: string | null
   processIdentity: ProcessIncarnation
+  /** legacy migration-compatibility handle; superseded by the canonical ref */
   nativeConversation: NativeConversation | null
+  /** canonical HarnessSessionId from canonical_execution_sessions.session_id */
+  sessionId: string | null
+  /** canonical SessionHandleId, when the reference names one */
+  sessionHandleId: string | null
   revision: number
 }
 
@@ -295,9 +323,56 @@ export interface TerminalRecordRow {
 
 type SqlRow = Record<string, unknown>
 
+/** table presence — the canonical session store arrives with schema v2 */
+export function tableExists(db: DatabaseSync, table: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(table) as { name?: unknown } | undefined
+  return row !== undefined
+}
+
+/** one explicit execution→session reference row (schema v3, additive) */
+export interface ExecutionSessionReference {
+  sessionId: string
+  sessionHandleId: string | null
+  evidence: string
+  recordedAt: number
+  revision: number
+}
+
+/**
+ * Read the explicit canonical reference for one execution.
+ * `null` means "no reference recorded" — which is not the same as a reference
+ * to an empty session, and never an error: a v2 database simply has no table.
+ */
+export function executionSessionReference(
+  db: DatabaseSync,
+  executionId: string
+): ExecutionSessionReference | null {
+  if (!tableExists(db, EXECUTION_SESSION_REF_TABLE)) return null
+  const row = db
+    .prepare(
+      'SELECT session_id, session_handle_id, evidence, recorded_at, revision' +
+        ' FROM canonical_execution_sessions WHERE execution_id=?'
+    )
+    .get(executionId) as SqlRow | undefined
+  if (!row) return null
+  return {
+    sessionId: row.session_id as string,
+    sessionHandleId:
+      typeof row.session_handle_id === 'string' && row.session_handle_id.length > 0
+        ? row.session_handle_id
+        : null,
+    evidence: typeof row.evidence === 'string' ? row.evidence : 'unknown',
+    recordedAt: row.recorded_at as number,
+    revision: row.revision as number
+  }
+}
+
 export function loadExecution(db: DatabaseSync, id: string): ExecutionRow | null {
   const r = db.prepare('SELECT * FROM executions WHERE id=?').get(id) as SqlRow | undefined
   if (!r) return null
+  const reference = executionSessionReference(db, id)
   return {
     id: r.id as string,
     memberId: r.member_id as string,
@@ -315,6 +390,8 @@ export function loadExecution(db: DatabaseSync, id: string): ExecutionRow | null
       r.native_conversation_json,
       `executions.${id}.native_conversation_json`
     ),
+    sessionId: reference ? reference.sessionId : null,
+    sessionHandleId: reference ? reference.sessionHandleId : null,
     revision: r.revision as number
   }
 }
