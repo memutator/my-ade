@@ -1,0 +1,642 @@
+{
+  "version": 1,
+  "kind": "verification",
+  "nodes": [
+    {
+      "id": "VER-01",
+      "kind": "verification",
+      "title": "도메인 모델·책임 검색·배정의 실행 검사",
+      "owner_role": "도메인 검증자",
+      "instruction": "verification-plan/tasks/VER-01/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-05",
+          "artifact": "handoff:IMP-05"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-06",
+          "artifact": "handoff:IMP-06"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        }
+      ],
+      "required_reads": [
+        "spec/domains/rdd.md",
+        "spec/contracts/model.md",
+        "spec/contracts/discovery-assignment.md",
+        "spec/contracts/work.md"
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-03",
+        "REQ-04",
+        "REQ-17"
+      ],
+      "output": "evidence:VER-01"
+    },
+    {
+      "id": "VER-02",
+      "kind": "verification",
+      "title": "SQLite transaction·receipt·content snapshot 내구성 검사",
+      "owner_role": "저장 검증자",
+      "instruction": "verification-plan/tasks/VER-02/instruction.md",
+      "depends_on": [],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-15",
+          "artifact": "handoff:IMP-15"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-29",
+          "artifact": "handoff:IMP-29"
+        }
+      ],
+      "required_reads": [
+        "spec/storage.md",
+        "spec/common.md",
+        "spec/contracts/mail-artifacts.md",
+        "spec/contracts/recovery-operations.md"
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-14",
+        "REQ-18",
+        "REQ-20",
+        "REQ-22",
+        "REQ-27"
+      ],
+      "output": "evidence:VER-02"
+    },
+    {
+      "id": "VER-03",
+      "kind": "verification",
+      "title": "명령 비노출·raw RPC 인가·권한 폐기 검사",
+      "owner_role": "권한 검증자",
+      "instruction": "verification-plan/tasks/VER-03/instruction.md",
+      "depends_on": [
+        "VER-01",
+        "VER-02"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/access-cli.md",
+        "spec/domains/access.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-09",
+        "REQ-10",
+        "REQ-14",
+        "REQ-15"
+      ],
+      "output": "evidence:VER-03"
+    },
+    {
+      "id": "VER-04",
+      "kind": "verification",
+      "title": "META DAG·직접 통신·결과 revision 검사",
+      "owner_role": "협업 검증자",
+      "instruction": "verification-plan/tasks/VER-04/instruction.md",
+      "depends_on": [
+        "VER-02",
+        "VER-03"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-15",
+          "artifact": "handoff:IMP-15"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/work.md",
+        "spec/contracts/mail-artifacts.md",
+        "spec/domains/messaging-outcomes.md"
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-17",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20"
+      ],
+      "output": "evidence:VER-04"
+    },
+    {
+      "id": "VER-05",
+      "kind": "verification",
+      "title": "역할 구현의 실제 구성품·초기 입력 검사",
+      "owner_role": "컨텍스트 검증자",
+      "instruction": "verification-plan/tasks/VER-05/instruction.md",
+      "depends_on": [
+        "VER-01",
+        "VER-03"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-08",
+          "artifact": "handoff:IMP-08"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "required_reads": [
+        "spec/injection.md",
+        "spec/contracts/realization.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-22"
+      ],
+      "output": "evidence:VER-05"
+    },
+    {
+      "id": "VER-06",
+      "kind": "verification",
+      "title": "스폰·초기 입력의 cut-point와 중복 억제 검사",
+      "owner_role": "실행 장애 검증자",
+      "instruction": "verification-plan/tasks/VER-06/instruction.md",
+      "depends_on": [
+        "VER-02",
+        "VER-03",
+        "VER-05"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/execution-host.md",
+        "spec/contracts/launch.md",
+        "spec/execution-lifecycle.md"
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-13",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16"
+      ],
+      "output": "evidence:VER-06"
+    },
+    {
+      "id": "VER-07",
+      "kind": "verification",
+      "title": "UI 분리·daemon 재부착·terminal I/O 검사",
+      "owner_role": "실행 연속성 검증자",
+      "instruction": "verification-plan/tasks/VER-07/instruction.md",
+      "depends_on": [
+        "VER-06"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-26",
+          "artifact": "handoff:IMP-26"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-28",
+          "artifact": "handoff:IMP-28"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/execution-host.md",
+        "spec/contracts/client-terminal.md",
+        "spec/contracts/observation-client.md",
+        "spec/execution-lifecycle.md"
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-12",
+        "REQ-15",
+        "REQ-23",
+        "REQ-24"
+      ],
+      "output": "evidence:VER-07"
+    },
+    {
+      "id": "VER-08",
+      "kind": "verification",
+      "title": "종료·자원 인계·업데이트·운영 복구 검사",
+      "owner_role": "운영 장애 검증자",
+      "instruction": "verification-plan/tasks/VER-08/instruction.md",
+      "depends_on": [
+        "VER-02",
+        "VER-06",
+        "VER-07"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-28",
+          "artifact": "handoff:IMP-28"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-29",
+          "artifact": "handoff:IMP-29"
+        }
+      ],
+      "required_reads": [
+        "spec/contracts/resources.md",
+        "spec/contracts/recovery-operations.md",
+        "spec/execution-lifecycle.md",
+        "spec/storage.md"
+      ],
+      "requirements": [
+        "REQ-12",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16",
+        "REQ-27"
+      ],
+      "output": "evidence:VER-08"
+    },
+    {
+      "id": "VER-09",
+      "kind": "verification",
+      "title": "파일 기반 실제 CLI 하네스의 역할 구현 수락",
+      "owner_role": "하네스 실행 검증자",
+      "instruction": "verification-plan/tasks/VER-09/instruction.md",
+      "depends_on": [
+        "VER-03",
+        "VER-05",
+        "VER-06"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-24",
+          "artifact": "handoff:IMP-24"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        }
+      ],
+      "required_reads": [
+        "spec/injection.md",
+        "spec/contracts/realization.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09",
+        "REQ-28"
+      ],
+      "output": "evidence:VER-09"
+    },
+    {
+      "id": "VER-10",
+      "kind": "verification",
+      "title": "설정 본문 기반 실제 CLI 하네스의 역할 구현 수락",
+      "owner_role": "하네스 실행 검증자",
+      "instruction": "verification-plan/tasks/VER-10/instruction.md",
+      "depends_on": [
+        "VER-03",
+        "VER-05",
+        "VER-06"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-25",
+          "artifact": "handoff:IMP-25"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        }
+      ],
+      "required_reads": [
+        "spec/injection.md",
+        "spec/contracts/realization.md",
+        "spec/contracts/launch.md"
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09",
+        "REQ-28"
+      ],
+      "output": "evidence:VER-10"
+    },
+    {
+      "id": "VER-11",
+      "kind": "verification",
+      "title": "서로 다른 하네스의 역할·해상도·협업 종단 수락",
+      "owner_role": "프로젝트 책임 기반 검증자",
+      "instruction": "verification-plan/tasks/VER-11/instruction.md",
+      "depends_on": [
+        "VER-04",
+        "VER-07",
+        "VER-09",
+        "VER-10"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-06",
+          "artifact": "handoff:IMP-06"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-24",
+          "artifact": "handoff:IMP-24"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-25",
+          "artifact": "handoff:IMP-25"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-31",
+          "artifact": "handoff:IMP-31"
+        },
+        {
+          "kind": "implementation",
+          "task": "IMP-32",
+          "artifact": "handoff:IMP-32"
+        }
+      ],
+      "required_reads": [
+        "requirements.md",
+        "acceptance.md",
+        "spec/contracts/discovery-assignment.md",
+        "spec/injection.md",
+        "spec/contracts/work.md"
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-04",
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-17",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20",
+        "REQ-21"
+      ],
+      "output": "evidence:VER-11"
+    },
+    {
+      "id": "VER-12",
+      "kind": "verification",
+      "title": "최종 요구사항 추적·출시 상태 정산",
+      "owner_role": "제품 수락 검증자",
+      "instruction": "verification-plan/tasks/VER-12/instruction.md",
+      "depends_on": [
+        "VER-08",
+        "VER-11"
+      ],
+      "external_inputs": [
+        {
+          "kind": "implementation",
+          "task": "IMP-30",
+          "artifact": "handoff:IMP-30"
+        },
+        {
+          "kind": "review",
+          "task": "REV-08",
+          "artifact": "review:REV-08"
+        }
+      ],
+      "required_reads": [
+        "requirements.md",
+        "acceptance.md",
+        "verification-plan/README.md",
+        "review-plan/README.md"
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-02",
+        "REQ-03",
+        "REQ-04",
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09",
+        "REQ-10",
+        "REQ-11",
+        "REQ-12",
+        "REQ-13",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16",
+        "REQ-17",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20",
+        "REQ-21",
+        "REQ-22",
+        "REQ-23",
+        "REQ-24",
+        "REQ-25",
+        "REQ-26",
+        "REQ-27",
+        "REQ-28"
+      ],
+      "output": "evidence:VER-12"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "mahas",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Minimal tiling shell for terminals, browsers, and file views",
   "main": "./out/main/index.js",
   "author": "pyosechang",

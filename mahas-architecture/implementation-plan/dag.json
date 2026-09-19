@@ -1,0 +1,2008 @@
+{
+  "version": 1,
+  "kind": "implementation",
+  "authority": "task dependencies and handoff contract",
+  "nodes": [
+    {
+      "id": "IMP-01",
+      "kind": "implementation",
+      "title": "기존 앱 연결 지점과 서비스 package 경계 구현",
+      "owner_role": "플랫폼 통합 구현자",
+      "boundary": "workbench/platform",
+      "instruction": "implementation-plan/tasks/IMP-01/instruction.md",
+      "depends_on": [],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-11, REQ-12, REQ-23, REQ-27"
+        },
+        {
+          "path": "spec/architecture.md",
+          "sections": "§1, §2, §5"
+        },
+        {
+          "path": "spec/domains/execution.md",
+          "sections": "§1"
+        },
+        {
+          "path": "spec/contracts/client-terminal.md",
+          "sections": "client binding 계약"
+        }
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-12",
+        "REQ-23",
+        "REQ-27"
+      ],
+      "input_handoffs": [],
+      "output_handoff": "handoff:IMP-01",
+      "operations": []
+    },
+    {
+      "id": "IMP-02",
+      "kind": "implementation",
+      "title": "전체 도메인 타입과 wire schema의 정본 구현",
+      "owner_role": "도메인 계약 구현자",
+      "boundary": "contracts",
+      "instruction": "implementation-plan/tasks/IMP-02/instruction.md",
+      "depends_on": [
+        "IMP-01"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-02, REQ-03, REQ-05, REQ-09, REQ-11, REQ-17, REQ-18, REQ-20"
+        },
+        {
+          "path": "spec/common.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/domains/rdd.md",
+          "sections": "객체 표"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "§1, §2"
+        },
+        {
+          "path": "spec/domains/work.md",
+          "sections": "§1"
+        },
+        {
+          "path": "spec/domains/execution.md",
+          "sections": "§1"
+        },
+        {
+          "path": "spec/domains/messaging-outcomes.md",
+          "sections": "§1"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "§1~3"
+        },
+        {
+          "path": "spec/operations.md",
+          "sections": "전체 operation 이름"
+        }
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-03",
+        "REQ-05",
+        "REQ-09",
+        "REQ-11",
+        "REQ-17",
+        "REQ-18",
+        "REQ-20"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-01",
+          "artifact": "handoff:IMP-01"
+        }
+      ],
+      "output_handoff": "handoff:IMP-02",
+      "operations": []
+    },
+    {
+      "id": "IMP-03",
+      "kind": "implementation",
+      "title": "두 SQLite 저장 경계와 transaction/content store 구현",
+      "owner_role": "저장소 구현자",
+      "boundary": "storage",
+      "instruction": "implementation-plan/tasks/IMP-03/instruction.md",
+      "depends_on": [
+        "IMP-02"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-02, REQ-14, REQ-22, REQ-27"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "§1~7; control/host DDL"
+        },
+        {
+          "path": "spec/common.md",
+          "sections": "§3~6"
+        }
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-14",
+        "REQ-22",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-02",
+          "artifact": "handoff:IMP-02"
+        }
+      ],
+      "output_handoff": "handoff:IMP-03",
+      "operations": []
+    },
+    {
+      "id": "IMP-04",
+      "kind": "implementation",
+      "title": "SQLite RDD aggregate와 원자적 모델 변경 구현",
+      "owner_role": "책임 모델 구현자",
+      "boundary": "model",
+      "instruction": "implementation-plan/tasks/IMP-04/instruction.md",
+      "depends_on": [
+        "IMP-03",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-02, REQ-03, REQ-21, REQ-22"
+        },
+        {
+          "path": "spec/domains/rdd.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/model.md",
+          "sections": "project/model snapshot/change operations"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "projects, model_versions, rdd_*, boundary_*, horizontal_*, contract_consumers, model_changes"
+        }
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-03",
+        "REQ-21",
+        "REQ-22"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-04",
+      "operations": [
+        "project.create",
+        "project.get",
+        "model.snapshot",
+        "model.change.prepare",
+        "model.change.commit"
+      ]
+    },
+    {
+      "id": "IMP-05",
+      "kind": "implementation",
+      "title": "책임 관계 인덱스·territory·변경 영향 계산 구현",
+      "owner_role": "책임 조회 기반 구현자",
+      "boundary": "model/discovery",
+      "instruction": "implementation-plan/tasks/IMP-05/instruction.md",
+      "depends_on": [
+        "IMP-04"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-03, REQ-04, REQ-21"
+        },
+        {
+          "path": "spec/domains/rdd.md",
+          "sections": "§2, §4"
+        },
+        {
+          "path": "spec/contracts/discovery-assignment.md",
+          "sections": "검색 알고리즘과 CandidateCard"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "role_search_rows, role_search_fts와 관계 인덱스"
+        }
+      ],
+      "requirements": [
+        "REQ-03",
+        "REQ-04",
+        "REQ-21"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        }
+      ],
+      "output_handoff": "handoff:IMP-05",
+      "operations": []
+    },
+    {
+      "id": "IMP-06",
+      "kind": "implementation",
+      "title": "팀장의 책임 탐색·관계 조회 API 구현",
+      "owner_role": "팀 배정 탐색 구현자",
+      "boundary": "discovery",
+      "instruction": "implementation-plan/tasks/IMP-06/instruction.md",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-04, REQ-06, REQ-09"
+        },
+        {
+          "path": "spec/contracts/discovery-assignment.md",
+          "sections": "assignment.preview 제외 전체"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "공개 구현 조회 필드"
+        },
+        {
+          "path": "spec/domains/access.md",
+          "sections": "읽기 scope"
+        }
+      ],
+      "requirements": [
+        "REQ-04",
+        "REQ-06",
+        "REQ-09"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-05",
+          "artifact": "handoff:IMP-05"
+        },
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-06",
+      "operations": [
+        "responsibility.search",
+        "responsibility.inspect",
+        "responsibility.locate",
+        "responsibility.collaborators",
+        "role.implementations"
+      ]
+    },
+    {
+      "id": "IMP-07",
+      "kind": "implementation",
+      "title": "RoleInterface와 RoleImplementation 저작·공개 서비스 구현",
+      "owner_role": "역할 실현 구현자",
+      "boundary": "realization",
+      "instruction": "implementation-plan/tasks/IMP-07/instruction.md",
+      "depends_on": [
+        "IMP-04",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-06, REQ-07, REQ-08, REQ-21, REQ-22"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "interface/implementation/harness.profile operations"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§1, §2"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-08",
+        "REQ-21",
+        "REQ-22"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-07",
+      "operations": [
+        "interface.get",
+        "implementation.prepare",
+        "implementation.publish",
+        "implementation.retire",
+        "harness.profile.register",
+        "harness.profile.inspect",
+        "harness.profile.admit"
+      ]
+    },
+    {
+      "id": "IMP-08",
+      "kind": "implementation",
+      "title": "결정적 role component compiler와 ContextBundle 구현",
+      "owner_role": "컨텍스트 compiler 구현자",
+      "boundary": "realization",
+      "instruction": "implementation-plan/tasks/IMP-08/instruction.md",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-06, REQ-07, REQ-09, REQ-22"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "빌드 함수, context.build"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§2~4"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "content_blobs/context_bundles/components/command_surfaces"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-09",
+        "REQ-22"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-05",
+          "artifact": "handoff:IMP-05"
+        },
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-08",
+      "operations": [
+        "context.build"
+      ]
+    },
+    {
+      "id": "IMP-09",
+      "kind": "implementation",
+      "title": "구성품 materializer와 실효 컨텍스트 검사 조회 구현",
+      "owner_role": "컨텍스트 설치 구현자",
+      "boundary": "realization/launch",
+      "instruction": "implementation-plan/tasks/IMP-09/instruction.md",
+      "depends_on": [
+        "IMP-08",
+        "IMP-16"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-07, REQ-16, REQ-22"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§3, §4"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "context.inspect"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "ContentBlob/RetentionPin"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-07",
+        "REQ-16",
+        "REQ-22"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-08",
+          "artifact": "handoff:IMP-08"
+        },
+        {
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        }
+      ],
+      "output_handoff": "handoff:IMP-09",
+      "operations": [
+        "context.inspect"
+      ]
+    },
+    {
+      "id": "IMP-10",
+      "kind": "implementation",
+      "title": "주체·정책·grant·폐기 인가 코어 구현",
+      "owner_role": "권한 구현자",
+      "boundary": "access",
+      "instruction": "implementation-plan/tasks/IMP-10/instruction.md",
+      "depends_on": [
+        "IMP-03"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-09, REQ-10, REQ-14, REQ-15"
+        },
+        {
+          "path": "spec/domains/access.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/access-cli.md",
+          "sections": "access operations"
+        },
+        {
+          "path": "spec/common.md",
+          "sections": "인증 context와 admission"
+        }
+      ],
+      "requirements": [
+        "REQ-09",
+        "REQ-10",
+        "REQ-14",
+        "REQ-15"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        }
+      ],
+      "output_handoff": "handoff:IMP-10",
+      "operations": [
+        "access.policy.publish",
+        "access.grant",
+        "access.revoke",
+        "access.inspect"
+      ]
+    },
+    {
+      "id": "IMP-11",
+      "kind": "implementation",
+      "title": "OperationRegistry·동일 admission·역할별 surface 구현",
+      "owner_role": "API 정책 경계 구현자",
+      "boundary": "access/contracts",
+      "instruction": "implementation-plan/tasks/IMP-11/instruction.md",
+      "depends_on": [
+        "IMP-02",
+        "IMP-10"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-09, REQ-10, REQ-14, REQ-25"
+        },
+        {
+          "path": "spec/contracts/access-cli.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/operations.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/common.md",
+          "sections": "§2~4"
+        }
+      ],
+      "requirements": [
+        "REQ-09",
+        "REQ-10",
+        "REQ-14",
+        "REQ-25"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-02",
+          "artifact": "handoff:IMP-02"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        }
+      ],
+      "output_handoff": "handoff:IMP-11",
+      "operations": [
+        "surface.describe"
+      ]
+    },
+    {
+      "id": "IMP-12",
+      "kind": "implementation",
+      "title": "로컬 협업 RPC와 얇은 mahas CLI 구현",
+      "owner_role": "협업 transport 구현자",
+      "boundary": "transport/cli",
+      "instruction": "implementation-plan/tasks/IMP-12/instruction.md",
+      "depends_on": [
+        "IMP-11",
+        "IMP-03"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-08, REQ-09, REQ-14, REQ-18"
+        },
+        {
+          "path": "spec/contracts/access-cli.md",
+          "sections": "transport/CLI/results"
+        },
+        {
+          "path": "spec/contracts/mail-artifacts.md",
+          "sections": "operation.get"
+        },
+        {
+          "path": "spec/common.md",
+          "sections": "CommandRequest/Receipt/Error"
+        }
+      ],
+      "requirements": [
+        "REQ-08",
+        "REQ-09",
+        "REQ-14",
+        "REQ-18"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        },
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        }
+      ],
+      "output_handoff": "handoff:IMP-12",
+      "operations": [
+        "operation.get"
+      ]
+    },
+    {
+      "id": "IMP-13",
+      "kind": "implementation",
+      "title": "Run·팀장 배정·META DAG·Assignment 서비스 구현",
+      "owner_role": "협업 도메인 구현자",
+      "boundary": "coordination",
+      "instruction": "implementation-plan/tasks/IMP-13/instruction.md",
+      "depends_on": [
+        "IMP-04",
+        "IMP-06",
+        "IMP-10",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-01, REQ-04, REQ-10, REQ-17"
+        },
+        {
+          "path": "spec/domains/work.md",
+          "sections": "§1~4"
+        },
+        {
+          "path": "spec/contracts/work.md",
+          "sections": "run/plan/team/assignment operations"
+        },
+        {
+          "path": "spec/contracts/discovery-assignment.md",
+          "sections": "assignment.preview"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "runs/members/assignments/plans/plan_candidates/plan_tasks/task_edges"
+        }
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-04",
+        "REQ-10",
+        "REQ-17"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-04",
+          "artifact": "handoff:IMP-04"
+        },
+        {
+          "task": "IMP-06",
+          "artifact": "handoff:IMP-06"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-13",
+      "operations": [
+        "assignment.preview",
+        "run.create",
+        "run.get",
+        "run.close",
+        "plan.prepare",
+        "plan.commit",
+        "team.assign",
+        "team.retire",
+        "assignment.show"
+      ]
+    },
+    {
+      "id": "IMP-14",
+      "kind": "implementation",
+      "title": "TaskSpec·Dispatch 권한·입력 pin과 WorkEnvelope 구현",
+      "owner_role": "작업 시도 구현자",
+      "boundary": "coordination",
+      "instruction": "implementation-plan/tasks/IMP-14/instruction.md",
+      "depends_on": [
+        "IMP-13",
+        "IMP-08"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-07, REQ-11, REQ-17, REQ-20"
+        },
+        {
+          "path": "spec/domains/work.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "WorkEnvelope"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "스폰 stage와 정확한 입력"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "task_specs/dispatches/work_envelopes"
+        }
+      ],
+      "requirements": [
+        "REQ-07",
+        "REQ-11",
+        "REQ-17",
+        "REQ-20"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "task": "IMP-08",
+          "artifact": "handoff:IMP-08"
+        }
+      ],
+      "output_handoff": "handoff:IMP-14",
+      "operations": []
+    },
+    {
+      "id": "IMP-15",
+      "kind": "implementation",
+      "title": "durable inbox·회신·artifact 저장 API 구현",
+      "owner_role": "메시지 구현자",
+      "boundary": "coordination/mail",
+      "instruction": "implementation-plan/tasks/IMP-15/instruction.md",
+      "depends_on": [
+        "IMP-12",
+        "IMP-14",
+        "IMP-16"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-14, REQ-18, REQ-19, REQ-20"
+        },
+        {
+          "path": "spec/domains/messaging-outcomes.md",
+          "sections": "§1~3, §5"
+        },
+        {
+          "path": "spec/contracts/mail-artifacts.md",
+          "sections": "operation.get 제외 전체"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "messages/deliveries/artifacts/retention_pins/content_blobs"
+        }
+      ],
+      "requirements": [
+        "REQ-14",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        }
+      ],
+      "output_handoff": "handoff:IMP-15",
+      "operations": [
+        "inbox.check",
+        "inbox.wait",
+        "delivery.ack",
+        "message.send",
+        "message.replyAndAck",
+        "artifact.publish",
+        "artifact.read"
+      ]
+    },
+    {
+      "id": "IMP-16",
+      "kind": "implementation",
+      "title": "workspace·checkout·write claim과 물리 자원 primitive 구현",
+      "owner_role": "작업 공간 구현자",
+      "boundary": "resources",
+      "instruction": "implementation-plan/tasks/IMP-16/instruction.md",
+      "depends_on": [
+        "IMP-03",
+        "IMP-10",
+        "IMP-17"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-13, REQ-16, REQ-20, REQ-27"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "§1, §4"
+        },
+        {
+          "path": "spec/contracts/resources.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/execution-host.md",
+          "sections": "host.workspace.*"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "resources/checkouts/workspaces/resource_claims/resource_transfers/retention_pins"
+        }
+      ],
+      "requirements": [
+        "REQ-13",
+        "REQ-16",
+        "REQ-20",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        },
+        {
+          "task": "IMP-10",
+          "artifact": "handoff:IMP-10"
+        },
+        {
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        }
+      ],
+      "output_handoff": "handoff:IMP-16",
+      "operations": [
+        "workspace.prepare",
+        "workspace.inspect",
+        "claim.handoff",
+        "claim.release",
+        "host.workspace.prepare",
+        "host.workspace.probe",
+        "host.workspace.release"
+      ]
+    },
+    {
+      "id": "IMP-17",
+      "kind": "implementation",
+      "title": "재부착 가능한 execution-host bootstrap·lease·receipt 서비스 구현",
+      "owner_role": "실행 호스트 구현자",
+      "boundary": "execution",
+      "instruction": "implementation-plan/tasks/IMP-17/instruction.md",
+      "depends_on": [
+        "IMP-01",
+        "IMP-02",
+        "IMP-03"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-11, REQ-12, REQ-14, REQ-15"
+        },
+        {
+          "path": "spec/architecture.md",
+          "sections": "§1, §4~6"
+        },
+        {
+          "path": "spec/contracts/execution-host.md",
+          "sections": "transport 및 host.hello/acquire/inventory/effect.get"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "§5"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "host DB DDL"
+        }
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-12",
+        "REQ-14",
+        "REQ-15"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-01",
+          "artifact": "handoff:IMP-01"
+        },
+        {
+          "task": "IMP-02",
+          "artifact": "handoff:IMP-02"
+        },
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        }
+      ],
+      "output_handoff": "handoff:IMP-17",
+      "operations": [
+        "host.hello",
+        "host.acquire",
+        "host.inventory",
+        "host.effect.get"
+      ]
+    },
+    {
+      "id": "IMP-18",
+      "kind": "implementation",
+      "title": "범용 PTY·pipes process와 terminal I/O 관리 구현",
+      "owner_role": "프로세스 실행 구현자",
+      "boundary": "execution",
+      "instruction": "implementation-plan/tasks/IMP-18/instruction.md",
+      "depends_on": [
+        "IMP-17"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-08, REQ-11, REQ-13, REQ-14, REQ-15, REQ-24"
+        },
+        {
+          "path": "spec/contracts/execution-host.md",
+          "sections": "ProcessSpec와 process/terminal operations"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "§1~4"
+        },
+        {
+          "path": "spec/domains/execution.md",
+          "sections": "§3~5"
+        }
+      ],
+      "requirements": [
+        "REQ-08",
+        "REQ-11",
+        "REQ-13",
+        "REQ-14",
+        "REQ-15",
+        "REQ-24"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        }
+      ],
+      "output_handoff": "handoff:IMP-18",
+      "operations": [
+        "host.process.spawn",
+        "host.process.probe",
+        "host.process.stop",
+        "host.terminal.attach",
+        "host.terminal.input",
+        "host.terminal.resize",
+        "host.terminal.snapshot",
+        "host.terminal.detach"
+      ]
+    },
+    {
+      "id": "IMP-19",
+      "kind": "implementation",
+      "title": "고정 LaunchPlan과 단계별 worker.start coordinator 구현",
+      "owner_role": "스폰 조율 구현자",
+      "boundary": "launch",
+      "instruction": "implementation-plan/tasks/IMP-19/instruction.md",
+      "depends_on": [
+        "IMP-09",
+        "IMP-14",
+        "IMP-16",
+        "IMP-18",
+        "IMP-11"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-07, REQ-11, REQ-13, REQ-14, REQ-16"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "stage 및 worker.prepare/start/inspect"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§3~4, §7"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "§1, §3"
+        }
+      ],
+      "requirements": [
+        "REQ-07",
+        "REQ-11",
+        "REQ-13",
+        "REQ-14",
+        "REQ-16"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "task": "IMP-14",
+          "artifact": "handoff:IMP-14"
+        },
+        {
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        }
+      ],
+      "output_handoff": "handoff:IMP-19",
+      "operations": [
+        "worker.prepare",
+        "worker.start",
+        "worker.inspect"
+      ]
+    },
+    {
+      "id": "IMP-20",
+      "kind": "implementation",
+      "title": "worker bootstrap·join·명시 Task 인수 연결 구현",
+      "owner_role": "실행 인수 프로토콜 구현자",
+      "boundary": "launch/access",
+      "instruction": "implementation-plan/tasks/IMP-20/instruction.md",
+      "depends_on": [
+        "IMP-12",
+        "IMP-19"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-07, REQ-09, REQ-10, REQ-13, REQ-15, REQ-17"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "execution.join/heartbeat"
+        },
+        {
+          "path": "spec/contracts/work.md",
+          "sections": "task.accept"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§7"
+        },
+        {
+          "path": "spec/domains/access.md",
+          "sections": "bootstrap/full credential"
+        }
+      ],
+      "requirements": [
+        "REQ-07",
+        "REQ-09",
+        "REQ-10",
+        "REQ-13",
+        "REQ-15",
+        "REQ-17"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        }
+      ],
+      "output_handoff": "handoff:IMP-20",
+      "operations": [
+        "execution.join",
+        "execution.heartbeat",
+        "task.accept"
+      ]
+    },
+    {
+      "id": "IMP-21",
+      "kind": "implementation",
+      "title": "결과 선언·지정 수용·직접 인계와 안전 wake 연결 구현",
+      "owner_role": "협업 정산 구현자",
+      "boundary": "coordination",
+      "instruction": "implementation-plan/tasks/IMP-21/instruction.md",
+      "depends_on": [
+        "IMP-15",
+        "IMP-20"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-01, REQ-18, REQ-19, REQ-20"
+        },
+        {
+          "path": "spec/domains/messaging-outcomes.md",
+          "sections": "§4~5"
+        },
+        {
+          "path": "spec/contracts/work.md",
+          "sections": "task.report/outcome.decide"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "execution.wake"
+        }
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-18",
+        "REQ-19",
+        "REQ-20"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-15",
+          "artifact": "handoff:IMP-15"
+        },
+        {
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "output_handoff": "handoff:IMP-21",
+      "operations": [
+        "task.report",
+        "outcome.decide",
+        "execution.wake",
+        "task.dispatch"
+      ]
+    },
+    {
+      "id": "IMP-22",
+      "kind": "implementation",
+      "title": "실행 정지·재부착·native resume·unknown reconciliation 구현",
+      "owner_role": "실행 복구 구현자",
+      "boundary": "recovery",
+      "instruction": "implementation-plan/tasks/IMP-22/instruction.md",
+      "depends_on": [
+        "IMP-16",
+        "IMP-18",
+        "IMP-19",
+        "IMP-20",
+        "IMP-21"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-11, REQ-14, REQ-15, REQ-16, REQ-20, REQ-27"
+        },
+        {
+          "path": "spec/contracts/recovery-operations.md",
+          "sections": "동작 구분/재시작 알고리즘"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "worker.stop/resume/release"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "전체"
+        }
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-14",
+        "REQ-15",
+        "REQ-16",
+        "REQ-20",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        },
+        {
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        }
+      ],
+      "output_handoff": "handoff:IMP-22",
+      "operations": [
+        "worker.stop",
+        "worker.resume",
+        "worker.release"
+      ]
+    },
+    {
+      "id": "IMP-23",
+      "kind": "implementation",
+      "title": "mahasd 서비스 수명·재시작 readiness·종료 정책 구현",
+      "owner_role": "런타임 수명 구현자",
+      "boundary": "platform/recovery",
+      "instruction": "implementation-plan/tasks/IMP-23/instruction.md",
+      "depends_on": [
+        "IMP-01",
+        "IMP-12",
+        "IMP-17",
+        "IMP-22"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-12, REQ-14, REQ-15, REQ-23, REQ-27"
+        },
+        {
+          "path": "spec/architecture.md",
+          "sections": "§1, §5"
+        },
+        {
+          "path": "spec/contracts/recovery-operations.md",
+          "sections": "runtime.status/reconcile/shutdown"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "§5~6"
+        }
+      ],
+      "requirements": [
+        "REQ-12",
+        "REQ-14",
+        "REQ-15",
+        "REQ-23",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-01",
+          "artifact": "handoff:IMP-01"
+        },
+        {
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "task": "IMP-17",
+          "artifact": "handoff:IMP-17"
+        },
+        {
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        }
+      ],
+      "output_handoff": "handoff:IMP-23",
+      "operations": [
+        "runtime.status",
+        "runtime.reconcile",
+        "runtime.shutdown"
+      ]
+    },
+    {
+      "id": "IMP-24",
+      "kind": "implementation",
+      "title": "파일 기반 하네스의 구성품 구현과 launch recipe 작성",
+      "owner_role": "하네스 구성 구현자",
+      "boundary": "realization",
+      "instruction": "implementation-plan/tasks/IMP-24/instruction.md",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-07, REQ-08, REQ-09"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§1~5, §7~8"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "harness profile lifecycle"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "initial attachment evidence"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "output_handoff": "handoff:IMP-24",
+      "operations": []
+    },
+    {
+      "id": "IMP-25",
+      "kind": "implementation",
+      "title": "설정 본문 기반 하네스의 구성품 구현과 launch recipe 작성",
+      "owner_role": "하네스 구성 구현자",
+      "boundary": "realization",
+      "instruction": "implementation-plan/tasks/IMP-25/instruction.md",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-20"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-07, REQ-08, REQ-09"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§1~4, §6~8"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "profile 및 coverage"
+        },
+        {
+          "path": "spec/domains/access.md",
+          "sections": "CLI connection 범위"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-07",
+        "REQ-08",
+        "REQ-09"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "task": "IMP-20",
+          "artifact": "handoff:IMP-20"
+        }
+      ],
+      "output_handoff": "handoff:IMP-25",
+      "operations": []
+    },
+    {
+      "id": "IMP-26",
+      "kind": "implementation",
+      "title": "관측 출처·개입·snapshot/event projection 구현",
+      "owner_role": "관측 구현자",
+      "boundary": "observation",
+      "instruction": "implementation-plan/tasks/IMP-26/instruction.md",
+      "depends_on": [
+        "IMP-11",
+        "IMP-13",
+        "IMP-15",
+        "IMP-18",
+        "IMP-21"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-11, REQ-18, REQ-23, REQ-24"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "§2, §5"
+        },
+        {
+          "path": "spec/contracts/observation-client.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/client-terminal.md",
+          "sections": "client 권한 경계"
+        }
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-18",
+        "REQ-23",
+        "REQ-24"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-11",
+          "artifact": "handoff:IMP-11"
+        },
+        {
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "task": "IMP-15",
+          "artifact": "handoff:IMP-15"
+        },
+        {
+          "task": "IMP-18",
+          "artifact": "handoff:IMP-18"
+        },
+        {
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        }
+      ],
+      "output_handoff": "handoff:IMP-26",
+      "operations": [
+        "observation.ingest",
+        "intervention.raise",
+        "intervention.resolve",
+        "runtime.snapshot",
+        "runtime.subscribe"
+      ]
+    },
+    {
+      "id": "IMP-27",
+      "kind": "implementation",
+      "title": "모델·context 변경 후보와 별도 유지 작업 흐름 구현",
+      "owner_role": "유지관리 구현자",
+      "boundary": "model/realization",
+      "instruction": "implementation-plan/tasks/IMP-27/instruction.md",
+      "depends_on": [
+        "IMP-05",
+        "IMP-07",
+        "IMP-13",
+        "IMP-21"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-21, REQ-22"
+        },
+        {
+          "path": "spec/contracts/model.md",
+          "sections": "model.impact.list/classify"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "§3, §6"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "§5"
+        }
+      ],
+      "requirements": [
+        "REQ-21",
+        "REQ-22"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-05",
+          "artifact": "handoff:IMP-05"
+        },
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "task": "IMP-21",
+          "artifact": "handoff:IMP-21"
+        }
+      ],
+      "output_handoff": "handoff:IMP-27",
+      "operations": [
+        "model.impact.list",
+        "model.impact.classify"
+      ]
+    },
+    {
+      "id": "IMP-28",
+      "kind": "implementation",
+      "title": "Desktop·detached client·terminal view의 정본 분리 구현",
+      "owner_role": "작업대 통합 구현자",
+      "boundary": "workbench",
+      "instruction": "implementation-plan/tasks/IMP-28/instruction.md",
+      "depends_on": [
+        "IMP-12",
+        "IMP-23",
+        "IMP-26"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-11, REQ-12, REQ-23, REQ-24, REQ-27"
+        },
+        {
+          "path": "spec/contracts/client-terminal.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/observation-client.md",
+          "sections": "client 계약"
+        },
+        {
+          "path": "spec/architecture.md",
+          "sections": "§5"
+        },
+        {
+          "path": "spec/execution-lifecycle.md",
+          "sections": "§4"
+        }
+      ],
+      "requirements": [
+        "REQ-11",
+        "REQ-12",
+        "REQ-23",
+        "REQ-24",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-12",
+          "artifact": "handoff:IMP-12"
+        },
+        {
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        },
+        {
+          "task": "IMP-26",
+          "artifact": "handoff:IMP-26"
+        }
+      ],
+      "output_handoff": "handoff:IMP-28",
+      "operations": [
+        "terminal.attach",
+        "terminal.input",
+        "terminal.resize",
+        "terminal.snapshot",
+        "terminal.detach",
+        "client.view.bind",
+        "client.view.unbind"
+      ]
+    },
+    {
+      "id": "IMP-29",
+      "kind": "implementation",
+      "title": "운영 migration·일관 backup·retention·복구 구현",
+      "owner_role": "운영 저장 구현자",
+      "boundary": "storage/resources",
+      "instruction": "implementation-plan/tasks/IMP-29/instruction.md",
+      "depends_on": [
+        "IMP-03",
+        "IMP-16",
+        "IMP-22",
+        "IMP-23"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-02, REQ-14, REQ-16, REQ-27"
+        },
+        {
+          "path": "spec/storage.md",
+          "sections": "§5~7"
+        },
+        {
+          "path": "spec/contracts/recovery-operations.md",
+          "sections": "backup.*"
+        },
+        {
+          "path": "spec/domains/resources-observation.md",
+          "sections": "MigrationReceipt/BackupSet/RetentionPin"
+        }
+      ],
+      "requirements": [
+        "REQ-02",
+        "REQ-14",
+        "REQ-16",
+        "REQ-27"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-03",
+          "artifact": "handoff:IMP-03"
+        },
+        {
+          "task": "IMP-16",
+          "artifact": "handoff:IMP-16"
+        },
+        {
+          "task": "IMP-22",
+          "artifact": "handoff:IMP-22"
+        },
+        {
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        }
+      ],
+      "output_handoff": "handoff:IMP-29",
+      "operations": [
+        "backup.create",
+        "backup.restore"
+      ]
+    },
+    {
+      "id": "IMP-30",
+      "kind": "implementation",
+      "title": "전체 runtime 배선·CLI 배포·service entrypoint 조립",
+      "owner_role": "아키텍처 통합 구현자",
+      "boundary": "platform",
+      "instruction": "implementation-plan/tasks/IMP-30/instruction.md",
+      "depends_on": [
+        "IMP-23",
+        "IMP-24",
+        "IMP-25",
+        "IMP-27",
+        "IMP-28",
+        "IMP-29",
+        "IMP-31",
+        "IMP-32"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-01, REQ-08, REQ-12, REQ-25, REQ-28"
+        },
+        {
+          "path": "spec/architecture.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/operations.md",
+          "sections": "모든 operation과 service-only 구분"
+        },
+        {
+          "path": "spec/contracts/README.md",
+          "sections": "계약 registry"
+        },
+        {
+          "path": "implementation-plan/DAG.md",
+          "sections": "최종 합류"
+        }
+      ],
+      "requirements": [
+        "REQ-01",
+        "REQ-08",
+        "REQ-12",
+        "REQ-25",
+        "REQ-28"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-23",
+          "artifact": "handoff:IMP-23"
+        },
+        {
+          "task": "IMP-24",
+          "artifact": "handoff:IMP-24"
+        },
+        {
+          "task": "IMP-25",
+          "artifact": "handoff:IMP-25"
+        },
+        {
+          "task": "IMP-27",
+          "artifact": "handoff:IMP-27"
+        },
+        {
+          "task": "IMP-28",
+          "artifact": "handoff:IMP-28"
+        },
+        {
+          "task": "IMP-29",
+          "artifact": "handoff:IMP-29"
+        },
+        {
+          "task": "IMP-31",
+          "artifact": "handoff:IMP-31"
+        },
+        {
+          "task": "IMP-32",
+          "artifact": "handoff:IMP-32"
+        }
+      ],
+      "output_handoff": "handoff:IMP-30",
+      "operations": []
+    },
+    {
+      "id": "IMP-31",
+      "kind": "implementation",
+      "title": "책임 탐색·배정·META DAG 작업대 구현",
+      "owner_role": "팀장 작업대 구현자",
+      "boundary": "workbench",
+      "instruction": "implementation-plan/tasks/IMP-31/instruction.md",
+      "depends_on": [
+        "IMP-06",
+        "IMP-13",
+        "IMP-26"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-04, REQ-06, REQ-09, REQ-17, REQ-23"
+        },
+        {
+          "path": "spec/contracts/discovery-assignment.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/work.md",
+          "sections": "preview/assign/plan"
+        },
+        {
+          "path": "spec/contracts/observation-client.md",
+          "sections": "snapshot/subscribe"
+        }
+      ],
+      "requirements": [
+        "REQ-04",
+        "REQ-06",
+        "REQ-09",
+        "REQ-17",
+        "REQ-23"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-06",
+          "artifact": "handoff:IMP-06"
+        },
+        {
+          "task": "IMP-13",
+          "artifact": "handoff:IMP-13"
+        },
+        {
+          "task": "IMP-26",
+          "artifact": "handoff:IMP-26"
+        }
+      ],
+      "output_handoff": "handoff:IMP-31",
+      "operations": []
+    },
+    {
+      "id": "IMP-32",
+      "kind": "implementation",
+      "title": "역할 구현 편집·context/권한/spawn Inspector 구현",
+      "owner_role": "역할 구성 작업대 구현자",
+      "boundary": "workbench",
+      "instruction": "implementation-plan/tasks/IMP-32/instruction.md",
+      "depends_on": [
+        "IMP-07",
+        "IMP-09",
+        "IMP-19",
+        "IMP-26"
+      ],
+      "required_reads": [
+        {
+          "path": "implementation-plan/INSTRUCTIONS.md",
+          "sections": "전체"
+        },
+        {
+          "path": "requirements.md",
+          "sections": "REQ-05, REQ-06, REQ-07, REQ-09, REQ-13, REQ-21, REQ-23"
+        },
+        {
+          "path": "spec/domains/role-realization.md",
+          "sections": "전체"
+        },
+        {
+          "path": "spec/contracts/realization.md",
+          "sections": "implementation/context operations"
+        },
+        {
+          "path": "spec/contracts/launch.md",
+          "sections": "worker.prepare/inspect"
+        },
+        {
+          "path": "spec/injection.md",
+          "sections": "§3~4"
+        }
+      ],
+      "requirements": [
+        "REQ-05",
+        "REQ-06",
+        "REQ-07",
+        "REQ-09",
+        "REQ-13",
+        "REQ-21",
+        "REQ-23"
+      ],
+      "input_handoffs": [
+        {
+          "task": "IMP-07",
+          "artifact": "handoff:IMP-07"
+        },
+        {
+          "task": "IMP-09",
+          "artifact": "handoff:IMP-09"
+        },
+        {
+          "task": "IMP-19",
+          "artifact": "handoff:IMP-19"
+        },
+        {
+          "task": "IMP-26",
+          "artifact": "handoff:IMP-26"
+        }
+      ],
+      "output_handoff": "handoff:IMP-32",
+      "operations": []
+    }
+  ]
+}
