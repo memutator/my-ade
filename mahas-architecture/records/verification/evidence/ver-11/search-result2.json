@@ -1,0 +1,107 @@
+{
+  "operationId": "d3c69ab2-ea80-4f1a-b450-dfb20dfd2421",
+  "fingerprint": "c1a6014817f2e36b66cdc58d4ba56a1b3db872b50291a062a0b4887bc515715b",
+  "status": "committed",
+  "result": {
+    "modelVersion": "mv_49821eb4-8386-4370-8629-19bf0619905f",
+    "snapshotRevision": 13,
+    "staleModel": false,
+    "status": "ok",
+    "items": [
+      {
+        "boundary": {
+          "id": "b-tools",
+          "name": "tooling",
+          "responsibility": "tool/prompt assembly boundary",
+          "criteria": []
+        },
+        "role": {
+          "id": "r-worker",
+          "name": "tool-assembler",
+          "description": "VER-11 member: assembles tool/prompt",
+          "horizontalRole": "tool-assembler"
+        },
+        "matchReasons": [
+          {
+            "kind": "text",
+            "field": "search-text",
+            "match": "fts"
+          },
+          {
+            "kind": "text",
+            "field": "role-name",
+            "match": "substring"
+          },
+          {
+            "kind": "text",
+            "field": "role-description",
+            "match": "substring"
+          },
+          {
+            "kind": "text",
+            "field": "responsibility",
+            "match": "substring"
+          }
+        ],
+        "relationshipRefs": [],
+        "implementationAvailability": [
+          {
+            "implementationId": "impl-codex-1",
+            "revision": 1,
+            "interfaceDigest": "iface-ver11-worker",
+            "profileId": "hp-codex",
+            "profileRevision": 1,
+            "status": "published",
+            "profileState": "verified",
+            "support": "verified",
+            "blockers": [],
+            "observedAt": 1789803471516
+          },
+          {
+            "implementationId": "impl-grok-2",
+            "revision": 1,
+            "interfaceDigest": "iface-ver11-worker",
+            "profileId": "hp-grok",
+            "profileRevision": 1,
+            "status": "published",
+            "profileState": "verified",
+            "support": "verified",
+            "blockers": [],
+            "observedAt": 1789803471516
+          }
+        ],
+        "memberAvailability": [
+          {
+            "memberId": "mem-ver11-worker",
+            "runId": "run-ver11",
+            "state": "active",
+            "generation": 1,
+            "assignmentKind": "coordination",
+            "observedAt": 1789803471516
+          }
+        ],
+        "scopeCoverage": {
+          "matchedPaths": [],
+          "matchedContractIds": [],
+          "coversScope": true
+        },
+        "selectionToken": "eyJ2IjoxLCJ0b2tlbklkIjoiZjJhZjczYmQzNGJjMDI5NjQ0NzhmOWJjYTNhMmE1YzkiLCJwcm9qZWN0SWQiOiJwcmpfM2M3NGU3MmQtZjQ4OC00MTk4LWJiZmMtN2Q4OTE5MWEyYTZkIiwibW9kZWxWZXJzaW9uIjoibXZfNDk4MjFlYjQtODM4Ni00MzcwLTg2MjktMTliZjA2MTk5MDVmIiwicm9sZUlkIjoici13b3JrZXIiLCJyb2xlRGlnZXN0IjoiODY3YTg4ZWZlNjhiNjQyZGFkNTJiY2JjMmNiYmJhMzM4M2M4Mzc0MDEyMDlmYTk0NDQ1ODVhZTU0MDg5ZTcxZCIsImludGVyZmFjZURpZ2VzdCI6ImlmYWNlLXZlcjExLXdvcmtlciIsImltcGxlbWVudGF0aW9uQ2FuZGlkYXRlRGlnZXN0IjoiZWZhZDg1ZDI4NWI3NTdjMzlkMjIzYmNmZGRhYzExYTYxM2I3Zjk2OGNmYWIxNjIxMzc5NmJlZjAyZmYxNTljZCIsImlzc3VlZEF0IjoxNzg5ODAzNDcxNTE2LCJrZXlJZCI6ImxvY2FsLTEifQ.5gDCVugsQXvtzJ4ZsZjIidj7n8Z_nvCjaNcO2Ptndxo"
+      }
+    ],
+    "unmatchedPaths": [],
+    "ambiguityGroups": [],
+    "diagnostics": {
+      "rolelessBoundaryIds": [],
+      "unmatchedContractIds": []
+    },
+    "visibility": {
+      "visibilityDigest": "8427465cdbe87735dd521702de323f6c0d0797caa3fff0a35b1e285223723a05",
+      "grantRevisions": {
+        "grant-ver11-lead-prov": 1
+      }
+    }
+  },
+  "effects": [],
+  "domainRevision": 0,
+  "eventCursor": 13
+}

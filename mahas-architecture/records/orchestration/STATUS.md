@@ -58,7 +58,7 @@
 - **VER-06** — recorded: `failed`
 - **VER-07** — recorded: `failed`
 - **VER-08** — recorded: `failed`
-- **VER-09** — READY TO RUN
+- VER-09 — **blocked**: claude CLI 2.1.261 installed but `claude auth status` → `loggedIn:false` (no account; user login required to unblock)
 - **VER-10** — recorded: `passed`
-- VER-11 — waiting: VER-09(ver)
-- VER-12 — waiting: VER-11(ver)
+- **VER-11** — recorded: `failed` (grok lead substituted for claude per user direction; VER-09 still blocked)
+- VER-12 — READY TO RUN (VER-11 recorded; VER-09 remains blocked-but-substituted)

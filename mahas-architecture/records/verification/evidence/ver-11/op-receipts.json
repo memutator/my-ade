@@ -1,0 +1,207 @@
+{
+ "artifact.read": [],
+ "inbox.check": [
+  {
+   "status": "committed",
+   "result": {
+    "read": {
+     "memberId": "mem-ver11-lead",
+     "executionGeneration": 1,
+     "batchCursor": "4",
+     "deliveryIds": [
+      "dlv_ba35b9e9-c0c6-4055-9939-1057cdcafedb",
+      "dlv_5447e6b0-4e7b-4c4e-9c51-381412aea5ee"
+     ]
+    },
+    "items": [
+     {
+      "delivery": {
+       "id": "dlv_ba35b9e9-c0c6-4055-9939-1057cdcafedb",
+       "messageId": "msg_b4e44d15-067b-4223-a51e-ab9ec69dd9b2",
+       "recipientMemberId": "mem-ver11-lead",
+       "consumerGeneration": 1,
+       "status": "outstanding",
+       "revision": 1,
+       "ackedAt": null,
+       "handling": {}
+      },
+      "message": {
+       "id": "msg_b4e44d15-067b-4223-a51e-ab9ec69dd9b2",
+       "runId": "run-ver11",
+       "senderPrincipalId": "principal-exec-ver11-worker",
+       "senderMemberId": "mem-ver11-worker",
+       "kind": "reply",
+       "body": "acknowledged — assembling the probe artifact now",
+       "links": {
+        "replyTo": {
+         "messageId": "msg_7bebdd4d-8ad9-4fd7-8c5a-8da33dc7ed82",
+         "deliveryId": "dlv_6f5df75d-918d-4613-9caf-16c87d69bd93"
+        }
+       },
+       "createdAt": 1789802625856
+      },
+      "artifactRefs": []
+     },
+     {
+      "delivery": {
+       "id": "dlv_5447e6b0-4e7b-4c4e-9c51-381412aea5ee",
+       "messageId": "msg_d6ed3462-d22b-4534-9bf6-5c94e966b031",
+       "recipientMemberId": "mem-ver11-lead",
+       "consumerGeneration": 1,
+       "status": "outstanding",
+       "revision": 1,
+       "ackedAt": null,
+       "handling": {}
+      },
+      "message": {
+       "id": "msg_d6ed3462-d22b-4534-9bf6-5c94e966b031",
+       "runId": "run-ver11",
+       "senderPrincipalId": "principal-exec-ver11-worker",
+       "senderMemberId": "mem-ver11-worker",
+       "kind": "artifact-handoff",
+       "body": "VER11-W1: probe-prompt bundle ready — artifact art_9f9aca48, sha256 f87aa899b202bf5a81a2b8b407d3112cabc5928c3caff87b94fdee88206f4682",
+       "links": {
+        "taskRef": "task-ver11-1",
+        "artifactRefs": [
+         {
+          "artifactId": "art_9f9aca48-38f4-4c16-b841-ac20c742ae52",
+          "revision": 1,
+          "digest": "f87aa899b202bf5a81a2b8b407d3112cabc5928c3caff87b94fdee88206f4682"
+         }
+        ]
+       },
+       "createdAt": 1789803935382
+      },
+      "artifactRefs": [
+       {
+        "artifactId": "art_9f9aca48-38f4-4c16-b841-ac20c742ae52",
+        "revision": 1,
+        "digest": "f87aa899b202bf5a81a2b8b407d3112cabc5928c3caff87b94fdee88206f4682"
+       }
+      ]
+     }
+    ],
+    "cursor": "4"
+   }
+  },
+  {
+   "status": "committed",
+   "result": {
+    "read": {
+     "memberId": "mem-ver11-lead",
+     "executionGeneration": 1,
+     "batchCursor": "2",
+     "deliveryIds": [
+      "dlv_ba35b9e9-c0c6-4055-9939-1057cdcafedb"
+     ]
+    },
+    "items": [
+     {
+      "delivery": {
+       "id": "dlv_ba35b9e9-c0c6-4055-9939-1057cdcafedb",
+       "messageId": "msg_b4e44d15-067b-4223-a51e-ab9ec69dd9b2",
+       "recipientMemberId": "mem-ver11-lead",
+       "consumerGeneration": 1,
+       "status": "outstanding",
+       "revision": 1,
+       "ackedAt": null,
+       "handling": {}
+      },
+      "message": {
+       "id": "msg_b4e44d15-067b-4223-a51e-ab9ec69dd9b2",
+       "runId": "run-ver11",
+       "senderPrincipalId": "principal-exec-ver11-worker",
+       "senderMemberId": "mem-ver11-worker",
+       "kind": "reply",
+       "body": "acknowledged — assembling the probe artifact now",
+       "links": {
+        "replyTo": {
+         "messageId": "msg_7bebdd4d-8ad9-4fd7-8c5a-8da33dc7ed82",
+         "deliveryId": "dlv_6f5df75d-918d-4613-9caf-16c87d69bd93"
+        }
+       },
+       "createdAt": 1789802625856
+      },
+      "artifactRefs": []
+     }
+    ],
+    "cursor": "2"
+   }
+  },
+  {
+   "status": "committed",
+   "result": {
+    "read": {
+     "memberId": "mem-ver11-worker",
+     "executionGeneration": 1,
+     "batchCursor": "1",
+     "deliveryIds": [
+      "dlv_6f5df75d-918d-4613-9caf-16c87d69bd93"
+     ]
+    },
+    "items": [
+     {
+      "delivery": {
+       "id": "dlv_6f5df75d-918d-4613-9caf-16c87d69bd93",
+       "messageId": "msg_7bebdd4d-8ad9-4fd7-8c5a-8da33dc7ed82",
+       "recipientMemberId": "mem-ver11-worker",
+       "consumerGeneration": 1,
+       "status": "outstanding",
+       "revision": 1,
+       "ackedAt": null,
+       "handling": {}
+      },
+      "message": {
+       "id": "msg_7bebdd4d-8ad9-4fd7-8c5a-8da33dc7ed82",
+       "runId": "run-ver11",
+       "senderPrincipalId": "principal-exec-ver11-lead",
+       "senderMemberId": "mem-ver11-lead",
+       "kind": "question",
+       "body": "VER11 test: assemble the probe prompt and reply with artifact digest.",
+       "links": {
+        "taskRef": "task-ver11-1"
+       },
+       "createdAt": 1789802600795
+      },
+      "artifactRefs": []
+     }
+    ],
+    "cursor": "1"
+   }
+  },
+  {
+   "status": "committed",
+   "result": {
+    "read": {
+     "memberId": "mem-ver11-lead",
+     "executionGeneration": 1,
+     "batchCursor": "0",
+     "deliveryIds": []
+    },
+    "items": [],
+    "cursor": "0"
+   }
+  }
+ ],
+ "assignment.preview": [],
+ "model.impact.list": [],
+ "model.change.commit": [
+  {
+   "status": "committed",
+   "result": {
+    "publishedVersion": "mv_e4a76579-e3da-4ed4-92af-30c3b6fb9d09",
+    "digest": "fc463c4c05aecc63f4826520d5515571cac2fe26b366e4666943a93a047cfa07",
+    "impactBatchId": "mc_037c7a4a-1038-45d4-81cf-1e8b560b65ec"
+   }
+  },
+  {
+   "status": "committed",
+   "result": {
+    "publishedVersion": "mv_f184fef2-e182-4e08-af50-63af6d7d4f5d",
+    "digest": "b5abf086906912dcbe3fee21b5df37ff1d6b1e21d3c630d9bcdd278d0ca6ca02",
+    "impactBatchId": "mc_83c1f7e1-b554-480f-b5eb-c0bc6df6a150"
+   }
+  }
+ ],
+ "responsibility.search": []
+}
