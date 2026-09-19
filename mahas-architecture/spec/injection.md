@@ -37,6 +37,36 @@ profile이 component kind를 지원하지 않으면 publish/build가 unsupported
 
 manifest는 구현 산출물이며 개발 문서의 별도 reference가 아니다. 원본은 SQLite 모델/구현 설정과 등록 context 파일이다. render 결과는 DB ContentBlob에도 digest로 보존하고 실행 디렉터리는 재생성 가능하다. 공용 repository의 AGENTS.md·CLAUDE.md·skill 파일을 여러 실행이 덮어쓰지 않는다. project 자동검색 경로에 skill을 설치해야 하면 실행이 독점하는 worktree를 사용한다. 기존 파일과 충돌하면 실패하고 덮어쓰지 않는다.
 
+구성품 항목 JSON 정본은 `{id, kind, path, digest, loadPhase}`다. compiler가 내는 `installPath`/`blobDigest`/`loadRoutes`는 같은 필드의 별칭이며 materializer가 정본으로 번역한다. `maintenanceBasis`는 실행 루트 manifest에서 뺀다.
+
+## 3.1 LaunchRecipe (prepare가 소비하는 정본)
+
+`harness.profile.register`의 `injectionRecipe`는 ProfileRecipe다. `worker.prepare`는 LaunchRecipe를 요구한다.
+
+```text
+LaunchRecipe = {
+  process: {
+    executable: absolutePath,          // '/'로 시작, argv[0]과 같거나 argv 앞에 붙임
+    argv: ArgvEntry[],                 // shell 문자열 아님
+    stdio: 'pty' | 'pipes',
+    terminalSize?: { cols, rows },
+    env?: { [key]: string },           // secret 금지
+    envAllowlist?: string[]
+  },
+  routes: InjectionRoute[]             // role/mandatory.md 와 task/initial.txt 는 required
+}
+ArgvEntry =
+  | { literal: string }
+  | { slot: 'file', source, flag? }
+  | { slot: 'fileText', source }
+  | { slot: 'configText', key, format?: 'toml-basic-string', source }
+  | { slot: 'dir', source, flag? }
+  | { slot: 'checkoutPath' }
+  | { slot: 'executionRoot' }
+InjectionRoute = { source, kind: argv-file|argv-text|argv-config-text|stdin|config-file|native-preload, target?, format?, required }
+```
+
+ProfileRecipe만 있고 `process.executable`이 없으면 서버는 등록된 `executableIdentity.locator.commands`와 해당 하네스 documented recipe(S-INJECTION §5–6)로 LaunchRecipe를 만든다. 절대 경로 실행 파일을 해석하지 못하면 `INJECTION_UNSUPPORTED`다. 두 스키마를 한 JSON에 섞어 정본이 두 개가 되게 하지 않는다.
 mandatory.md의 순서는 자기 role과 판단 범위 → 책임에 맞게 구현된 필수 context → relevant contract 의미 → 허용 command 사용법 → bootstrap/협업 프로토콜이다. Task의 요구사항과 peers는 initial.txt에 둔다. credential·시간·run/task ID를 재사용 mandatory 본문에 섞지 않는다. 해상도는 구현 문구에서 정하고 compiler가 criterion·부모 문서를 전부 자동 append하지 않는다.
 
 initial.txt에는 '(목표) (이번 요구사항 본문) (업무 범위·제약) (정확한 입력과 사용할 시점) (직접 협업 상대와 관계) (필요한 산출물·정산 주체) (join/accept의 정확한 요청)'을 넣는다. 큰 결과 파일은 ArtifactRef와 읽어야 할 이유/시점을 주되, 작업의 요구사항 자체를 '찾아서 읽어라'로 대체하지 않는다.

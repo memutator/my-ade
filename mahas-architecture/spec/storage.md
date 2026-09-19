@@ -1,6 +1,6 @@
 # S-STORAGE — SQLite 전체 영속 모델과 migration 계약
 
-**소비 시점:** IMP-02~IMP-05, 각 도메인 repository 담당자, IMP-17/18/29. 아래 DDL은 부록용 reference가 아니라 v1 migration이 구현해야 할 저장 계약이다. payload JSON의 구조는 domains 문서와 각 C-* 계약을 따른다. JSON schema 검증과 aggregate 의미 검사를 SQL CHECK 하나로 대체하지 않는다.
+**소비 시점:** IMP-02~IMP-05, 각 도메인 repository 담당자, IMP-17/18/29. 아래 DDL은 부록용 reference가 아니라 v1 migration이 구현해야 할 저장 계약이다. payload JSON의 구조는 domains 문서와 각 C-* 계약의 정본 필드다 — 교차 스키마 위치는 [contracts/README](contracts/README.md). 별칭은 입력에서만 번역하고 저장 JSON은 정본이다. JSON schema 검증과 aggregate 의미 검사를 SQL CHECK 하나로 대체하지 않는다.
 
 ## 1. 정본 경계
 

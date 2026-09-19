@@ -1,0 +1,14 @@
+{
+  "name": "mahas-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Control-plane runtime port: service bootstrap, endpoint resolution, readiness probing and the client the desktop/CLI compose against. mahasd's own service internals (DB writer, lease, domain services) are injected by later tasks — this package owns the client-side composition seam only.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "mahas-contracts": "*",
+    "mahas-harness-config": "*"
+  }
+}

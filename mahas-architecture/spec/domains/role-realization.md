@@ -22,12 +22,13 @@ RoleImplementation을 역할 설명의 복사본이나 CLI flags 목록으로 �
 
 | 객체 | 필드 | 불변식 |
 |---|---|---|
-| RoleInterface | digest, modelVersion, roleId, responsibilityRefs, contextRequirements[], scopeOfJudgment, invariantRefs[] | role+context의 고정 의미 계약; 운영 policy/grant는 별개 |
-| ContextRequirement | clauseId, contextId/criterionRef, requiredMeaning, deliveryClass: initial/conditional, readerPerspective | Context 객체 자체의 확장이 아니라 인터페이스의 requirement binding |
+| RoleInterface | digest, modelVersion, roleId, requirements: RoleInterfaceRequirements, judgmentScope | role+context의 고정 의미 계약; 운영 policy/grant는 별개 |
+| RoleInterfaceRequirements | responsibilityRefs: BoundaryId[], contextRequirements: ContextRequirement[] | `requirements_json` 정본. 배열만 저장하지 않음 |
+| ContextRequirement | clauseId, contextId/criterionRef, requiredMeaning (의미 문장, 플래그 아님), deliveryClass: initial/conditional, readerPerspective: performer\|coordination | Context 객체 자체의 확장이 아니라 인터페이스의 requirement binding. 팀장 해상도는 coordination perspective clause |
 | RoleImplementation | implementationId, revision, interfaceDigest, harnessProfileId, status, maintainerRoleId, componentGraph, coverageBindings, semanticDecision | published revision immutable; 구현 작성자가 의미 적합성을 판단 |
 | ImplementationComponent | componentId, kind, contentBinding/config, consumes[], outputs[], activation, permissionRequirements | kind는 instruction/skill/subagent/tool-config/launch-config |
-| CoverageBinding | clauseId, componentId, sectionKey, realization: verbatim/reexpressed, requiredLoadPhase | clause별 어떤 표현으로 구현했는지 명시. 링크 존재는 의미 충족의 기계 증명이 아님 |
-| HarnessProfile | id, revision, executableIdentity, recipeVersion, supportedComponents, injectionRoutes, resume/wake capabilities, admissionState | draft/documented/verified/disabled; 설치 버전과 OS 범위 고정 |
+| CoverageBinding | clauseId, componentId, sectionKey, realization: verbatim/reexpressed, requiredLoadPhase | clause별 어떤 표현으로 구현했는지 명시. 링크 존재는 의미 충족의 기계 증명이 아님. 저작 단계 `initial`\|`conditional`은 compiler에서 `inline`\|`preload`\|`catalog`로 번역 |
+| HarnessProfile | id, revision, executableIdentity, recipe: ProfileRecipe, capabilities, admissionState | draft/documented/verified/disabled; 설치 버전과 OS 범위 고정. ProfileRecipe(등록)와 LaunchRecipe(prepare 소비)는 다른 스키마 — S-INJECTION |
 | ContextBundle | digest, implementationRevision, interfaceDigest, surfaceDigest, componentBlobRefs, requiredTextDigest, sourceObservations | immutable; timestamp/run/task/credential을 재사용 본문에 섞지 않음 |
 | EffectiveContextReceipt | launchId, bundleDigest, attachedComponents, inheritedInputs, deliveryEvidence, missing/unknown[] | 의도된 bundle과 실제 로딩 관측을 구별 |
 | WorkEnvelope | digest, kind: coordination/task, runId, memberId, taskRevision?, dispatchId?, currentRequirementText, inputBindings, peers, reportContract | 이번 작업 본문. 재사용 RDD context에 저장하지 않음 |

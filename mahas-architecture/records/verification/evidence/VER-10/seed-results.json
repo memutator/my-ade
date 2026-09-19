@@ -1,0 +1,57 @@
+[
+  {
+    "step": "hello.operator",
+    "ok": true,
+    "detail": {
+      "kind": "hello-ok",
+      "protocolVersion": 1,
+      "transportSessionId": "e513e20a-c9f4-4942-b711-b44f974344fe",
+      "principalId": "operator-local"
+    }
+  },
+  {
+    "step": "project.create",
+    "ok": false,
+    "detail": {
+      "operationId": "op_61c55034",
+      "fingerprint": "6cb7fd0630e6b2901d905b3dcca8597c5d88bbce9077d6127cbae384fdb18f41",
+      "status": "rejected",
+      "error": {
+        "code": "OPERATION_CONFLICT",
+        "retry": "none",
+        "details": {
+          "projectId": "prj_533f61a9-8f75-43eb-a5b3-4796f9683d7f"
+        }
+      },
+      "effects": [],
+      "domainRevision": 0,
+      "eventCursor": 9
+    }
+  },
+  {
+    "step": "access.grant.verification",
+    "ok": true,
+    "detail": {
+      "operationId": "op_86967403",
+      "fingerprint": "8a8018dc4244ef75a8ae7b7ad1d2d97ce9ef23c305a9abfd39b7416abdeddb05",
+      "status": "committed",
+      "result": {
+        "grantId": "grt_ef804c80-89af-4586-9bab-d71afd04f221",
+        "revision": 1
+      },
+      "effects": [],
+      "domainRevision": 0,
+      "eventCursor": 10
+    }
+  },
+  {
+    "step": "seed.scaffold",
+    "ok": true,
+    "detail": {
+      "runId": "run-ver10",
+      "memberId": "mem-ver10-worker",
+      "execId": "exec-ver10-1",
+      "credId": "cred-ver10-1"
+    }
+  }
+]

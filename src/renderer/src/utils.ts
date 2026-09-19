@@ -53,7 +53,15 @@ export function blockLabel(tab: PaneTab, lang: Language): string {
           ? 'widgetUsage'
           : tab.widget === 'tokens'
             ? 'widgetTokens'
-            : 'widgetAgents'
+            : tab.widget === 'responsibility'
+              ? 'widgetResponsibility'
+              : tab.widget === 'team'
+                ? 'widgetTeam'
+                : tab.widget === 'plan'
+                  ? 'widgetPlan'
+                  : tab.widget === 'inspector'
+                    ? 'widgetInspector'
+                    : 'widgetAgents'
       )
   }
 }

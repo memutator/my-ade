@@ -31,7 +31,45 @@
 
 ## 3. 구조 연산
 
-C-MODEL의 `model.change.prepare`는 `boundary.create/revise/split/reparent/retire`, `contract.bind/revise/retire`, `role.define/revise/retire`, `horizontalRole.revise`, `context.register/link/unlink`, `goal.revise`, `nonGoal.revise` typed edit를 하나의 후보에 적용한다. 이 편집 이름들은 ChangeSet 안의 연산이며 worker CLI에 각각 전역 관리 명령을 노출할 필요는 없다.
+C-MODEL의 `model.change.prepare`는 아래 TypedModelEdit를 하나의 후보에 순서대로 적용한다. 이 편집 이름들은 ChangeSet 안의 연산이며 worker CLI에 각각 전역 관리 명령을 노출할 필요는 없다. `edits` JSON의 정본은 평탄한 판별 유니온이다. `type`이 discriminator다.
+
+```text
+TypedModelEdit =
+  | { type:'boundary.create', boundaryId, name, responsibilityStatement, paths?:Path[], parentBoundaryId?, criteria?:Criterion[] }
+  | { type:'boundary.revise',  boundaryId, name?, responsibilityStatement?, paths?:Path[] }
+  | { type:'boundary.split',   boundaryId, children:[{boundaryId,name,responsibilityStatement,paths?,criteria?}],
+                               contractRemap?:{ [contractId]:boundaryId }, roleRemap?:{ [roleId]:boundaryId } }
+  | { type:'boundary.reparent',boundaryId, newParentBoundaryId }
+  | { type:'boundary.retire',  boundaryId, remap?:{
+        rolesTo?, providedContractsTo?, consumedContractsTo?, nonGoalsTo?, contextsTo?, reparentChildrenTo? } }
+  | { type:'contract.bind',    contractId, name, schemaPath, providerBoundaryId, consumerBoundaryIds:boundaryId[] }
+  | { type:'contract.revise',  contractId, name?, schemaPath?, providerBoundaryId?, consumerBoundaryIds?:boundaryId[] }
+  | { type:'contract.retire',  contractId }
+  | { type:'role.define',      roleId, name, description, boundaryId, horizontalRoleName }
+  | { type:'role.revise',      roleId, name?, description?, boundaryId?, horizontalRoleName? }
+  | { type:'role.retire',      roleId }
+  | { type:'horizontalRole.revise', horizontalRoleName, name? }
+  | { type:'context.register', contextId, path }
+  | { type:'context.link',     contextId, boundaryId?, horizontalRoleName? }
+  | { type:'context.unlink',   contextId, boundaryId?, horizontalRoleName? }
+  | { type:'goal.revise',      goal }
+  | { type:'nonGoal.revise',   nonGoalId, statement, boundaryId }
+Path = { path: repo-relative string, kind?: 'file'|'directory' }
+Criterion = { id?, criterion, description, ordinal? }
+```
+
+`paths`와 `consumerBoundaryIds`는 전체 치환이다. 서버는 아래 별칭만 정본으로 번역하고, 나열되지 않은 키는 `MODEL_INVALID`다. `model_changes.edits_json`에는 번역 후 정본만 남긴다.
+
+| 별칭 (입력만) | 정본 |
+| --- | --- |
+| `boundary:{id,name,responsibility,parentId}` | `boundaryId`/`name`/`responsibilityStatement`/`parentBoundaryId` |
+| `parentId`, `newParentId` | `parentBoundaryId`, `newParentBoundaryId` |
+| `responsibility` | `responsibilityStatement` |
+| `context:{id,path}`, `id` on context.register | `contextId`, `path` |
+| `contract:{id,…}` / `role:{id,…}` 중첩 | 평탄 필드 |
+| `set.paths` / `setPaths` | `paths` 전체 치환 |
+| `addPaths`/`removePaths`, `addConsumerBoundaryIds`/`removeConsumerBoundaryIds` | 현재 snapshot에 적용한 뒤 `paths`/`consumerBoundaryIds` 전체 치환으로 저장 |
+| split의 `contractProviderRemap`/`contractConsumerRemap`/`nonGoalRemap`/`contextRemap` | `contractRemap`와 retire `remap` |
 
 split에는 새 자식들의 책임·기준·paths·role·계약 remap을 명시한다. 부모 책임과 결합 책무는 남는다. reparent의 touchedTargets에는 이전 부모와 새 부모, 이동 subtree 및 실제 변경 관계가 모두 들어간다. retirement는 기존 실행 snapshot을 지우지 않는다. 기존 FK가 끊어질 때는 같은 변경 안에서 detach/remap을 제공해야 한다.
 

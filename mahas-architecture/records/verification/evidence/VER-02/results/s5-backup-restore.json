@@ -1,0 +1,266 @@
+{
+  "stepId": "s5-backup-restore",
+  "at": 1789747644650,
+  "checks": [
+    {
+      "name": "5a WAL holds committed data at backup time",
+      "ok": true,
+      "expected": ">0 bytes in -wal",
+      "observed": "1174232"
+    },
+    {
+      "name": "5a raw main-file copy drops WAL-resident committed data (why serialize is required)",
+      "ok": true,
+      "expected": "row/schema absent in raw copy",
+      "observed": "query threw: no such table: principals",
+      "extra": {
+        "note": "documentary evidence of the failure mode, not a product verdict"
+      }
+    },
+    {
+      "name": "5a backup.create committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed/undefined"
+    },
+    {
+      "name": "5a state complete (no residues)",
+      "ok": true,
+      "expected": "complete",
+      "observed": "complete residues=[]"
+    },
+    {
+      "name": "5a snapshot method is sqlite3_serialize, never raw copy",
+      "ok": true,
+      "expected": "sqlite3_serialize",
+      "observed": "sqlite3_serialize"
+    },
+    {
+      "name": "5a set dir holds control+manifest+host+blob",
+      "ok": true,
+      "expected": "all present",
+      "observed": "{\"control\":true,\"manifest\":true,\"host\":true,\"blob\":true}"
+    },
+    {
+      "name": "5a artifact recorded in manifest as ref-recorded (no separate file needed)",
+      "ok": true,
+      "expected": "ref-recorded",
+      "observed": "{\"artifactId\":\"art_acf717f9-272e-4c53-91e6-b2ca85de2767\",\"digest\":\"1f58181698f695f9aa5cfc307096a7842686fdeed488925f24835e509042735a\",\"revision\":1,\"status\":\"ref-recorded\",\"storageRef\":{\"digest\":\"1f58181698f695f9aa5cfc307096a7842686fdeed488925f24835e509042735a\",\"kind\":\"content-blob\"}}"
+    },
+    {
+      "name": "5a manifest digest binds snapshot image",
+      "ok": true,
+      "expected": "imageDigest==control.sha256==row digest",
+      "observed": "f0f5419b7d0f/f0f5419b7d0f/6d7aeacf3346"
+    },
+    {
+      "name": "5a backup_sets row recorded",
+      "ok": true,
+      "expected": "complete+ digest",
+      "observed": "{\"state\":\"complete\",\"manifest_digest\":\"6d7aeacf334680051bd96122ac1a34374a8c4d12abd1dd3d8fb1d051658df211\"}"
+    },
+    {
+      "name": "5a content+artifact pinned under backup_set holder",
+      "ok": true,
+      "expected": ">=2 pins incl content_blob+artifact",
+      "observed": "[{\"target_kind\":\"content_blob\",\"holder_kind\":\"backup_set\"},{\"target_kind\":\"content_blob\",\"holder_kind\":\"backup_set\"},{\"target_kind\":\"content_blob\",\"holder_kind\":\"backup_set\"},{\"target_kind\":\"content_blob\",\"holder_kind\":\"backup_set\"},{\"target_kind\":\"artifact\",\"holder_kind\":\"backup_set\"}]"
+    },
+    {
+      "name": "5a backup.created event appended",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "5a snapshot integrity_check ok",
+      "ok": true,
+      "expected": "ok",
+      "observed": "ok"
+    },
+    {
+      "name": "5a snapshot contains WAL-resident committed row (no raw-copy loss)",
+      "ok": true,
+      "expected": "pr_walonly + message present",
+      "observed": "walRow=1 msgs=1"
+    },
+    {
+      "name": "5a backup.create replay returns stored receipt, no second set",
+      "ok": true,
+      "expected": "committed same id, 1 row",
+      "observed": "committed/backup-2cc6c1c9-e006-4b26-a6aa-bb342a78ffce/sets=1"
+    },
+    {
+      "name": "5b backup.restore committed",
+      "ok": true,
+      "expected": "committed",
+      "observed": "committed/undefined"
+    },
+    {
+      "name": "5b runtimeState restored-unconfirmed",
+      "ok": true,
+      "expected": "restored-unconfirmed",
+      "observed": "restored-unconfirmed"
+    },
+    {
+      "name": "5b all 3 previously-live executions marked unconfirmed",
+      "ok": true,
+      "expected": "3",
+      "observed": "3"
+    },
+    {
+      "name": "5b external blob file + host snapshot restored (artifact bytes ride inside snapshot)",
+      "ok": true,
+      "expected": "blob=1 host=1 (artifacts ref-recorded: inline body)",
+      "observed": "blobs=1 artifacts=0 hosts=1 warnings=[]"
+    },
+    {
+      "name": "5b manifest digest echoes set",
+      "ok": true,
+      "expected": "match",
+      "observed": "6d7aeacf33468005"
+    },
+    {
+      "name": "5b restored db has WAL-resident row",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "5b restored row counts match live db",
+      "ok": true,
+      "expected": "equal counts",
+      "observed": "m=1/1 d=1/1 p=6/6"
+    },
+    {
+      "name": "5b no live writer resurrected — all executions unverifiable",
+      "ok": true,
+      "expected": "0 live / 3 unverifiable",
+      "observed": "0/3"
+    },
+    {
+      "name": "5b restore provenance stamped",
+      "ok": true,
+      "expected": "backup-2cc6c1c9-e006-4b26-a6aa-bb342a78ffce",
+      "observed": "backup-2cc6c1c9-e006-4b26-a6aa-bb342a78ffce"
+    },
+    {
+      "name": "5b backup.restored event in restored db",
+      "ok": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "name": "5b restored external blob readable via row external_ref",
+      "ok": false,
+      "expected": "bytes at <storeRoot>/<shard>/<digest>",
+      "observed": "read=THREW: ENOENT: no such file or directory, open '/tmp/mahas-ver-02/s5/restored/blobs/bf/bfd expectedPath=/tmp/mahas-ver-02/s5/restored/blobs/bf/bfd74aaf33c1e88d9f4f82084292d49654d66a0eb351bc60fb3c5d039905ac5c exists=false flatPath=/tmp/mahas-ver-02/s5/restored/blobs/bfd74aaf33c1e88d9f4f82084292d49654d66a0eb351bc60fb3c5d039905ac5c exists=true",
+      "extra": {
+        "externalRef": "bf/bfd74aaf33c1e88d9f4f82084292d49654d66a0eb351bc60fb3c5d039905ac5c",
+        "expectedPath": "/tmp/mahas-ver-02/s5/restored/blobs/bf/bfd74aaf33c1e88d9f4f82084292d49654d66a0eb351bc60fb3c5d039905ac5c",
+        "flatPath": "/tmp/mahas-ver-02/s5/restored/blobs/bfd74aaf33c1e88d9f4f82084292d49654d66a0eb351bc60fb3c5d039905ac5c"
+      }
+    },
+    {
+      "name": "5b artifact inline bytes present in restored snapshot",
+      "ok": true,
+      "expected": ">0 bytes inline",
+      "observed": "len=17"
+    },
+    {
+      "name": "5b restored db writable",
+      "ok": true,
+      "expected": "+1 principal",
+      "observed": "7"
+    },
+    {
+      "name": "5b host snapshot restored at mapped path",
+      "ok": true,
+      "expected": "alive",
+      "observed": "alive"
+    },
+    {
+      "name": "5b live db marks set restored + event",
+      "ok": true,
+      "expected": "restored + event",
+      "observed": "restored/1"
+    },
+    {
+      "name": "5c1 missing manifest.json rejected",
+      "ok": true,
+      "expected": "rejected/INPUT_NOT_READY + no target writes",
+      "observed": "rejected/INPUT_NOT_READY targetExists=false"
+    },
+    {
+      "name": "5c2 tampered manifest rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH + no target writes",
+      "observed": "rejected/ARTIFACT_MISMATCH targetExists=false"
+    },
+    {
+      "name": "5c3 missing control snapshot rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH + no target writes",
+      "observed": "rejected/ARTIFACT_MISMATCH targetExists=false"
+    },
+    {
+      "name": "5c4 corrupted snapshot bytes rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH + no target writes",
+      "observed": "rejected/ARTIFACT_MISMATCH targetExists=false"
+    },
+    {
+      "name": "5c5 missing captured content file rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH + no target writes",
+      "observed": "rejected/ARTIFACT_MISMATCH targetExists=false"
+    },
+    {
+      "name": "5c6 row-vs-manifest digest disagreement rejected",
+      "ok": true,
+      "expected": "rejected/ARTIFACT_MISMATCH + no target writes",
+      "observed": "rejected/ARTIFACT_MISMATCH targetExists=false"
+    },
+    {
+      "name": "5c6 corrected retry under same operationId executes+commits",
+      "ok": true,
+      "expected": "committed + target written",
+      "observed": "committed exists=true"
+    },
+    {
+      "name": "5c7 expectedRuntimeStopped=false rejected",
+      "ok": true,
+      "expected": "rejected/INVALID_TRANSITION + no target writes",
+      "observed": "rejected/INVALID_TRANSITION targetExists=false"
+    },
+    {
+      "name": "5c8 restore over live control db rejected",
+      "ok": true,
+      "expected": "rejected/INVALID_TRANSITION + no target writes",
+      "observed": "rejected/INVALID_TRANSITION targetExists=false"
+    },
+    {
+      "name": "5c8 live db untouched",
+      "ok": true,
+      "expected": "6 principals",
+      "observed": "6"
+    },
+    {
+      "name": "5c9 live-writer target rejected",
+      "ok": true,
+      "expected": "rejected/STOP_UNKNOWN + no target writes",
+      "observed": "rejected/STOP_UNKNOWN targetExists=false"
+    },
+    {
+      "name": "5c9 live target content untouched",
+      "ok": true,
+      "expected": "1 row (rival view)",
+      "observed": "1"
+    },
+    {
+      "name": "5c10 operator liveness probe STOP_UNKNOWN",
+      "ok": true,
+      "expected": "STOP_UNKNOWN + no target writes",
+      "observed": "STOP_UNKNOWN exists=false Error: operator liveness check reports a live writer on /tmp/mahas-ver-02/s5/rt-"
+    }
+  ]
+}

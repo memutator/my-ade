@@ -1,0 +1,130 @@
+{
+  "processSpec": {
+    "executable": "/home/pyosechang/.nvm/versions/node/v24.20.0/bin/codex",
+    "argv": [
+      "-c",
+      "developer_instructions=\"# VER-10 mandatory instruction (role/mandatory.md)\\n\\nYou are a codex verification worker inside mahas.\\nScope: verification-only run under provisioning grant grt_ef804c80.\\nAnswer briefly. Do not modify files outside this checkout.\\n한글 지시 포함 — 개행과 UTF-8이 TOML basic-string을 통해 온전히 전달되어야 한다.\\n\"",
+      "Reply with exactly: VER10-R1-OK"
+    ],
+    "cwd": "/tmp/mahas-ver-10/exec/exec-ver10-1",
+    "env": {
+      "MAHAS_CLI": "/tmp/mahas-ver-10/exec/exec-ver10-1/bin/mahas"
+    },
+    "envPrepend": {
+      "PATH": [
+        "/tmp/mahas-ver-10/exec/exec-ver10-1/bin"
+      ]
+    },
+    "stdio": "pipes"
+  },
+  "materialize": [
+    {
+      "componentId": "comp-skill-ver10",
+      "relativePath": ".agents/skills/ver10-probe/SKILL.md",
+      "mediaType": "text/markdown",
+      "content": "---\nname: ver10-probe\ndescription: VER-10 probe skill — reports a fixed token when asked\n---\n\n# ver10-probe\nWhen the user asks for the probe token, reply with exactly: VER10-SKILL-TOKEN-7f3a\n",
+      "byteDigest": "51681bf80e515516ed9a4179b89f803adf1d338d770aa0ef4d23f8b502b486e0",
+      "onConflict": "fail"
+    }
+  ],
+  "routes": [
+    {
+      "componentId": "comp-mandatory",
+      "route": "config-argv",
+      "via": "-c",
+      "configKey": "developer_instructions",
+      "byteDigest": "509a527ac94e7d29dc1ed565f014fc9e721a04296600648e32ec9f61db1dc13e",
+      "loadingPhase": "spawn-argv",
+      "argvIndex": 1
+    },
+    {
+      "componentId": "comp-skill-ver10",
+      "route": "checkout-file",
+      "relativePath": ".agents/skills/ver10-probe/SKILL.md",
+      "byteDigest": "51681bf80e515516ed9a4179b89f803adf1d338d770aa0ef4d23f8b502b486e0",
+      "loadingPhase": "startup-config"
+    },
+    {
+      "componentId": "comp-toolcfg",
+      "route": "env",
+      "envKeys": [
+        "MAHAS_CLI",
+        "PATH"
+      ],
+      "byteDigest": "072301e361460c548e459bb9d0f99c3cc6e834e00afd550404cff643911ac25f",
+      "loadingPhase": "spawn-argv"
+    },
+    {
+      "componentId": "comp-launchcfg",
+      "route": "process-spec",
+      "byteDigest": "f7995d9c1138df129d1680b2a9c5836d1f8c6c3dd770d6744998c7d21a51f5f3",
+      "loadingPhase": "spawn-argv"
+    }
+  ],
+  "mandatoryTextDigest": "509a527ac94e7d29dc1ed565f014fc9e721a04296600648e32ec9f61db1dc13e",
+  "initialTextDigest": "365dd12c03e26ce2d086952d394d9f411de4e3cb09b0d1328857e61225ae6034",
+  "initialTextArgvIndex": 2,
+  "argBytes": {
+    "perArg": [
+      2,
+      366,
+      31
+    ],
+    "envBytes": 96,
+    "totalBytes": 498
+  },
+  "plan": {
+    "files": [
+      {
+        "componentId": "comp-skill-ver10",
+        "relativePath": ".agents/skills/ver10-probe/SKILL.md",
+        "mediaType": "text/markdown",
+        "content": "---\nname: ver10-probe\ndescription: VER-10 probe skill — reports a fixed token when asked\n---\n\n# ver10-probe\nWhen the user asks for the probe token, reply with exactly: VER10-SKILL-TOKEN-7f3a\n",
+        "byteDigest": "51681bf80e515516ed9a4179b89f803adf1d338d770aa0ef4d23f8b502b486e0",
+        "onConflict": "fail"
+      }
+    ],
+    "routes": [
+      {
+        "componentId": "comp-mandatory",
+        "route": "config-argv",
+        "via": "-c",
+        "configKey": "developer_instructions",
+        "byteDigest": "509a527ac94e7d29dc1ed565f014fc9e721a04296600648e32ec9f61db1dc13e",
+        "loadingPhase": "spawn-argv"
+      },
+      {
+        "componentId": "comp-skill-ver10",
+        "route": "checkout-file",
+        "relativePath": ".agents/skills/ver10-probe/SKILL.md",
+        "byteDigest": "51681bf80e515516ed9a4179b89f803adf1d338d770aa0ef4d23f8b502b486e0",
+        "loadingPhase": "startup-config"
+      },
+      {
+        "componentId": "comp-toolcfg",
+        "route": "env",
+        "envKeys": [
+          "MAHAS_CLI",
+          "PATH"
+        ],
+        "byteDigest": "072301e361460c548e459bb9d0f99c3cc6e834e00afd550404cff643911ac25f",
+        "loadingPhase": "spawn-argv"
+      },
+      {
+        "componentId": "comp-launchcfg",
+        "route": "process-spec",
+        "byteDigest": "f7995d9c1138df129d1680b2a9c5836d1f8c6c3dd770d6744998c7d21a51f5f3",
+        "loadingPhase": "spawn-argv"
+      }
+    ],
+    "launch": {
+      "env": {},
+      "stdio": "pipes"
+    },
+    "requiresCliAccess": true,
+    "errors": [],
+    "warnings": [],
+    "mandatoryText": "# VER-10 mandatory instruction (role/mandatory.md)\n\nYou are a codex verification worker inside mahas.\nScope: verification-only run under provisioning grant grt_ef804c80.\nAnswer briefly. Do not modify files outside this checkout.\n한글 지시 포함 — 개행과 UTF-8이 TOML basic-string을 통해 온전히 전달되어야 한다.\n",
+    "instructionComponentId": "comp-mandatory"
+  }
+}

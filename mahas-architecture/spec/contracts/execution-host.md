@@ -5,7 +5,19 @@
 
 ## transport와 인증
 
-local socket/named pipe의 versioned framed RPC를 사용한다. `HostEnvelope={protocolVersion,hostId,expectedHostIncarnation,controllerEpoch,leaseProof,effectKey,payloadFingerprint,payload}`. 첫 연결은 host.hello와 mutually authenticated nonce challenge다. protocol major 불일치는 mutation을 거부하고 지원 정보를 읽기 전용으로 제공한다. 새로운 endpoint 파일을 발견했다고 이전 host의 process를 죽이거나 입양하지 않는다.
+local socket/named pipe의 versioned framed RPC를 사용한다. `HostEnvelope={protocolVersion,hostId,expectedHostIncarnation,controllerEpoch,leaseProof,effectKey,payloadFingerprint,payload}`. `payload`는 해당 연산의 **평탄 필드**가 정본이다. 첫 연결은 host.hello와 mutually authenticated nonce challenge다. protocol major 불일치는 mutation을 거부하고 지원 정보를 읽기 전용으로 제공한다. 새로운 endpoint 파일을 발견했다고 이전 host의 process를 죽이거나 입양하지 않는다.
+
+호스트와 mahasd가 번역하는 래핑 별칭(미나열 키는 `MODEL_INVALID`/`INVALID_ARGUMENT`):
+
+| 연산 | 정본 | 허용 별칭 |
+| --- | --- | --- |
+| `host.process.spawn` 입력 | ProcessSpec 필드가 payload 최상위, 또는 `payload.spec` | `initialStdin`: string \| `{bytesB64}` \| ContentRef |
+| `host.process.spawn` 반환 | `{processIncarnation, terminalId?, state}` | `spawn.state`, `processIdentity`≡`processIncarnation` |
+| `host.process.probe` 입력 | `{processIncarnation}` | `expectedProcessIncarnation` |
+| `host.process.probe` 반환 | `{state: live\|exited\|unverifiable, evidence}` | `probe.state` |
+| `host.process.stop` 입력 | `{processIncarnation, mode, graceBudget}` | `expectedProcessIncarnation` |
+| `host.process.stop` 반환 | `{state, outcome}` | `stop.outcome`, `receipt.outcome`, `effect.state` |
+| `host.effect.get` 반환 | `{state, …}` | `effect.state`, `receipt.state` |
 
 execution-host.sqlite는 process identity·primitive receipt·terminal mapping·workspace primitive를 저장한다. mahas.sqlite의 RDD/Grant/Task를 직접 읽거나 수정하지 않는다. process별 lifecycle mutation을 직렬화하고 stdout output와 control receipt의 큐를 분리한다. output는 bounded buffer와 epoch/sequence를 사용하고 truncation/gap을 명시한다.
 
@@ -80,9 +92,9 @@ host가 effect_started를 저장한 뒤 OS를 호출한다. 동일 effectKey/pay
 
 **주체/범위:** lease owner
 
-**입력:** ProcessSpec
+**입력:** ProcessSpec (payload 최상위 또는 `payload.spec`)
 
-**반환:** processIncarnation, terminalId?, spawn receipt
+**반환:** processIncarnation (`processIdentity` 별칭), terminalId?, state (`spawn.state` 별칭)
 
 **전제·인가:** current lease/fence와 same effect identity. conflicting nonce 거부
 
@@ -94,9 +106,9 @@ host가 effect_started를 저장한 뒤 OS를 호출한다. 동일 effectKey/pay
 
 **주체/범위:** controller
 
-**입력:** expected ProcessIncarnation
+**입력:** processIncarnation (`expectedProcessIncarnation` 별칭)
 
-**반환:** live|exited|unverifiable, evidence
+**반환:** live\|exited\|unverifiable, evidence
 
 **전제·인가:** pid+birth+boot/nonce 일치; 다른 pid 재사용 거부
 
@@ -108,9 +120,9 @@ host가 effect_started를 저장한 뒤 OS를 호출한다. 동일 effectKey/pay
 
 **주체/범위:** lease owner
 
-**입력:** expected ProcessIncarnation, mode, graceBudget
+**입력:** processIncarnation (`expectedProcessIncarnation` 별칭), mode, graceBudget
 
-**반환:** stop receipt + positive exit or unknown
+**반환:** stop receipt + positive exit or unknown (`stop.outcome` / `effect.state` 별칭)
 
 **전제·인가:** same incarnation, current fence, exact process group 확인
 

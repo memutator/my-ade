@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.base.json",
+  "//": "contracts is renderer-safe: no Node/DOM ambient types, no imports of other packages",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "types": []
+  }
+}

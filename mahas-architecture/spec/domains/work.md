@@ -10,9 +10,9 @@
 | Member | id, runId, roleId, modelVersion, implementationId/revision, currentExecutionId?, generation, state | pending/assigned/active/retired. 지속 mailbox 주소 |
 | Assignment | id, memberId, kind: coordination/task, mandateText, scope, grantId, revision | coordination은 Task 없이 팀장 스폰을 가능하게 함 |
 | PlanRevision | runId, revision, taskSpecs, edges, decisionText? | immutable DAG; edit는 새 revision+CAS |
-| TaskSpec | taskId, revision, runId, title, requirementText, ownerRoleId, assignedMemberId?, inputBindings[], outputSlots[], settlementPolicy | 이번 업무 정본. Role.description과 구별 |
+| TaskSpec | taskId, revision, runId, title, requirementText, ownerRoleId, assignedMemberId?, inputs:InputBinding[], outputs:OutputSlot[], settlementPolicy | 이번 업무 정본. Role.description과 구별. 저장 컬럼 `inputs_json`/`outputs_json` |
 | TaskEdge | planRevision, predecessorTaskId, successorTaskId, requiredOutputNames[], settlementRequirement | 순환 거부, 메시지 왕복은 edge 아님 |
-| InputBinding | slot, kind: artifact/task-output/contract, identity+revision, required | future output은 dispatch 시작 때 immutable ArtifactRef로 resolve |
+| InputBinding | slot, kind: artifact/task-output/contract, required, artifactId+revision \| taskId+taskRevision+outputSlot \| contractId | 필드는 top-level. future output은 dispatch 시작 때 immutable ArtifactRef로 resolve. 같은 Run만 |
 | Dispatch | id, taskId, taskRevision, memberId, executionId, generation, envelopeDigest, assignmentDeliveryId?, phase, authorityState | 한 Task의 authoritative attempt는 동시에 1개. phase와 OS 생존 구별 |
 | AttemptObservation | dispatchId, source, fact, observedAt, identityEvidence | 판단 근거; authoritative result 아님 |
 | Handoff | id, fromDispatch, toTask/member, artifactRefs, acceptedOutcomeRevision | 결과와 자원의 이동을 별도로 연결 |

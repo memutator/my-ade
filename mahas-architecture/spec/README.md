@@ -27,4 +27,4 @@
 
 ## 경계 간 입출력
 
-[contracts/README.md](contracts/README.md)에 C-MODEL부터 C-CLIENT까지의 계약이 있다. 각 연산은 입력, 호출 주체, 권한·전제조건, 반환, 저장·외부 effect, 실패를 정의한다. 필드의 구조는 위 도메인 명세로 연결되며 사업적 판단은 서버가 대신하지 않는다.
+[contracts/README.md](contracts/README.md)에 C-MODEL부터 C-CLIENT까지의 계약이 있다. 각 연산은 입력, 호출 주체, 권한·전제조건, 반환, 저장·외부 effect, 실패를 정의한다. 필드의 구조는 위 도메인 명세로 연결되며 사업적 판단은 서버가 대신하지 않는다. 교차 JSON 정본(TypedModelEdit, PlanPatch, InputBinding, Settlement.decision, LaunchRecipe, HostEnvelope payload)의 위치는 그 인덱스의 표다.

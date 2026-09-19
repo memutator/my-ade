@@ -9,6 +9,16 @@
 
 coverageBindings의 필수 clause가 initial component에 연결되어야 한다. component의 설치 그래프는 acyclic이고 중복 경로/collision을 거부한다. conditional skill로만 매핑한 initial requirement는 컴파일 오류다. descriptor를 만든 것과 하네스가 실제 읽은 것은 다른 증거다.
 
+`RoleInterface.requirements`는 `{responsibilityRefs, contextRequirements}` 객체다. `requiredMeaning`은 의미 문장이다. `'required'` 플래그로 대체하지 않는다.
+
+하네스 레시피는 두 층이다. `harness.profile.register`가 저장하는 **ProfileRecipe**와 `worker.prepare`가 소비하는 **LaunchRecipe**는 필드 집합이 다르다. 서버가 전자를 후자로 번역한다. 스키마는 [S-INJECTION](../injection.md) §3.1.
+
+```text
+ProfileRecipe = { recipeVersion, injection, resume?, wake?, settingsPolicy? }
+LaunchRecipe  = { process: { executable: absolutePath, argv: ArgvEntry[], stdio: pty|pipes, env?, envAllowlist? }, routes: InjectionRoute[] }
+```
+
+bundle `role/manifest.json` 구성품 항목 정본: `{id, kind, path, digest, loadPhase}`. 별칭 `installPath`→`path`, `blobDigest`→`digest`, `loadRoutes`→`loadPhase` 배열의 첫 값. `maintenanceBasis`는 inspector/maintenance 조회 전용이며 실행 루트 manifest에 넣지 않는다.
 
 ## 연산별 계약
 
@@ -18,7 +28,7 @@ coverageBindings의 필수 clause가 initial component에 연결되어야 한다
 
 **입력:** modelVersion, roleId
 
-**반환:** RoleInterface, context requirements, digest, maintenance refs
+**반환:** RoleInterface (`requirements: RoleInterfaceRequirements`), digest, maintenance refs
 
 **전제·인가:** 해당 role 범위, source 본문을 받을 권한 분리
 

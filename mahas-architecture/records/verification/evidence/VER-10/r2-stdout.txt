@@ -1,0 +1,13 @@
+`command -v mahas`:
+```text
+/tmp/mahas-ver-10/exec/exec-ver10-1/bin/mahas
+```
+
+`mahas surface describe | head -3`:
+```text
+{
+```
+
+VER10-SKILL-TOKEN-7f3a
+
+VER10-R2-OK

@@ -1,0 +1,185 @@
+{
+ "kind": "result",
+ "requestId": 1,
+ "receipt": {
+  "operationId": "drv-1789816178857",
+  "fingerprint": "b95738bc2b4c326e81f62521e853477f9e6aba2cdc26d5963716fd4a3d336048",
+  "status": "committed",
+  "result": {
+   "launchPlanId": "launchplan-af1314a30cd7f28e62b4716296c483b530dc9e0e",
+   "executionId": "execution-ab661c82-e4bb-4657-95ad-87d4db826309",
+   "generation": 2,
+   "joinState": "process_attempting:confirmed",
+   "stageReceipt": {
+    "launchPlanId": "launchplan-af1314a30cd7f28e62b4716296c483b530dc9e0e",
+    "planDigest": "af1314a30cd7f28e62b4716296c483b530dc9e0e89ef41b1f62cd7e655dbe5fb",
+    "assignmentKind": "coordination",
+    "operationIds": [
+     ""
+    ],
+    "stages": [
+     {
+      "stage": "admitted",
+      "status": "confirmed",
+      "at": 1789815959917,
+      "receipt": {
+       "resumed": false,
+       "executionId": "execution-ab661c82-e4bb-4657-95ad-87d4db826309",
+       "generation": 2,
+       "principalId": "principal-execution-ab661c82-e4bb-4657-95ad-87d4db826309"
+      }
+     },
+     {
+      "stage": "inputs_pinned",
+      "status": "confirmed",
+      "at": 1789815959917,
+      "receipt": {
+       "verifiedPins": {
+        "bundle": "ff6c6746d3b77bbf4402fca74c53c87cd50cd8feb519e67694bf53a0c34d4f12",
+        "envelope": "6786167163667fac6681537b5d5270cd8efc79d34d238c3c812bcb0750fd5cce",
+        "surface": "46497f7c4dba196583443c40f52f0180ac1feaf34b70a88e1eb0bc0730c333a7",
+        "interface": "iface-ver11-worker-mv2",
+        "implementation": {
+         "id": "impl-codex-1",
+         "revision": 1
+        },
+        "harnessProfile": {
+         "id": "hp-ver11-fake",
+         "revision": 1
+        },
+        "task": null
+       },
+       "routes": 2
+      }
+     },
+     {
+      "stage": "resources_claimed",
+      "status": "confirmed",
+      "at": 1789815959921,
+      "effectId": "launchplan-af1314a30cd7f28e62b4716296c483b530dc9e0e:effect:resources",
+      "receipt": {
+       "checkoutId": "checkout_c01afc85-ce69-4808-90fa-2815cdea34da",
+       "checkoutPath": "/tmp/mahas-ver-11/worktrees/w2",
+       "workspaceId": "workspace_5a737804-20f0-46a3-8462-08bfc5a032db",
+       "claims": [
+        {
+         "id": "claim_9b73c94f-a5bb-473f-9af6-f1affbdbafad",
+         "resourceId": "resource_176e794e-9f68-4fe6-b1d2-7a39f8084f2d",
+         "ownerKind": "execution",
+         "ownerId": "execution-ab661c82-e4bb-4657-95ad-87d4db826309",
+         "mode": "write",
+         "generation": 2,
+         "state": "held",
+         "revision": 1
+        }
+       ]
+      },
+      "residuals": [
+       {
+        "kind": "checkout",
+        "ref": "checkout_c01afc85-ce69-4808-90fa-2815cdea34da",
+        "state": "held",
+        "note": "workspace workspace_5a737804-20f0-46a3-8462-08bfc5a032db"
+       },
+       {
+        "kind": "resource-claim",
+        "ref": "claim_9b73c94f-a5bb-473f-9af6-f1affbdbafad",
+        "state": "held",
+        "note": "resource_176e794e-9f68-4fe6-b1d2-7a39f8084f2d"
+       }
+      ]
+     },
+     {
+      "stage": "components_materialized",
+      "status": "confirmed",
+      "at": 1789815959926,
+      "effectId": "launchplan-af1314a30cd7f28e62b4716296c483b530dc9e0e:effect:materialize",
+      "receipt": {
+       "executionRoot": "/tmp/mahas-ver-11/config/executions/execution-ab661c82-e4bb-4657-95ad-87d4db826309",
+       "manifestDigest": "1c0ccf72350a4aedbd47139fb5283e68914130a8b1c82bfc344307e97d9fe344",
+       "files": [
+        {
+         "path": "role/mandatory.md",
+         "digest": "5738cc29001b1c453d528789203f40fdb7ce0ee5e803dcc48ff0d815c46bd4b0",
+         "byteLength": 0
+        },
+        {
+         "path": "role/manifest.json",
+         "digest": "ecb62872ebb505a1b472ea90e8cfc7994d9c59a9ed23cb8f0d4fb6bb5239388f",
+         "byteLength": 0
+        },
+        {
+         "path": "surface/commands.json",
+         "digest": "c667df6bd0ae5a28d909cd63aa7ca73f37b25a383bb8b64d116a3980b3491f03",
+         "byteLength": 0
+        },
+        {
+         "path": "surface/commands.md",
+         "digest": "4c3ccad042c00a70a91734d2a60200ebf2ea8dcf9dd4c52f6e60651724e90997",
+         "byteLength": 0
+        }
+       ]
+      },
+      "residuals": []
+     },
+     {
+      "stage": "process_attempting",
+      "status": "failed",
+      "error": {
+       "code": "MANDATORY_COMPONENT_MISSING",
+       "message": "materialized file 'task/initial.txt' absent from execution root"
+      },
+      "at": 1789815959926,
+      "nextAllowedActions": [
+       "replan"
+      ]
+     },
+     {
+      "stage": "process_confirmed",
+      "status": "pending"
+     },
+     {
+      "stage": "initial_attached",
+      "status": "pending"
+     },
+     {
+      "stage": "awaiting_join",
+      "status": "pending"
+     },
+     {
+      "stage": "joined",
+      "status": "pending"
+     },
+     {
+      "stage": "coordination_ready",
+      "status": "pending"
+     }
+    ],
+    "residuals": [
+     {
+      "kind": "checkout",
+      "ref": "checkout_c01afc85-ce69-4808-90fa-2815cdea34da",
+      "state": "held",
+      "note": "workspace workspace_5a737804-20f0-46a3-8462-08bfc5a032db"
+     },
+     {
+      "kind": "resource-claim",
+      "ref": "claim_9b73c94f-a5bb-473f-9af6-f1affbdbafad",
+      "state": "held",
+      "note": "resource_176e794e-9f68-4fe6-b1d2-7a39f8084f2d"
+     }
+    ],
+    "nextAllowedActions": [
+     "replan"
+    ],
+    "updatedAt": 1789816178859,
+    "executionId": "execution-ab661c82-e4bb-4657-95ad-87d4db826309",
+    "generation": 2,
+    "failedStage": "process_attempting"
+   }
+  },
+  "effects": [],
+  "domainRevision": 0,
+  "eventCursor": 38
+ }
+}

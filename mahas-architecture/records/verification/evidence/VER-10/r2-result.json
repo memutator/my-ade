@@ -1,0 +1,16 @@
+{
+  "leg": "r2",
+  "argv": [
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    "developer_instructions=\"# VER-10 mandatory instruction (role/mandatory.md)\\n\\nYou are a codex verification worker inside mahas.\\nScope: verification-only run under provisioning grant grt_ef804c80.\\nAnswer briefly. Do not modify files outside this checkout.\\n한글 지시 포함 — 개행과 UTF-8이 TOML basic-string을 통해 온전히 전달되어야 한다.\\n\"",
+    "Two steps then stop:\n1. Run these shell commands and report their first line of output verbatim: `command -v mahas`, `mahas surface describe | head -3`.\n2. A skill named ver10-probe may be available — if so, ask yourself for its probe token and report it.\nEnd with the line: VER10-R2-OK"
+  ],
+  "cwd": "/tmp/mahas-ver-10/exec/exec-ver10-1",
+  "code": 0,
+  "sig": null,
+  "ms": 16362,
+  "stdoutBytes": 166,
+  "stderrBytes": 2015
+}

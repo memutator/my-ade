@@ -1,0 +1,153 @@
+{
+  "epoch": 30,
+  "fixture": {
+    "projectId": "prj_3d4b4fe2-eeee-4d65-95dd-b5d7808d3a30",
+    "mv1": "mv_0093ba04-5796-447e-b8c3-bdb8f7b63ec6",
+    "runId": "run_93b9d45f-f44c-42ad-8b2a-3464da0ce13b",
+    "ifaceDigest": {
+      "r-lead": "e390b2b77b68a8b0c1340cd3a1060cc2a4a92fbb2f2cc3ab7f58a68437402de0",
+      "r-asm": "6bfddfdea33efb1d226401eae277e5fc192a1c3246e5be3b2e142569592380b0",
+      "r-tool": "8ba42f33f06f05294d6265910948f5dc83a03f7ce3f2668dc2b14dc3a74d77c1"
+    },
+    "ifaceClauses": {
+      "r-lead": [
+        "context:ctx-charter",
+        "context:ctx-shared",
+        "criterion:crit-root-1"
+      ],
+      "r-asm": [
+        "context:ctx-charter",
+        "context:ctx-shared",
+        "criterion:crit-root-1"
+      ],
+      "r-tool": [
+        "context:ctx-charter",
+        "context:ctx-shared",
+        "criterion:crit-root-1"
+      ]
+    },
+    "impls": {
+      "r-lead": {
+        "implId": "impl-8402f2c8-a11f-4396-9edc-767ee0a8dbbf",
+        "revision": 1
+      },
+      "r-asm": {
+        "implId": "impl-4c95b990-8f09-4845-bea2-4c2f09370276",
+        "revision": 1
+      },
+      "r-tool": {
+        "implId": "impl-613a6e1b-22ae-4a1b-8850-2076e0e1e89a",
+        "revision": 1
+      }
+    },
+    "provAll": {
+      "grantId": "grt_3b059b8b-e77f-4bf2-8a75-59ce813c1bad",
+      "revision": 1
+    },
+    "profileId": "hp-main",
+    "profileRevision": 2,
+    "planRevision": 1,
+    "hostId": "host-pyosechang-MS-7D76",
+    "hostIncarnation": "719c2d97-d136-4999-9de3-9c5302699c8e",
+    "members": {
+      "lead": {
+        "memberId": "mem-ver05-r-lead-dkjf39",
+        "assignmentId": "asg-ver05-r-lead-x8htin",
+        "assignmentRevision": 1,
+        "grantId": "grt_141e1793-60bc-4b7d-82de-3dd3f266fccf",
+        "grantRevision": 1,
+        "grantActions": [
+          "surface.describe",
+          "operation.get",
+          "assignment.show",
+          "inbox.check",
+          "inbox.wait",
+          "delivery.ack",
+          "message.send",
+          "message.replyAndAck",
+          "artifact.read",
+          "responsibility.search",
+          "responsibility.inspect",
+          "responsibility.locate",
+          "responsibility.collaborators",
+          "role.implementations",
+          "assignment.preview",
+          "run.get",
+          "run.close",
+          "plan.prepare",
+          "plan.commit",
+          "team.assign",
+          "team.retire",
+          "task.dispatch",
+          "worker.prepare",
+          "worker.start",
+          "worker.inspect",
+          "worker.stop",
+          "worker.resume",
+          "worker.release",
+          "execution.wake",
+          "outcome.decide",
+          "model.impact.list",
+          "workspace.prepare",
+          "workspace.inspect"
+        ]
+      },
+      "asm": {
+        "memberId": "mem-ver05-r-asm-u4wvbh",
+        "assignmentId": "asg-ver05-r-asm-81tq8y",
+        "assignmentRevision": 1,
+        "grantId": "grt_4ccb8cf1-8de6-4e5b-9e29-943dcae12959",
+        "grantRevision": 1,
+        "grantActions": [
+          "surface.describe",
+          "operation.get",
+          "assignment.show",
+          "inbox.check",
+          "inbox.wait",
+          "delivery.ack",
+          "message.send",
+          "message.replyAndAck",
+          "artifact.read",
+          "execution.join",
+          "execution.heartbeat",
+          "task.accept",
+          "task.report",
+          "artifact.publish",
+          "workspace.prepare",
+          "workspace.inspect"
+        ],
+        "taskId": "t-asm"
+      },
+      "tool": {
+        "memberId": "mem-ver05-r-tool-m53nfn",
+        "assignmentId": "asg-ver05-r-tool-q9eeqq",
+        "assignmentRevision": 1,
+        "grantId": "grt_df1b6bc2-6e51-40c6-8b53-edf48ce6d129",
+        "grantRevision": 1,
+        "grantActions": [
+          "surface.describe",
+          "operation.get",
+          "assignment.show",
+          "inbox.check",
+          "inbox.wait",
+          "delivery.ack",
+          "message.send",
+          "message.replyAndAck",
+          "artifact.read",
+          "execution.join",
+          "execution.heartbeat",
+          "task.accept",
+          "task.report",
+          "artifact.publish",
+          "workspace.prepare",
+          "workspace.inspect"
+        ],
+        "taskId": "t-tool"
+      }
+    },
+    "sourcePins": {
+      "src/shared/ver05-source.md": "88d7f180790c3e2811094273140198cf94d6494f41b4791a78567b8f1c22b56a",
+      "src/charter/root-charter.md": "1a94742a4911a7606a86f65cd011c73f0ff2a9732983cc8242527b932f5b4272"
+    }
+  }
+}

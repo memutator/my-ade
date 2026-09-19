@@ -11,7 +11,7 @@
 | InboxRead | memberId, executionGeneration, batchCursor, deliveryIds | FIFO snapshot; ack 전 재조회 가능 |
 | Artifact | id, revision, runId, producerDispatchId, contentRef or commitRef, mediaType, size, outputSlot, retainedBy | exact revision immutable; dirty workspace 경로만을 결과로 제출하지 않음 |
 | Outcome | id, taskId, taskRevision, dispatchId, revision, result: succeeded/failed/blocked, rationale, criterionAssessment, outputRefs | 현재 authoritative Dispatch의 명시 선언만 접수 |
-| Settlement | id, outcomeId/revision, authorityMemberId, decision, reason, decidedAt | owner-declaration 또는 지정 수용자. 거부/수정요청도 명시 |
+| Settlement | id, outcomeId/revision, authorityMemberId, decision: accepted\|rejected\|revision-requested, reason, decidedAt | owner-declaration 또는 지정 수용자. 거부/수정요청도 명시. 별칭 `accept`→`accepted`만 허용 |
 | RunDecision | runId, planRevision, coordinator, decision, compositionRationale | 모든 child Task success의 자동 합이 아님 |
 
 ## 2. 전달 계약
@@ -28,7 +28,7 @@ Contract.schema는 입출력 약속의 원본 위치다. Artifact는 이번에 �
 
 ## 4. 결과와 재수정
 
-owner-declaration이면 report와 자기 settlement를 같은 transaction으로 확정할 수 있다. designated-acceptance이면 report는 pending이고 정해진 수용자의 outcome.decide가 해당 outcome revision을 결정한다. old decision은 새 outcome revision에 적용되지 않는다. TaskSpec이 이미 바뀌었다면 이전 결과를 새 요구사항의 성공으로 옮기지 않는다.
+owner-declaration이면 report와 자기 settlement를 같은 transaction으로 확정할 수 있다. designated-acceptance이면 report는 pending이고 정해진 수용자의 outcome.decide가 해당 outcome revision을 결정한다. `decision` 정본은 `accepted` \| `rejected` \| `revision-requested`다. 입력 별칭 `accept`는 `accepted`로만 번역한다. old decision은 새 outcome revision에 적용되지 않는다. TaskSpec이 이미 바뀌었다면 이전 결과를 새 요구사항의 성공으로 옮기지 않는다. eligibility/resolver가 소비하는 accepting set도 같은 열거다.
 
 자동 검사는 필수 필드·현재 dispatch·artifact 존재·권한·revision이다. criterion 충족과 trade-off는 책임자의 명시 판단이다. 보고 본문이 짧다는 이유로 자동 불합격시키거나 숫자 threshold를 새로 발명하지 않는다. 실패/blocked outcome의 후속 재시도는 팀장이 결정한다.
 

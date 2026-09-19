@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type {
+  BindViewRequest,
+  ClientViewBinding,
+  ControlResult,
+  CreateExecutionRequest,
+  Execution,
+  ExecutionQuery,
+  ServiceStatus,
+  UnbindViewRequest
+} from '../../packages/mahas-contracts/src/index.ts'
 
 export interface PtySpawnOpts {
   id: string
@@ -45,6 +55,31 @@ export interface FileStatResult {
   exists?: boolean
   mtimeMs?: number
   error?: string
+}
+
+/** C-ACCESS command envelope forwarded over the desktop runtime attachment */
+export interface ExecOpRequest {
+  operation: string
+  operationId?: string
+  payload?: unknown
+  expectedRevisions?: Record<string, number>
+}
+
+/** C-OBSERVATION runtime.subscribe request (epoch/cursor based) */
+export interface RuntimeSubscribeRequest {
+  scope?: unknown
+  epoch: number
+  afterSequence: number
+  visibilityDigest?: string
+}
+
+/** one pushed runtime event relayed from the control plane */
+export interface RuntimeEventMessage {
+  subscriptionId: string
+  sequence: number
+  kind?: string
+  entity?: unknown
+  snapshotRequired?: boolean
 }
 
 export interface FileChangedEvent {
@@ -215,6 +250,46 @@ const mahas = {
       ipcRenderer.on('pty:event', handler)
       return () => ipcRenderer.removeListener('pty:event', handler)
     }
+  },
+  // managed executions (IMP-01 feature boundary): create/query/bind flow
+  // through the runtime client ONLY — never through pty:* — so a managed
+  // Execution can't be spawned as an anonymous shell. Every op answers an
+  // honest CONTROL_UNAVAILABLE until IMP-17/23 land the control plane; the
+  // UI must not present daemon-backed persistence as supported yet.
+  exec: {
+    create: (req: CreateExecutionRequest): Promise<ControlResult<Execution>> =>
+      ipcRenderer.invoke('exec:create', req),
+    get: (executionId: string): Promise<ControlResult<Execution | null>> =>
+      ipcRenderer.invoke('exec:get', executionId),
+    list: (query?: ExecutionQuery): Promise<ControlResult<Execution[]>> =>
+      ipcRenderer.invoke('exec:list', query),
+    // C-CLIENT client.view.bind / unbind — attach a view (pane/tab id) to a
+    // managed Execution/Terminal; plain terminals never get one implicitly
+    bindView: (req: BindViewRequest): Promise<ControlResult<ClientViewBinding>> =>
+      ipcRenderer.invoke('exec:bindView', req),
+    unbindView: (req: UnbindViewRequest): Promise<ControlResult<null>> =>
+      ipcRenderer.invoke('exec:unbindView', req),
+    // generic command route (the workbench/CLI share one operation registry);
+    // the main process owns the authenticated session, the renderer never
+    // touches the daemon socket (IMP-01 §4.3, IMP-28)
+    op: (req: ExecOpRequest): Promise<ControlResult<unknown>> => ipcRenderer.invoke('exec:op', req),
+    // C-OBSERVATION runtime.subscribe — resolves a subscription id, or
+    // CONTROL_UNAVAILABLE when no streaming transport is negotiated (the UI
+    // degrades to snapshot refresh; events are never required for correctness)
+    subscribe: (req: RuntimeSubscribeRequest): Promise<ControlResult<string>> =>
+      ipcRenderer.invoke('exec:subscribe', req),
+    unsubscribe: (subscriptionId: string): Promise<ControlResult<null>> =>
+      ipcRenderer.invoke('exec:unsubscribe', subscriptionId),
+    onEvent: (cb: (e: RuntimeEventMessage) => void): (() => void) => {
+      const handler = (_: unknown, m: RuntimeEventMessage): void => cb(m)
+      ipcRenderer.on('exec:event', handler)
+      return () => ipcRenderer.removeListener('exec:event', handler)
+    }
+  },
+  runtime: {
+    // honest readiness of the control-plane endpoint — 'degraded' means a
+    // socket answered but no versioned session is negotiated yet
+    status: (): Promise<ServiceStatus> => ipcRenderer.invoke('runtime:status')
   },
   file: {
     openDialog: (): Promise<string | null> => ipcRenderer.invoke('file:openDialog'),

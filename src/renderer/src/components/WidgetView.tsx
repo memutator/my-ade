@@ -14,6 +14,11 @@ import { agentColor, agentLabel, agentProviders } from '../agents'
 import { fmtTok, fmtUsd, shortPath, srcProvider } from '../utils'
 import AgentIcon from './AgentIcon'
 import AgentsPanel from './AgentsPanel'
+import ResponsibilityView from '../workbench/ResponsibilityView'
+import TeamView from '../workbench/TeamView'
+import PlanView from '../workbench/PlanView'
+import InspectorView from '../workbench/InspectorView'
+import { useWorkbench } from '../workbench/store'
 import Tooltip from './Tooltip'
 import { Dropdown, Select } from './Menu'
 
@@ -1047,6 +1052,10 @@ export default function WidgetTabView({
     },
     [wsId, paneId, tabId]
   )
+  const projectId = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.projectId)
+  useEffect(() => {
+    if (projectId) useWorkbench.getState().setContext({ projectId })
+  }, [projectId])
 
   return (
     <div className="widget">
@@ -1054,6 +1063,14 @@ export default function WidgetTabView({
         <UsageBody providers={tab.providers} onProviders={onProviders} />
       ) : tab.widget === 'tokens' ? (
         <TokensBody />
+      ) : tab.widget === 'responsibility' ? (
+        <ResponsibilityView />
+      ) : tab.widget === 'team' ? (
+        <TeamView />
+      ) : tab.widget === 'plan' ? (
+        <PlanView />
+      ) : tab.widget === 'inspector' ? (
+        <InspectorView />
       ) : (
         <AgentsPanel wsId={wsId} />
       )}

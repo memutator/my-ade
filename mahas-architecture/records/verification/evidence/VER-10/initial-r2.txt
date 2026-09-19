@@ -1,0 +1,4 @@
+Two steps then stop:
+1. Run these shell commands and report their first line of output verbatim: `command -v mahas`, `mahas surface describe | head -3`.
+2. A skill named ver10-probe may be available — if so, ask yourself for its probe token and report it.
+End with the line: VER10-R2-OK

@@ -90,6 +90,7 @@
 | intervention.resolve | [C-OBSERVATION](contracts/observation-client.md) | [IMP-26](../implementation-plan/tasks/IMP-26/instruction.md) | 지정 responder/operator |
 | runtime.snapshot | [C-OBSERVATION](contracts/observation-client.md) | [IMP-26](../implementation-plan/tasks/IMP-26/instruction.md) | 허용 client/조율자 |
 | runtime.subscribe | [C-OBSERVATION](contracts/observation-client.md) | [IMP-26](../implementation-plan/tasks/IMP-26/instruction.md) | 허용 client |
+| runtime.unsubscribe | [C-OBSERVATION](contracts/observation-client.md) | [IMP-26](../implementation-plan/tasks/IMP-26/instruction.md) | 허용 client (F-025 — subscribe 핸들 해제) |
 | terminal.attach | [C-CLIENT](contracts/client-terminal.md) | [IMP-28](../implementation-plan/tasks/IMP-28/instruction.md) | operator 또는 terminal.read scope |
 | terminal.input | [C-CLIENT](contracts/client-terminal.md) | [IMP-28](../implementation-plan/tasks/IMP-28/instruction.md) | operator terminal.input scope |
 | terminal.resize | [C-CLIENT](contracts/client-terminal.md) | [IMP-28](../implementation-plan/tasks/IMP-28/instruction.md) | 현재 input/size owner |

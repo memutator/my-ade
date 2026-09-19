@@ -1,0 +1,19 @@
+{
+  "leg": "r4a",
+  "argv": [
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    "developer_instructions=\"# VER-10 mandatory instruction (role/mandatory.md)\\n\\nYou are a codex verification worker inside mahas.\\nScope: verification-only run under provisioning grant grt_ef804c80.\\nAnswer briefly. Do not modify files outside this checkout.\\n한글 지시 포함 — 개행과 UTF-8이 TOML basic-string을 통해 온전히 전달되어야 한다.\\n\"",
+    "Reply with exactly: VER10-R1-OK",
+    "resume",
+    "01a0b874-f86a-7ee1-9677-a34d08e10bc7",
+    "Reply with exactly: VER10-R4-RESUMED"
+  ],
+  "cwd": "/tmp/mahas-ver-10/exec/exec-ver10-1",
+  "code": 0,
+  "sig": null,
+  "ms": 4971,
+  "stdoutBytes": 17,
+  "stderrBytes": 484
+}

@@ -1,0 +1,12 @@
+{
+  "stepId": "s1i-readonly",
+  "at": 1789747676989,
+  "checks": [
+    {
+      "name": "1i openControlDb fails on unwritable db",
+      "ok": true,
+      "expected": "open error",
+      "observed": "Error: attempt to write a readonly database"
+    }
+  ]
+}

@@ -1,9 +1,14 @@
+import type { ExecutionBinding } from '../../../packages/mahas-contracts/src/index.ts'
+
 /** content kinds a leaf can stack — a "pane" has no type of its own */
 export type BlockKind = 'term' | 'web' | 'file' | 'widget'
 
 /** built-in widget blocks — 'agents' mirrors the sidebar's per-pane session
- *  list into a tab, 'usage' is a multi-harness rate-limit dashboard */
-export type WidgetKind = 'agents' | 'usage' | 'tokens'
+ *  list into a tab, 'usage' is a multi-harness rate-limit dashboard; the
+ *  workbench widgets (IMP-31/32) are the 팀장's responsibility/team/plan
+ *  views over the control plane's C-DISCOVERY/C-WORK contracts */
+export type WidgetKind =
+  'agents' | 'usage' | 'tokens' | 'responsibility' | 'team' | 'plan' | 'inspector'
 
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'
@@ -47,6 +52,12 @@ export interface TerminalTab {
   /** live pty-host session id — lets remounts/detached windows `attach`
    *  (with scrollback replay) instead of spawning a new shell */
   pty?: string
+  /** managed-execution binding (C-CLIENT client.view.bind): set only when a
+   *  control plane binds this tab's view to an Execution/Terminal it owns —
+   *  a separate identity from the pane/tab (REQ-11). Plain pty terminals
+   *  never get one, and a tab persisted before the runtime existed is NOT
+   *  retro-claimed as a managed execution (REQ-27) */
+  binding?: ExecutionBinding
 }
 
 export interface BrowserTab {
