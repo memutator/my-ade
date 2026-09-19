@@ -1,4 +1,4 @@
-# 오케스트레이션 상태 — 2026-09-19 15:29 자동 갱신
+# 오케스트레이션 상태 — 2026-09-19 16:03 자동 갱신
 
 생성: `python3 mahas-architecture/records/orchestration/update-status.py`
 
@@ -59,6 +59,6 @@
 - **VER-07** — recorded: `failed`
 - **VER-08** — recorded: `failed`
 - **VER-09** — READY TO RUN
-- **VER-10** — READY TO RUN
-- VER-11 — waiting: VER-09(ver), VER-10(ver)
+- **VER-10** — recorded: `passed`
+- VER-11 — waiting: VER-09(ver)
 - VER-12 — waiting: VER-11(ver)

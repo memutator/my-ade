@@ -1,0 +1,24 @@
+Reading additional input from stdin...
+OpenAI Codex v0.155.0
+--------
+workdir: /tmp/mahas-ver-10/exec/exec-ver10-1
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a0b874-f86a-7ee1-9677-a34d08e10bc7
+--------
+user
+Reply with exactly: VER10-R1-OK
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+VER10-R1-OK
+hook: Stop
+hook: Stop Completed
+tokens used
+15,926
