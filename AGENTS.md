@@ -26,14 +26,15 @@ splittable pane layout scoped to a project directory.
   omnibox/nav card over the page.
 - **programmatic opens stack, never split** — `newBlock` / `openFile` /
   `openUrlInBrowser` resolve a leaf via `stackTarget` (explicit requester >
-  focused visible > last visible) and append a tab; a new leaf is inserted
-  only when nothing visible exists. Invariant: **the focused leaf is never
-  implicitly split** — `splitPane` is reachable only from explicit user
-  gestures (Alt+D/Alt+S, the `⋯` menu, drag-to-edge). One exception
-  (`soleLeafSplit`): appending a NEW tab when the workspace has a single
-  visible leaf splits that leaf right — stacking would hide the only thing
-  on screen (tab-reuse paths like openFile's dedup/preview slot still stay
-  in place).
+  kind-affine visible leaf for content kinds — docs bundle with docs, web
+  tabs with web tabs; `term` stays focus-driven — > focused visible > last
+  visible) and append a tab; a new leaf is inserted only when nothing
+  visible exists. Invariant: **the focused leaf is never implicitly split**
+  — `splitPane` is reachable only from explicit user gestures (Alt+D/Alt+S,
+  the `⋯` menu, drag-to-edge). One exception (`soleLeafSplit`): appending a
+  NEW tab when the workspace has a single visible leaf splits that leaf
+  right — stacking would hide the only thing on screen (tab-reuse paths
+  like openFile's dedup/preview slot still stay in place).
 - Terminal cwd defaults to the workspace's `project.path`. File-tree roots are
   re-pickable via `TreeRootMenu` (MRU `treeRoots` → other projects → dir
   picker): the sidebar/peek-overlay share `sidebarRoots[projectId]` (default
@@ -81,7 +82,17 @@ splittable pane layout scoped to a project directory.
   unmount it and kill the session). A `.pane-dock` strip at the bottom of the
   workspace lists chips; restoring clears the flag and the pane reappears in its
   exact slot. Minimized terminals respawn their pty on app restart (they re-mount
-  hidden — acceptable).
+  hidden — acceptable). Inserting into a tree whose leaves are all hidden makes
+  the new pane the sole root — orphaned hidden leaves re-insert on restore
+  (`insertAt` also splits the last visible leaf instead of root-appending when
+  hidden leaves exist, so their slots aren't demoted a level).
+* **minimized tabs** (`tab.minimized`) leave the leaf's tab strip for ghost
+  `.dock-chip`s in the title-bar `PaneDock` (next to the minimized-pane
+  chips) — the block stays mounted and keeps running. Minimizing hands the
+  active slot to the nearest visible tab; restoring un-tucks, activates it
+  and raises a minimized pane / focuses a detached window when needed. Opens
+  that re-activate a docked tab (openFile dedup, moved tabs) un-tuck it;
+  `cyclePaneTab` skips docked tabs.
 
 ## Commands
 

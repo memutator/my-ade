@@ -2719,6 +2719,18 @@ body.pane-dragging webview {
   background: var(--hover);
   color: var(--text);
 }
+/* a tucked tab reads as a ghost next to the filled pane chips */
+.dock-chip.tab {
+  background: transparent;
+  border-color: var(--border);
+}
+.dock-dot.input {
+  background: var(--amber, #d29922);
+}
+.dock-dot.error {
+  background: var(--danger, #e5534b);
+}
+
 .dock-chip-close svg {
   width: 11px;
   height: 11px;

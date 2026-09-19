@@ -175,7 +175,11 @@ export default function LeafPane({
   const t = useT()
 
   const tabs = pane.tabs
-  const activeTab = tabs.find((x) => x.id === pane.activeTabId) ?? tabs[0]
+  const visibleTabs = tabs.filter((x) => !x.minimized)
+  // the effective active tab is always a visible one — activeTabId may point
+  // at a minimized tab only when every tab is tucked away, which renders the
+  // empty state instead of resurrecting one
+  const activeTab = visibleTabs.find((x) => x.id === pane.activeTabId) ?? visibleTabs.at(-1)
   const activeTabId = activeTab?.id ?? null
 
   const stripRef = useRef<TabStripHandle>(null)
@@ -204,15 +208,40 @@ export default function LeafPane({
       return
     }
     const want = keepId ?? activeTabId
-    const keep = want && next.some((x) => x.id === want) ? want : next.at(-1)!.id
+    const keep =
+      want && next.some((x) => x.id === want && !x.minimized)
+        ? want
+        : (next.filter((x) => !x.minimized).at(-1)?.id ?? next.at(-1)!.id)
     updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
   }
   const closeTab = (tabId: string): void => applyTabs(tabs.filter((x) => x.id !== tabId))
   const reorderTabs = (from: number, to: number): void => {
-    const next = [...tabs]
-    const [m] = next.splice(from, 1)
-    next.splice(to, 0, m)
+    // the strip shows visible tabs only — translate its indices back into the
+    // full list so minimized tabs keep their positions
+    const vis = tabs.filter((x) => !x.minimized)
+    const moved = vis[from]
+    if (!moved) return
+    const next = tabs.filter((x) => x.id !== moved.id)
+    const after = next.filter((x) => !x.minimized)
+    const anchor = to < after.length ? after[to] : undefined
+    next.splice(anchor ? next.indexOf(anchor) : next.length, 0, moved)
     updatePane(pane.id, { tabs: next }, wsId)
+  }
+  // tuck a tab out of the strip into the leaf's dock — the block stays
+  // mounted so its shell/webview/buffer keeps running. The active slot hands
+  // to the nearest visible tab (left of it, else right); all-minimized keeps
+  // the id so restoring brings it back.
+  const minimizeTab = (tabId: string): void => {
+    const next = tabs.map((x) => (x.id === tabId ? { ...x, minimized: true } : x))
+    let activeTabId = pane.activeTabId
+    if (activeTabId === tabId || !next.some((x) => x.id === activeTabId && !x.minimized)) {
+      const i = next.findIndex((x) => x.id === tabId)
+      activeTabId =
+        [...next.slice(0, i)].reverse().find((x) => !x.minimized)?.id ??
+        next.slice(i + 1).find((x) => !x.minimized)?.id ??
+        tabId
+    }
+    updatePane(pane.id, { tabs: next, activeTabId }, wsId)
   }
   // the strip's + adds a block to THIS leaf — the pane's own UI is an
   // explicit target, not a global open
@@ -341,6 +370,7 @@ export default function LeafPane({
     }
     return [
       ...head,
+      { label: t('minimizeTab'), act: () => minimizeTab(tab.id) },
       ...(head.length ? [{ sep: true } as CtxItem] : []),
       { label: t('close'), act: () => closeTab(tab.id) },
       {
@@ -361,8 +391,9 @@ export default function LeafPane({
   // points at the workspace level. One dot lives in the close slot: an
   // unanswered ask outranks a past failure, both outrank the live working
   // pulse, and all of them outrank generic news (unread / dirty / exited) —
-  // the shared precedence lives in statusForTab (utils.ts)
-  const items: TabItem[] = tabs.map((tab) => {
+  // the shared precedence lives in statusForTab (utils.ts). Minimized tabs
+  // leave the strip for the dock below.
+  const items: TabItem[] = visibleTabs.map((tab) => {
     const status = statusForTab(tab, notifications)
     const agentName = tab.kind === 'term' ? agentLabel(tab.agent ?? '') : ''
     const dotTip =
@@ -509,7 +540,7 @@ export default function LeafPane({
                     ? 'widget-tab'
                     : 'web-tab'
             }
-            hidden={tab.id !== activeTabId}
+            hidden={tab.id !== activeTabId || !!tab.minimized}
           >
             {tab.kind === 'term' ? (
               <TerminalTabView
@@ -550,6 +581,13 @@ export default function LeafPane({
             )}
           </div>
         ))}
+        {visibleTabs.length === 0 && (
+          <div className="file-body">
+            <div className="file-empty">
+              <span>{t('allTabsMinimized')}</span>
+            </div>
+          </div>
+        )}
         {activeTab?.kind === 'file' && (
           <TreePeek pane={pane} wsId={wsId} projectPath={projectPath} />
         )}

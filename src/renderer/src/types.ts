@@ -80,7 +80,11 @@ export interface WidgetTab {
 }
 
 /** one tab inside a leaf — the block */
-export type PaneTab = TerminalTab | BrowserTab | EditorTab | WidgetTab
+export type PaneTab = (TerminalTab | BrowserTab | EditorTab | WidgetTab) & {
+  /** tucked out of the tab strip into the leaf's tab dock — the block stays
+   *  mounted (pty/webview/buffer keep running); its chip restores it */
+  minimized?: boolean
+}
 
 export interface PaneState {
   id: string

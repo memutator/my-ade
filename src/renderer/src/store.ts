@@ -57,7 +57,8 @@ function insertAt(
   targetPaneId: string | null,
   edge: DropEdge | null
 ): LayoutNode {
-  if (root && targetPaneId && edge && leafPaneIds(root).includes(targetPaneId)) {
+  const vis = root ? visibleLeafIds(root, panes) : []
+  if (root && targetPaneId && edge && vis.includes(targetPaneId)) {
     const dir: 'row' | 'col' = edge === 'left' || edge === 'right' ? 'row' : 'col'
     const first = edge === 'left' || edge === 'top'
     return mapLeaf(root, targetPaneId, (l) => ({
@@ -70,7 +71,24 @@ function insertAt(
     }))
   }
   if (root) {
-    const n = Math.max(1, visibleLeafIds(root, panes).length)
+    // every leaf is hidden (minimized/detached) — wrapping the whole tree
+    // would hand half the screen to dead space and bury each restored pane a
+    // level deeper. Take over instead; hidden leaves re-insert on restore.
+    if (!vis.length) return leaf(paneId)
+    // hidden leaves present — a root append would demote their slots one
+    // level (restoring shrinks them); split the last visible leaf so hidden
+    // slots keep their exact share.
+    if (vis.length !== leafPaneIds(root).length) {
+      return mapLeaf(root, vis[vis.length - 1], (l) => ({
+        kind: 'split',
+        id: uid(),
+        dir: 'row',
+        ratio: 0.5,
+        a: l,
+        b: leaf(paneId)
+      }))
+    }
+    const n = vis.length
     return {
       kind: 'split',
       id: uid(),
@@ -102,13 +120,20 @@ function insertPane(w: Workspace, pane: PaneState): Workspace {
 }
 
 // The leaf a programmatic open lands in: the explicit requester (a pane's own
-// UI — allowed even when detached), else the focused visible pane, else the
-// last visible leaf. Undefined = nothing on screen; the caller makes a leaf.
+// UI — allowed even when detached), else — for content kinds — a visible leaf
+// already hosting that kind (docs bundle with docs, web tabs with web tabs),
+// else the focused visible pane, else the last visible leaf. Undefined =
+// nothing on screen; the caller makes a leaf.
 // Invariant: opens stack into an existing leaf, never split — a focused leaf
 // can only be split by explicit user gestures (split keys, drag-to-edge),
 // with ONE exception: see soleLeafSplit.
-function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
+function stackTarget(
+  w: Workspace,
+  paneId?: string | null,
+  kind?: PaneTab['kind']
+): string | undefined {
   const explicit = paneId && w.panes[paneId] && !w.panes[paneId].minimized ? paneId : undefined
+  if (explicit) return explicit
   const focused =
     w.focusedPaneId &&
     w.panes[w.focusedPaneId] &&
@@ -116,7 +141,29 @@ function stackTarget(w: Workspace, paneId?: string | null): string | undefined {
     !w.panes[w.focusedPaneId].detached
       ? w.focusedPaneId
       : undefined
-  return explicit ?? focused ?? visibleLeafIds(w.root, w.panes).at(-1)
+  const vis = visibleLeafIds(w.root, w.panes)
+  if (kind) {
+    const withKind = vis.filter((id) =>
+      w.panes[id]?.tabs.some((t) => t.kind === kind && !t.minimized)
+    )
+    if (withKind.length) {
+      // a kind-carrying leaf you're looking at wins; otherwise the one whose
+      // active tab is that kind, then the one holding the most of them
+      if (focused && withKind.includes(focused)) return focused
+      return withKind
+        .map((id) => {
+          const p = w.panes[id]
+          const active = p.tabs.find((t) => t.id === p.activeTabId)
+          return {
+            id,
+            top: active && !active.minimized && active.kind === kind ? 1 : 0,
+            n: p.tabs.filter((t) => t.kind === kind).length
+          }
+        })
+        .sort((a, b) => b.top - a.top || b.n - a.n)[0].id
+    }
+  }
+  return focused ?? vis.at(-1)
 }
 
 // Terminal links (file paths, urls) open in a content pane rather than the
@@ -729,7 +776,9 @@ export const useStore = create<MahasState>((set, get) => {
         if (!wsId) return s
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
-        const target = stackTarget(ws)
+        // content kinds find their own kind's leaf (docs → doc pane); a new
+        // shell still lands where you're working — no affinity for 'term'
+        const target = stackTarget(ws, null, kind === 'term' ? undefined : kind)
         if (!target) {
           return {
             workspaces: updWs(s.workspaces, wsId, (w) =>
@@ -939,9 +988,22 @@ export const useStore = create<MahasState>((set, get) => {
           workspaces: updWs(s.workspaces, wsId, (w) => {
             const pane = w.panes[paneId]
             if (!pane?.detached) return w
+            const panes = {
+              ...w.panes,
+              [paneId]: { ...pane, detached: undefined } as PaneState
+            }
+            // a pane created while every leaf was hidden takes over the tree
+            // and orphans hidden leaves — re-insert when the slot is gone
+            // (same defensive path as restoreInWorkspace)
+            if (w.root && leafPaneIds(w.root).includes(paneId)) {
+              return { ...w, panes, focusedPaneId: paneId }
+            }
+            const vis = visibleLeafIds(w.root, panes)
+            const target = w.focusedPaneId && vis.includes(w.focusedPaneId) ? w.focusedPaneId : null
             return {
               ...w,
-              panes: { ...w.panes, [paneId]: { ...pane, detached: undefined } as PaneState },
+              panes,
+              root: insertAt(w.root, panes, paneId, target, 'right'),
               focusedPaneId: paneId
             }
           })
@@ -1071,8 +1133,12 @@ export const useStore = create<MahasState>((set, get) => {
         const from = s.workspaces.find((w) => w.id === fromWsId)
         const to = s.workspaces.find((w) => w.id === toWsId)
         const src = from?.panes[fromPaneId]
-        const tab = src?.tabs.find((t) => t.id === tabId)
-        if (!from || !to || !src || !tab) return s
+        const tab0 = src?.tabs.find((t) => t.id === tabId)
+        if (!from || !to || !src || !tab0) return s
+        // a tucked tab being moved is meant to be seen — drop its docked
+        // state at the destination (unreachable from the strip UI anyway,
+        // which only drags visible tabs)
+        const tab = (tab0.minimized ? { ...tab0, minimized: undefined } : tab0) as PaneTab
         if (targetPaneId === fromPaneId && !edge) return s // drop on own center = noop
         if (targetPaneId && !to.panes[targetPaneId]) return s
 
@@ -1241,12 +1307,13 @@ export const useStore = create<MahasState>((set, get) => {
       if (!wsId) return
       const ws = get().workspaces.find((w) => w.id === wsId)
       const p = ws?.focusedPaneId ? ws.panes[ws.focusedPaneId] : undefined
-      if (!p || p.tabs.length < 2) return
+      const tabs = p?.tabs.filter((t) => !t.minimized) ?? []
+      if (!p || tabs.length < 2) return
       const i = Math.max(
         0,
-        p.tabs.findIndex((t) => t.id === p.activeTabId)
+        tabs.findIndex((t) => t.id === p.activeTabId)
       )
-      const next = p.tabs[(i + dir + p.tabs.length) % p.tabs.length]
+      const next = tabs[(i + dir + tabs.length) % tabs.length]
       get().updatePane(p.id, { activeTabId: next.id }, wsId)
     },
 
@@ -1268,7 +1335,7 @@ export const useStore = create<MahasState>((set, get) => {
           name,
           preview: preview || undefined
         }
-        const target = stackTarget(ws, paneId)
+        const target = stackTarget(ws, paneId, 'file')
         if (!target) {
           const pane = makePane('file')
           pane.tabs = [tab]
@@ -1279,10 +1346,21 @@ export const useStore = create<MahasState>((set, get) => {
         const p = ws.panes[target]
         const existing = p.tabs.find((t): t is EditorTab => t.kind === 'file' && t.path === path)
         if (existing) {
-          // a permanent open on a preview tab pins it
+          // activating an already-open tab un-tucks it (a minimized tab being
+          // opened again visibly belongs back in the strip); a permanent open
+          // on a preview tab also pins it
+          const ex = existing as PaneTab
           const tabs =
-            existing.preview && !preview
-              ? p.tabs.map((t) => (t.id === existing.id ? { ...t, preview: undefined } : t))
+            (existing.preview && !preview) || ex.minimized
+              ? p.tabs.map((t) =>
+                  t.id === existing.id
+                    ? ({
+                        ...existing,
+                        minimized: undefined,
+                        preview: existing.preview && !preview ? undefined : existing.preview
+                      } as PaneTab)
+                    : t
+                )
               : p.tabs
           return {
             workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, existing.id))
@@ -1317,10 +1395,10 @@ export const useStore = create<MahasState>((set, get) => {
         const ws = s.workspaces.find((w) => w.id === wsId)
         if (!ws) return s
 
-        const target = stackTarget(ws, paneId)
+        const target = stackTarget(ws, paneId, 'web')
         const p = target ? ws.panes[target] : undefined
         const active = p?.tabs.find((t) => t.id === p.activeTabId)
-        if (p && target && active?.kind === 'web' && !newTab) {
+        if (p && target && active?.kind === 'web' && !active.minimized && !newTab) {
           const tabs = p.tabs.map((t) => (t.id === active.id ? { ...t, url } : t))
           return {
             workspaces: updWs(s.workspaces, wsId, (w) => pushTab(w, target, tabs, active.id))

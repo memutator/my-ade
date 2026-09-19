@@ -388,19 +388,6 @@ function UsageBody({
   const catalogKey = catalog.map((s) => s.key).join('|')
   const selected = providers ? providers.filter((k) => srcByKey.has(k)) : catalog.map((s) => s.key)
   const selectedKey = selected.join('|')
-  // provider → selected source keys, in catalog order — each group renders a
-  // provider header with its account cards stacked underneath
-  const groups = useMemo(() => {
-    const out: { provider: string; keys: string[] }[] = []
-    for (const s of catalog) {
-      if (!selected.includes(s.key)) continue
-      const g = out.find((g) => g.provider === s.provider)
-      if (g) g.keys.push(s.key)
-      else out.push({ provider: s.provider, keys: [s.key] })
-    }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, selectedKey])
   const [rows, setRows] = useState<Record<string, UsageResult>>(() => {
     const init: Record<string, UsageResult> = {}
     for (const k of selected) {
@@ -412,6 +399,40 @@ function UsageBody({
   const [busy, setBusy] = useState(false)
   const manifest = agentProviders()
   const addable = USAGE_PROVIDERS.filter((id) => manifest[id])
+
+  /* collapse sources resolving to the same account — the system credential
+     and a managed registration of the same login (e.g. the CLI was re-signed
+     into the registered account) are ONE account and render once. The first
+     source in catalog order wins, so the live system credential survives and
+     the managed dup reappears the moment identities diverge. An unresolved
+     fetch can't prove a dup, so its card stays. */
+  const dupKeys = useMemo(() => {
+    const seen = new Set<string>()
+    const dups = new Set<string>()
+    for (const s of catalog) {
+      if (!selected.includes(s.key)) continue
+      const acct = rows[s.key]?.account?.trim().toLowerCase()
+      if (!acct) continue
+      const id = `${s.provider}${acct}`
+      if (seen.has(id)) dups.add(s.key)
+      else seen.add(id)
+    }
+    return dups
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog, selectedKey, rows])
+  const visibleSel = useMemo(() => selected.filter((k) => !dupKeys.has(k)), [selected, dupKeys])
+  // provider → visible source keys, in catalog order — each group renders a
+  // provider header with its account cards stacked underneath
+  const groups = useMemo(() => {
+    const out: { provider: string; keys: string[] }[] = []
+    for (const s of catalog) {
+      if (!visibleSel.includes(s.key)) continue
+      const g = out.find((g) => g.provider === s.provider)
+      if (g) g.keys.push(s.key)
+      else out.push({ provider: s.provider, keys: [s.key] })
+    }
+    return out
+  }, [catalog, visibleSel])
 
   // old tabs only stored `provider`; open them as the full dashboard once
   // the catalog is known. after the user toggles, `providers` is the source.
@@ -527,7 +548,7 @@ function UsageBody({
       </span>
     )
 
-  const shown = selected.map((k) => rows[k]).filter(Boolean)
+  const shown = visibleSel.map((k) => rows[k]).filter(Boolean)
   const ok = shown.filter((r) => r.ok)
   const peak = ok.reduce((m, r) => {
     for (const w of r.windows) {
@@ -591,12 +612,12 @@ function UsageBody({
             <div className="dash-kpis">
               <div className="dash-kpi">
                 <span className="dash-kpi-l">{t('agents')}</span>
-                <span className="dash-kpi-v">{selected.length}</span>
+                <span className="dash-kpi-v">{visibleSel.length}</span>
               </div>
               <div className="dash-kpi">
                 <span className="dash-kpi-l">{t('usageReporting')}</span>
                 <span className="dash-kpi-v">
-                  {ok.length}/{selected.length}
+                  {ok.length}/{visibleSel.length}
                 </span>
               </div>
               <div className="dash-kpi">
