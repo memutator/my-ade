@@ -214,11 +214,20 @@ function buildEvent(provider, argEvent, payload) {
     argEvent,
     p
   )
-  // cline subagent runs emit the same lifecycle names with parent_agent_id
-  // set — tracking only, and their taskId must not claim the tab's resume
-  // record (same shape as codex's internal catch-up threads below)
-  const clineSub = typeof p.parent_agent_id === 'string' && p.parent_agent_id
-  if (clineSub) event = 'other'
+  // Subagent runs are not user-facing turns — however the harness labels
+  // them (cline team runs' parent_agent_id, grok/claude subagent sessions'
+  // subagentType, claude-style SubagentStop, explicit isSubagent flags) they
+  // demote to tracking-only and their session id must not claim the tab's
+  // resume record (same shape as codex's internal catch-up threads below)
+  const subagentRun =
+    (typeof p.parent_agent_id === 'string' && p.parent_agent_id) ||
+    typeof p.subagentType === 'string' ||
+    p.isSubagent === true ||
+    p.is_subagent === true ||
+    String(p.hook_event_name || p.hookEventName || '')
+      .trim()
+      .toLowerCase() === 'subagentstop'
+  if (subagentRun) event = 'other'
   // grok fires an extra observe-only Stop at teardown; reclassify it.
   if (
     event === 'turn-complete' &&
@@ -262,7 +271,7 @@ function buildEvent(provider, argEvent, payload) {
     process.env.CLAUDE_PROJECT_DIR,
     process.env.CODEX_WORKSPACE_ROOT
   )
-  const sessionId = internalThread || clineSub
+  const sessionId = internalThread || subagentRun
     ? ''
     : firstString(
         p.session_id,

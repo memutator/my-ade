@@ -171,7 +171,12 @@ without being asked:
   UserPromptSubmit→turn-start, SessionShutdown→session-end; stdin JSON payload
   carries `taskId`/`workspaceRoots`; runs with `parent_agent_id` demote to
   `other` with the sessionId stripped; a displaced user `<Event>` file is kept
-  at `.mahas-bak` and our script re-pipes stdin to it).
+  at `.mahas-bak` and our script re-pipes stdin to it). Subagent runs are
+  never user-facing signals: any payload marked as one (cline
+  `parent_agent_id`, grok/claude `subagentType`, claude-style
+  `SubagentStop`, `isSubagent`) demotes to `other` (tracking only, no
+  notification) with the sessionId stripped so it can't claim a resume
+  record.
   `hooks:test` writes a synthetic event through the
   real channel — the Settings "agent hooks" section has status/install/test
   per provider. Events carry `mahasSession` (`process.env.MAHAS_SESSION`, a per-run

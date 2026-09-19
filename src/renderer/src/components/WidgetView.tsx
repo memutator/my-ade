@@ -712,6 +712,8 @@ function fetchLedger(tracked: LedgerQuery[], force = false): Promise<LedgerResul
   return p
 }
 
+const emptyTok = (): TokenUse => ({ input: 0, output: 0, cached: 0, reasoning: 0, total: 0 })
+
 function sumTokens(list: TokenUse[]): TokenUse {
   return list.reduce(
     (a, b) => ({
@@ -813,9 +815,25 @@ function TokensBody(): React.JSX.Element {
     }
   }
 
-  const all = res ? sumTokens(res.profiles.map((p) => p.tokens)) : null
-  const sessN = res ? res.profiles.reduce((n, p) => n + p.sessionCount, 0) : 0
-  const shareMax = res ? Math.max(1, ...res.profiles.map((p) => p.tokens.total)) : 1
+  // Only sessions the app actually connected to (agentSessions — hook/pty
+  // attributed) count: profiles aggregate from those, never the whole-disk
+  // scan, so off-app harness usage stays out of the totals.
+  const profiles = useMemo(() => {
+    if (!res) return []
+    const m = new Map<string, { provider: string; sessionCount: number; tokens: TokenUse }>()
+    for (const s of res.sessions) {
+      if (!s.found) continue
+      const g = m.get(s.provider) ?? { provider: s.provider, sessionCount: 0, tokens: emptyTok() }
+      g.sessionCount++
+      g.tokens = sumTokens([g.tokens, s.tokens])
+      m.set(s.provider, g)
+    }
+    return [...m.values()].sort((a, b) => b.tokens.total - a.tokens.total)
+  }, [res])
+
+  const all = useMemo(() => sumTokens(profiles.map((p) => p.tokens)), [profiles])
+  const sessN = profiles.reduce((n, p) => n + p.sessionCount, 0)
+  const shareMax = Math.max(1, ...profiles.map((p) => p.tokens.total))
   const sessMax = res
     ? Math.max(1, ...res.sessions.filter((s) => s.found).map((s) => s.tokens.total))
     : 1
@@ -862,9 +880,9 @@ function TokensBody(): React.JSX.Element {
             </div>
 
             <div className="dash-sec">{t('tokensShare')}</div>
-            {res.profiles.length ? (
+            {profiles.length ? (
               <div className="dash-share">
-                {res.profiles.map((p) => {
+                {profiles.map((p) => {
                   const tot = all.total || all.input + all.output || 1
                   const pct = ((p.tokens.total || p.tokens.input) / tot) * 100
                   if (pct < 0.4) return null
@@ -883,7 +901,7 @@ function TokensBody(): React.JSX.Element {
               </div>
             ) : null}
             <div className="dash-legend">
-              {res.profiles.map((p) => (
+              {profiles.map((p) => (
                 <span key={p.provider} className="dash-leg">
                   <i style={{ background: agentColor(p.provider) ?? 'var(--accent)' }} />
                   {agentLabel(p.provider)}
@@ -892,9 +910,9 @@ function TokensBody(): React.JSX.Element {
             </div>
 
             <div className="dash-sec">{t('tokensProfile')}</div>
-            {res.profiles.length ? (
+            {profiles.length ? (
               <div className="dash-grid">
-                {res.profiles.map((p) => {
+                {profiles.map((p) => {
                   const tot = p.tokens.total || p.tokens.input + p.tokens.output
                   return (
                     <div key={p.provider} className="dash-card">
