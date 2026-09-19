@@ -144,6 +144,24 @@ export function connectHost(endpoint: string, opts?: ConnectHostOptions): Promis
     })
 
     const rl = createInterface({ input: sock, terminal: false })
+    // F-006: readline re-emits the input socket's error on the Interface. With
+    // no listener that is an unhandled 'error' event → the whole mahasd process
+    // died on a stale endpoint file (dial ECONNREFUSED before
+    // host-attach-failed could be logged). A transport fault fails in-flight
+    // calls and nothing else.
+    rl.on('error', (err) => {
+      const e = err instanceof Error ? err : new Error(String(err))
+      if (!connected) {
+        reject(
+          new HostCallError(
+            'CONTROL_UNAVAILABLE',
+            `cannot connect to execution-host at ${endpoint}: ${e.message}`
+          )
+        )
+      } else {
+        failAll(e)
+      }
+    })
     rl.on('line', (line) => {
       let m: {
         t?: string

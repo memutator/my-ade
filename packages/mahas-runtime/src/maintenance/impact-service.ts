@@ -163,6 +163,14 @@ function decodeCursor(q: ImpactListQuery, raw: string): number {
  * Candidates for a project, newest-last by insertion order. roleId matches
  * the affected role OR the designated maintainer role recorded in the
  * reason scope (the "해당 책임자" view).
+ *
+ * F-059: accepts BOTH reason shapes — the scoped envelope
+ * (`reason_json.scope.projectId`, written since the writer fix) AND legacy
+ * `{kind,details}` rows without a scope. A scopeless row is matched by the
+ * candidate's own `change_ref` column against `model_changes.project_id`
+ * where that resolves; when it does not resolve (observer-style refs such
+ * as `outcome:…`/`context-source:…`, or any unjoinable ref) the row is
+ * INCLUDED, never silently dropped.
  */
 export function listImpactCandidates(
   db: DatabaseSync,
@@ -174,19 +182,32 @@ export function listImpactCandidates(
   const rows = db
     .prepare(
       `SELECT rowid AS rid, * FROM impact_candidates
-       WHERE json_extract(reason_json, '$.scope.projectId') = ?
-         AND (? IS NULL OR state = ?)
-         AND (? IS NULL OR rowid > ?)
-         AND (
-           ? IS NULL
-           OR json_extract(reason_json, '$.scope.roleId') = ?
-           OR json_extract(reason_json, '$.scope.maintainerRoleId') = ?
-           OR (target_kind = 'role' AND target_id = ?)
-         )
-       ORDER BY rowid ASC
-       LIMIT ?`
+       WHERE (
+          json_extract(reason_json, '$.scope.projectId') = ?
+          OR (
+            json_extract(reason_json, '$.scope.projectId') IS NULL
+            AND (
+              NOT EXISTS (SELECT 1 FROM model_changes mc WHERE mc.id = impact_candidates.change_ref)
+              OR EXISTS (
+                SELECT 1 FROM model_changes mc
+                WHERE mc.id = impact_candidates.change_ref AND mc.project_id = ?
+              )
+            )
+          )
+        )
+          AND (? IS NULL OR state = ?)
+          AND (? IS NULL OR rowid > ?)
+          AND (
+            ? IS NULL
+            OR json_extract(reason_json, '$.scope.roleId') = ?
+            OR json_extract(reason_json, '$.scope.maintainerRoleId') = ?
+            OR (target_kind = 'role' AND target_id = ?)
+          )
+        ORDER BY rowid ASC
+        LIMIT ?`
     )
     .all(
+      q.projectId,
       q.projectId,
       q.status ?? null,
       q.status ?? null,

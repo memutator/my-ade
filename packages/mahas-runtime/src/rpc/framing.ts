@@ -102,14 +102,96 @@ export function isMahasError(v: unknown): v is MahasError {
   return typeof e.code === 'string' && typeof e.message === 'string'
 }
 
-/** ensure a wire-bound error carries a retry verdict */
+/**
+ * Wire form of a receipt/transport error (F-060).
+ *
+ * `name` (e.g. 'AccessError') is kept for compat/debugging only — it is
+ * never the authority (`code` is). `message` and `details` are part of the
+ * frame: JSON.stringify of an Error subclass drops the non-enumerable
+ * `message`, so every error must pass through serializeWireError before
+ * hitting the wire or it arrives as `{code,retry,name}` with the reason
+ * stripped.
+ */
+export interface WireMahasError {
+  code: string
+  message: string
+  retry: string
+  details?: unknown
+  name?: string
+}
+
+/**
+ * Serialize side: an Error instance (AccessError, ClientOpError, …) or a
+ * plain MahasError → wire object. Reads `message` via property access
+ * (works despite non-enumerability) and keeps `details` + `name`.
+ */
+export function serializeWireError(err: unknown): WireMahasError {
+  const e = err as Record<string, unknown> | null | undefined
+  const code = typeof e?.code === 'string' ? e.code : 'UNKNOWN'
+  const rawMessage = e?.message
+  const message =
+    typeof rawMessage === 'string' && rawMessage.length > 0 ? rawMessage : String(code)
+  const retry = typeof e?.retry === 'string' ? e.retry : 'none'
+  const out: WireMahasError = { code, message, retry }
+  if (e !== null && typeof e === 'object' && 'details' in e && e.details !== undefined) {
+    out.details = e.details
+  }
+  if (typeof e?.name === 'string') out.name = e.name
+  return out
+}
+
+const WIRE_RETRIES: readonly string[] = ['none', 'same-operation', 'reconcile', 'replan']
+
+/**
+ * Parse side: a wire object → MahasError. Accepts both the new shape
+ * (message + details present) and legacy frames (`{code,retry,name}`
+ * without message — message falls back to `code` so the verdict stays
+ * structured instead of collapsing to the caller's fallback). `name` is
+ * preserved when present for compat. Returns null when there is no
+ * usable `code`.
+ */
+export function parseWireError(wire: unknown): MahasError | null {
+  if (typeof wire !== 'object' || wire === null) return null
+  const e = wire as Record<string, unknown>
+  if (typeof e.code !== 'string') return null
+  const message =
+    typeof e.message === 'string' && e.message.length > 0 ? e.message : e.code
+  const retry: ErrorRetry = (
+    typeof e.retry === 'string' && WIRE_RETRIES.includes(e.retry) ? e.retry : 'none'
+  ) as ErrorRetry
+  const out: MahasError & { name?: string } = {
+    code: e.code as ErrorCode,
+    message,
+    retry
+  }
+  if ('details' in e && e.details !== undefined) out.details = e.details
+  if (typeof e.name === 'string') out.name = e.name
+  return out
+}
+
+/**
+ * Ensure a wire-bound error carries a retry verdict. Rebuilds the error
+ * as a plain wire-safe object (a spread of an Error instance would drop
+ * the non-enumerable `message` again) and recovers legacy
+ * `{code,retry,name}` frames via parseWireError instead of losing their
+ * code to the fallback.
+ */
 export function normalizeError(v: unknown, fallback: MahasError): MahasError {
-  if (!isMahasError(v)) return fallback
-  return v.retry === undefined ? { ...v, retry: 'none' } : v
+  if (v instanceof Error) {
+    const wire = serializeWireError(v)
+    return parseWireError(wire) ?? fallback
+  }
+  const parsed = parseWireError(v)
+  if (!parsed) return fallback
+  return parsed.retry === undefined ? { ...parsed, retry: 'none' } : parsed
 }
 
 export function encodeFrame(frame: ClientFrame | ServerFrame): string {
-  return JSON.stringify(frame) + '\n'
+  return (
+    JSON.stringify(frame, (_key, value) =>
+      value instanceof Error ? serializeWireError(value) : value
+    ) + '\n'
+  )
 }
 
 export type FrameParseResult =

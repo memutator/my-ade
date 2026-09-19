@@ -146,6 +146,7 @@ function handleConnection(
   const transportSessionId = randomUUID()
   let ctx: AuthenticatedContext | null = null
   let helloSeen = false
+  let frameChain: Promise<void> = Promise.resolve()
 
   const helloTimer = setTimeout(() => {
     if (!helloSeen) {
@@ -158,7 +159,20 @@ function handleConnection(
   }, HELLO_TIMEOUT_MS)
 
   const decoder = new NdjsonDecoder(
-    (line) => void onLine(line),
+    (line) => {
+      // F-036: frames on one connection are processed strictly in arrival
+      // order. onLine is async (hello authenticates, calls dispatch); firing
+      // it bare lets a pipelined call race hello auth while ctx is still
+      // null — answering unknown/CONTROL_UNAVAILABLE or committed depending
+      // on timing. Chain per connection so a later frame waits for the
+      // earlier one; a rejected link never breaks the chain (every frame
+      // already reports its own errors). Cross-connection concurrency is
+      // unaffected — the chain is per handleConnection.
+      frameChain = frameChain.then(() => onLine(line)).then(
+        () => undefined,
+        () => undefined
+      )
+    },
     () => {
       writeFrame(sock, errorFrame(null, mahasError('MODEL_INVALID', 'frame exceeds size limit')))
       sock.destroy()
@@ -274,8 +288,9 @@ function handleConnection(
     }
     let receipt: CommandReceipt
     try {
-      // ctx is guaranteed non-null: helloSeen implies onHello succeeded —
-      // a failed hello destroys the socket before any call arrives
+      // ctx is guaranteed non-null: frames serialize per connection (F-036),
+      // so helloSeen implies onHello fully completed — a failed hello
+      // destroys the socket before any call frame is processed.
       receipt = await registry.dispatch(ctx as AuthenticatedContext, req)
     } catch (e) {
       // REQ-14: a dispatch that fails to answer leaves the outcome genuinely

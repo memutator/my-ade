@@ -275,7 +275,7 @@ export function upsertBinding(
       revision: layout.revision + 1,
       updatedAt: nowMs,
       subscriptionId: terminalChanged
-        ? null
+        ? (input.subscriptionId ?? null)
         : input.subscriptionId !== undefined
           ? input.subscriptionId
           : input.keepSubscription

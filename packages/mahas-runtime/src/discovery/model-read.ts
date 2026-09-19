@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
+import { normalizeRepoPath as territoryNormalize } from '../model/territory.ts'
 import { discoveryError } from './types.ts'
 import type { BoundarySummary, CriterionSummary, RoleSummary } from './types.ts'
 
@@ -24,6 +25,7 @@ import type { BoundarySummary, CriterionSummary, RoleSummary } from './types.ts'
 export interface ProjectRow {
   id: string
   name: string
+  repository_root?: string
   active_model_version: string | null
   revision: number
 }
@@ -129,7 +131,7 @@ export function resolveModelVersion(
 ): ResolvedModel {
   const project = row<ProjectRow>(
     db,
-    'SELECT id, name, active_model_version, revision FROM projects WHERE id = ?',
+    'SELECT id, name, repository_root, active_model_version, revision FROM projects WHERE id = ?',
     projectId
   )
   if (project === undefined)
@@ -184,40 +186,42 @@ export interface NormalizedPath {
   dirHint: boolean
 }
 
-export function normalizeRepoPath(raw: string): NormalizedPath {
+export function normalizeRepoPath(raw: string, repositoryRoot?: string): NormalizedPath {
   if (typeof raw !== 'string' || raw.length === 0)
     throw discoveryError('MODEL_INVALID', 'empty path', { path: raw })
-  if (raw.includes('\0')) throw discoveryError('MODEL_INVALID', 'path contains NUL', { path: raw })
-  if (raw.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(raw))
-    throw discoveryError('MODEL_INVALID', 'absolute paths are not repo-relative', { path: raw })
   const dirHint = raw.endsWith('/')
-  const out: string[] = []
-  for (const seg of raw.replace(/\\/g, '/').split('/')) {
-    if (seg === '' || seg === '.') continue
-    if (seg === '..') {
-      if (out.length === 0)
-        throw discoveryError('MODEL_INVALID', 'path escapes the repository root', {
-          path: raw
-        })
-      out.pop()
-      continue
-    }
-    out.push(seg)
+  const r = territoryNormalize(raw, repositoryRoot)
+  if (!r.ok) {
+    throw discoveryError(
+      'MODEL_INVALID',
+      r.reason === 'outside-repository' || r.reason === 'escape'
+        ? 'path escapes the repository root'
+        : `not a valid repo-relative path (${r.reason})`,
+      { path: raw }
+    )
   }
-  if (out.length === 0)
-    throw discoveryError('MODEL_INVALID', 'path resolves to the repository root', {
-      path: raw
-    })
-  return { path: out.join('/'), dirHint }
+  return { path: r.normalized, dirHint }
 }
 
 /** safe normalize for per-path diagnostics — never throws */
-export function tryNormalizeRepoPath(raw: string): NormalizedPath | null {
+export function tryNormalizeRepoPath(
+  raw: string,
+  repositoryRoot?: string
+): NormalizedPath | null {
   try {
-    return normalizeRepoPath(raw)
+    return normalizeRepoPath(raw, repositoryRoot)
   } catch {
     return null
   }
+}
+
+export function projectRepositoryRoot(db: DatabaseSync, projectId: string): string | undefined {
+  const p = row<{ repository_root: string }>(
+    db,
+    'SELECT repository_root FROM projects WHERE id = ?',
+    projectId
+  )
+  return p?.repository_root
 }
 
 // ---------------------------------------------------------------------------
@@ -551,6 +555,13 @@ export function interfaceRequirementsForBoundaryRoles(
     try {
       const parsed = JSON.parse(r.requirements_json) as unknown
       if (Array.isArray(parsed)) requirements = parsed
+      else if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        Array.isArray((parsed as { contextRequirements?: unknown }).contextRequirements)
+      ) {
+        requirements = (parsed as { contextRequirements: unknown[] }).contextRequirements
+      }
     } catch {
       // a malformed JSON column is a data defect — surface as no clauses
     }

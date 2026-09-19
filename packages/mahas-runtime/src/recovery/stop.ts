@@ -308,6 +308,7 @@ async function callHostStop(
     const res = await withTimeout(
       client.call<Record<string, unknown>>('host.process.stop', {
         effectKey: intent.id,
+        processIncarnation: exec.processIdentity,
         expectedProcessIncarnation: exec.processIdentity,
         expectedHostIncarnation: expectedHostIncarnationFor(db, exec),
         mode: input.mode,
@@ -320,7 +321,7 @@ async function callHostStop(
       }),
       timeout
     )
-    const outcome = res?.outcome ?? res?.result ?? res?.state
+    const outcome = hostStopOutcome(res)
     if (
       outcome === 'exited' ||
       outcome === 'already-exited' ||
@@ -330,7 +331,12 @@ async function callHostStop(
       return {
         kind: 'exited',
         evidence: res?.evidence ?? res?.receipt ?? res,
-        observedExit: parseObservedExit(res?.observedExit ?? res?.exit)
+        observedExit: parseObservedExit(
+          res?.observedExit ??
+            res?.exit ??
+            nestedRecord(res, 'stop')?.observedExit ??
+            nestedRecord(nestedRecord(res, 'stop'), 'receipt')?.observedExit
+        )
       }
     }
     return {
@@ -347,13 +353,29 @@ async function callHostStop(
         : `stop call failed: ${e instanceof Error ? e.message : String(e)}`,
       evidence: isMahasError(e) ? e.details : undefined
     }
-  } finally {
-    try {
-      client.close()
-    } catch {
-      /* close failure changes nothing */
-    }
   }
+}
+
+function nestedRecord(
+  raw: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> | undefined {
+  const v = raw?.[key]
+  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : undefined
+}
+
+function hostStopOutcome(res: Record<string, unknown> | undefined): unknown {
+  const stop = nestedRecord(res, 'stop')
+  const receipt = nestedRecord(stop, 'receipt')
+  const effect = nestedRecord(res, 'effect')
+  return (
+    stop?.outcome ??
+    receipt?.outcome ??
+    effect?.state ??
+    res?.outcome ??
+    res?.result ??
+    res?.state
+  )
 }
 
 // ---------------------------------------------------------------------------

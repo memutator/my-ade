@@ -183,8 +183,8 @@ function validatePatch(raw: Record<string, unknown>, op: string): PlanPatch {
       requirementText: optStr(o, 'requirementText', op),
       ownerRoleId: optStr(o, 'ownerRoleId', op),
       assignedMemberId: o.assignedMemberId === null ? null : optStr(o, 'assignedMemberId', op),
-      inputs: o.inputs as InputBinding[] | undefined,
-      outputs: o.outputs as OutputSlot[] | undefined,
+      inputs: (o.inputs ?? o.inputBindings) as InputBinding[] | undefined,
+      outputs: (o.outputs ?? o.outputSlots) as OutputSlot[] | undefined,
       settlementPolicy: o.settlementPolicy
     }
   })
@@ -203,11 +203,17 @@ function validatePatch(raw: Record<string, unknown>, op: string): PlanPatch {
   })
   const dispositions = optArr(p, 'activeAttemptDisposition', op).map((t): AttemptDisposition => {
     const o = asObject(t, op)
-    const action = reqStr(o, 'action', op)
+    const rawAction = optStr(o, 'action', op) ?? optStr(o, 'disposition', op)
+    const action =
+      rawAction === 'stop' ? 'revoke' : rawAction
     if (action !== 'keep' && action !== 'revoke' && action !== 'replace') {
       badInput(`${op}: activeAttemptDisposition.action must be keep|revoke|replace`)
     }
-    return { taskId: reqStr(o, 'taskId', op), dispatchId: optStr(o, 'dispatchId', op), action }
+    return {
+      taskId: reqStr(o, 'taskId', op),
+      dispatchId: optStr(o, 'dispatchId', op),
+      action: action as AttemptDisposition['action']
+    }
   })
   return {
     basePlanRevision: optInt(p, 'basePlanRevision', op),
@@ -505,18 +511,17 @@ export function planPrepare(txn: TxnContext, payload: unknown): PlanPrepareResul
     canonicalJson({ patch: input.patch, resolved }),
     canonicalJson({ structuralErrors, unresolvedInputs })
   )
-  appendDomainEvent(
-    txn.db,
-    input.runId,
-    0,
-    'plan.prepared',
-    { runId: input.runId },
-    {
+  txn.emitEvent({
+    aggregateId: input.runId,
+    aggregateRevision: 0,
+    eventType: 'plan.prepared',
+    scope: { runId: input.runId },
+    payload: {
       candidatePlanId: candidateId,
       digest,
       structuralErrorCount: structuralErrors.length
     }
-  )
+  })
   return { candidatePlanId: candidateId, digest, structuralErrors, unresolvedInputs }
 }
 

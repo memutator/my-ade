@@ -88,11 +88,11 @@ export function clientViewBind(
 
 // ── client.view.unbind ──────────────────────────────────────────────────────
 
-export function clientViewUnbind(
+export async function clientViewUnbind(
   txn: ClientTxn,
   payload: unknown,
   deps: ClientOpsDeps
-): ClientViewUnbindResult {
+): Promise<ClientViewUnbindResult> {
   const d = resolveDeps(deps)
   const p = asRecord(payload)
   const viewId = reqString(p.viewId, 'viewId')
@@ -111,7 +111,7 @@ export function clientViewUnbind(
     }
     // never bound or already unbound — idempotent (execution/resource
     // ownership was never ours to release anyway)
-    return { unbound: true, viewId }
+    return { unbound: true, viewId, hostDetached: false }
   }
 
   const layout = parseLayout(row)
@@ -121,6 +121,26 @@ export function clientViewUnbind(
         `expected ${expectedRevision}, current ${layout.revision}`,
       { viewId, expectedRevision, currentRevision: layout.revision }
     )
+  }
+
+  // F-042: release the host subscription before dropping the row — the
+  // binding is the only tracker for the live sub, so deleting first would
+  // leak it on the host. Best-effort: unbind must succeed while the host
+  // is down, so a missing host or a failed detach only records hostError.
+  let hostDetached = false
+  let hostError: string | undefined
+  const subscriptionId = layout.subscriptionId ?? null
+  if (subscriptionId) {
+    if (!d.host) {
+      hostError = 'host unavailable — subscription left for host GC'
+    } else {
+      try {
+        await d.host.call('host.terminal.detach', { subscriptionId })
+        hostDetached = true
+      } catch (e) {
+        hostError = e instanceof Error ? e.message : String(e)
+      }
+    }
   }
 
   deleteBinding(txn.db, row.id)
@@ -134,8 +154,10 @@ export function clientViewUnbind(
       viewId,
       executionId: row.execution_id,
       terminalId: row.terminal_id,
-      hadSubscription: Boolean(layout.subscriptionId)
+      hadSubscription: Boolean(layout.subscriptionId),
+      hostDetached,
+      ...(hostError !== undefined ? { hostError } : {})
     }
   )
-  return { unbound: true, viewId }
+  return { unbound: true, viewId, hostDetached, ...(hostError !== undefined ? { hostError } : {}) }
 }

@@ -32,6 +32,25 @@ export function inTransaction(db: DatabaseSync): boolean {
 }
 
 /**
+ * Register a transaction opened OUTSIDE withTx() (the admission pipeline's
+ * async-capable runner issues a raw BEGIN so it can hold the tx across an
+ * awaited handler). Without this, `inTransaction()` is false inside handlers
+ * and a nested withTx() issues a second BEGIN on the same connection —
+ * `ERR_SQLITE_ERROR: cannot start a transaction within a transaction` (F-005).
+ * Paired with markTransactionClosed() after COMMIT/ROLLBACK.
+ */
+export function markTransactionOpen(db: DatabaseSync): void {
+  txDepth.set(db, (txDepth.get(db) ?? 0) + 1)
+}
+
+/** clear one depth level registered by markTransactionOpen() */
+export function markTransactionClosed(db: DatabaseSync): void {
+  const depth = txDepth.get(db) ?? 0
+  if (depth <= 1) txDepth.delete(db)
+  else txDepth.set(db, depth - 1)
+}
+
+/**
  * Run `fn` inside a write transaction.
  *
  * Outermost call: BEGIN IMMEDIATE … COMMIT, ROLLBACK on throw.

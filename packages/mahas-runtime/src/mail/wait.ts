@@ -12,11 +12,9 @@
 //     member's execution generation moved underneath the wait, the
 //     credential is fenced (STALE_EXECUTION).
 //
-// DISPATCH CONSTRAINT (handoff note): this handler must run OUTSIDE any
-// wrapping transaction — it re-issues autocommit SELECTs while sleeping
-// between polls, so a snapshot pinned by an ambient tx would make it blind
-// and a write tx would hold the single-writer lock for the whole wait.
-// It is registered with mutation:false for exactly that reason.
+// DISPATCH CONSTRAINT: registered mutation:false + longPoll:true so
+// admission does not wrap BEGIN…COMMIT around the sleep. openMailbox
+// rebinds outstanding rows once; the poll loop is SELECT-only.
 
 import type { OperationHandler } from '../api/registry.ts'
 import type { InboxWaitPayload, InboxWaitResult, MailDeps } from './api.ts'
@@ -28,8 +26,7 @@ import {
   loadMember,
   makeInboxRead,
   optInt,
-  parseCursor,
-  rebindOutstandingDeliveries
+  parseCursor
 } from './shared.ts'
 
 const DEFAULT_MAX_WAIT_MS = 60_000
@@ -57,8 +54,9 @@ export function inboxWait(deps: MailDeps): OperationHandler {
     const started = now()
 
     for (;;) {
-      // converge outstanding rows onto the current generation, then read
-      rebindOutstandingDeliveries(txn.db, member.id, member.generation)
+      // generation rebind already ran once in openMailbox — poll with
+      // autocommit SELECTs only. A write inside this loop would hold the
+      // single-writer lock for the whole wait (REV-04 F2).
       const { items, cursor, deliveryIds } = queryOutstanding(txn.db, member, after, limit)
       const elapsed = now() - started
       if (items.length > 0) {

@@ -76,6 +76,14 @@ export interface SubscribeResult {
 
 export const SUBSCRIBE_BATCH_LIMIT = 500
 
+/**
+ * F-025: bound on server-side hub entries. Orphaned subscriptions (dropped
+ * sockets, clients that never unsubscribe) die with the daemon; the cap only
+ * stops unbounded growth from clients that re-subscribe without reusing
+ * their subscriptionId.
+ */
+export const SUBSCRIPTION_HUB_LIMIT = 2000
+
 // ---------------------------------------------------------------------------
 // event reading + filtering
 // ---------------------------------------------------------------------------
@@ -220,6 +228,17 @@ export class SubscriptionHub {
     cursor: SubscriptionCursor,
     now: number
   ): Subscription {
+    // F-025: the pull model lets clients re-subscribe forever, and a dropped
+    // socket never fired closeSession (the transport has no session-close
+    // hook) — cap the hub so orphaned entries cannot grow without bound.
+    // Eviction answers unknown-subscription on next poll, which is the
+    // honest re-snapshot gate, never silent loss (the ledger still holds the
+    // events; the client re-presents its cursor).
+    while (this.subs.size >= SUBSCRIPTION_HUB_LIMIT) {
+      const oldest = this.subs.keys().next()
+      if (oldest.done) break
+      this.subs.delete(oldest.value)
+    }
     const sub: Subscription = {
       id: randomUUID(),
       principalId: ctx.principalId,
@@ -304,6 +323,13 @@ interface TxnLike {
 export function makeRuntimeSubscribeHandler(deps: ResolvedObservationDeps) {
   return (txn: TxnLike, payload: unknown): unknown => {
     const p = (payload ?? {}) as Record<string, unknown>
+    // F-025: the returned subscriptionId is consumable — presenting it polls
+    // the stored cursor (advancing the server side) instead of minting a new
+    // orphan hub entry per call. Unknown or foreign-session ids answer
+    // SNAPSHOT_REQUIRED 'unknown-subscription', the honest re-snapshot gate.
+    if (typeof p.subscriptionId === 'string' && p.subscriptionId.length > 0) {
+      return pollSubscription(txn.db, deps, txn.ctx, p.subscriptionId)
+    }
     const scope = normalizeScope(p)
     const epoch = typeof p.epoch === 'number' ? p.epoch : NaN
     const afterSequence = typeof p.afterSequence === 'number' ? p.afterSequence : NaN
@@ -389,4 +415,36 @@ export function pollSubscription(
   deps.subscriptions.advance(subscriptionId, lastSequence)
   const cursor: SubscriptionCursor = { ...sub.cursor, lastSequence }
   return { subscriptionId, cursor, events, hasMore }
+}
+
+/**
+ * F-025: `runtime.unsubscribe` — drop a subscription cursor. Ownership is by
+ * principal, not transport session, so a client that dropped its socket can
+ * still clean up the orphaned id after reconnecting (the id alone was the
+ * leak vector: nothing consumed it). Unknown or foreign-principal ids answer
+ * SNAPSHOT_REQUIRED 'unknown-subscription'. Dropping a cursor touches no
+ * domain record (REQ-23).
+ */
+export function makeRuntimeUnsubscribeHandler(deps: ResolvedObservationDeps) {
+  return (txn: TxnLike, payload: unknown): unknown => {
+    const p = (payload ?? {}) as Record<string, unknown>
+    const subscriptionId = typeof p.subscriptionId === 'string' ? p.subscriptionId : ''
+    if (!subscriptionId) {
+      throw snapshotRequired('malformed-cursor', { subscriptionId: p.subscriptionId })
+    }
+    const sub = deps.subscriptions.get(subscriptionId)
+    if (!sub || sub.principalId !== txn.ctx.principalId) {
+      throw snapshotRequired('unknown-subscription', { subscriptionId })
+    }
+    deps.authorize(txn.ctx, 'runtime.unsubscribe', [
+      ...(sub.scope.runId ? [{ kind: 'run', id: sub.scope.runId }] : []),
+      ...(sub.scope.executionId ? [{ kind: 'execution', id: sub.scope.executionId }] : []),
+      ...(sub.scope.memberId ? [{ kind: 'member', id: sub.scope.memberId }] : []),
+      ...(sub.scope.runId || sub.scope.executionId || sub.scope.memberId
+        ? []
+        : [{ kind: 'runtime', id: 'mahasd' }])
+    ])
+    deps.subscriptions.close(subscriptionId)
+    return { unsubscribed: true, subscriptionId }
+  }
 }

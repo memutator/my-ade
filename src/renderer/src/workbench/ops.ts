@@ -13,16 +13,19 @@ import type {
   AssignRequest,
   AssignResult,
   AssignmentPreview,
+  Collaborator,
   CollaboratorsRequest,
   CollaboratorsResponse,
   CommitPlanRequest,
   CommitPlanResult,
+  ImplementationOffer,
   ImplementationsRequest,
   ImplementationsResponse,
   InspectRequest,
   InspectResult,
   LocateRequest,
   LocateResponse,
+  LocateResult,
   PlanPatch,
   PreviewRequest,
   PreparePlanResult,
@@ -55,35 +58,116 @@ export const OP = {
 /** C-DISCOVERY — candidates for a human/coordinator to READ, never to
  //  auto-confirm (REQ-04). At least a query or one structural filter is
  //  required by the contract; we send the request verbatim. */
-export function searchResponsibilities(
+export async function searchResponsibilities(
   call: OpCaller,
   req: SearchRequest
 ): Promise<SearchResponse> {
-  return call(OP.responsibilitySearch, req) as Promise<SearchResponse>
+  const raw = (await call(OP.responsibilitySearch, req)) as SearchResponse & {
+    items?: SearchResponse['candidates']
+  }
+  const items = raw.items ?? raw.candidates ?? []
+  return { ...raw, items, candidates: items }
 }
 
 /** coordination | owner resolution — authored view only; a missing one is
  //  reported as missing, not synthesized (REQ-06). */
-export function inspectResponsibility(call: OpCaller, req: InspectRequest): Promise<InspectResult> {
-  return call(OP.responsibilityInspect, req) as Promise<InspectResult>
+export async function inspectResponsibility(
+  call: OpCaller,
+  req: InspectRequest
+): Promise<InspectResult> {
+  const raw = (await call(OP.responsibilityInspect, req)) as InspectResult & {
+    boundary?: { responsibility?: string; criteria?: InspectResult['criteria'] }
+  }
+  const boundary = raw.boundary
+  return {
+    ...raw,
+    responsibility: raw.responsibility ?? boundary?.responsibility ?? '',
+    criteria: raw.criteria ?? boundary?.criteria ?? [],
+    viewStatus:
+      raw.viewStatus ??
+      (typeof raw.coordinationView === 'object' && raw.coordinationView !== null
+        ? (raw.coordinationView as { status?: string }).status === 'missing'
+          ? 'missing'
+          : 'present'
+        : raw.coordinationView == null
+          ? 'missing'
+          : 'present')
+  }
 }
 
-export function locateResponsibility(call: OpCaller, req: LocateRequest): Promise<LocateResponse> {
-  return call(OP.responsibilityLocate, req) as Promise<LocateResponse>
+export async function locateResponsibility(
+  call: OpCaller,
+  req: LocateRequest
+): Promise<LocateResponse> {
+  const raw = (await call(OP.responsibilityLocate, req)) as LocateResponse & {
+    items?: LocateResult[]
+  }
+  const items = (raw.items ?? raw.results ?? []).map((r) => ({
+    ...r,
+    status: r.status === 'resolved' ? 'assigned' : r.status
+  })) as LocateResult[]
+  return { ...raw, items, results: items }
 }
 
-export function listCollaborators(
+export async function listCollaborators(
   call: OpCaller,
   req: CollaboratorsRequest
 ): Promise<CollaboratorsResponse> {
-  return call(OP.responsibilityCollaborators, req) as Promise<CollaboratorsResponse>
+  const raw = (await call(OP.responsibilityCollaborators, req)) as CollaboratorsResponse & {
+    items?: Array<{
+      role?: { id?: string; name?: string }
+      relationReasons?: Array<{ kind?: string; contractId?: string; direction?: string }>
+      members?: Array<{ memberId?: string; state?: string }>
+    }>
+  }
+  const items = raw.items
+  if (!items) return raw
+  const collaborators: Collaborator[] = []
+  for (const it of items) {
+    const roleId = it.role?.id ?? ''
+    const roleName = it.role?.name
+    const reasons = it.relationReasons ?? []
+    const members = it.members ?? []
+    if (members.length === 0) {
+      collaborators.push({
+        roleId,
+        roleName,
+        relationReason: reasons[0]?.kind ?? 'same-boundary',
+        contractId: reasons[0]?.contractId,
+        direction: reasons[0]?.direction
+      })
+    } else {
+      for (const m of members) {
+        collaborators.push({
+          roleId,
+          roleName,
+          memberId: m.memberId,
+          memberState: m.state,
+          relationReason: reasons[0]?.kind ?? 'same-boundary',
+          contractId: reasons[0]?.contractId,
+          direction: reasons[0]?.direction
+        })
+      }
+    }
+  }
+  return { ...raw, collaborators }
 }
 
-export function listImplementations(
+export async function listImplementations(
   call: OpCaller,
   req: ImplementationsRequest
 ): Promise<ImplementationsResponse> {
-  return call(OP.roleImplementations, req) as Promise<ImplementationsResponse>
+  const raw = (await call(OP.roleImplementations, req)) as ImplementationsResponse & {
+    implementations?: Array<ImplementationOffer & { revision?: number; profileId?: string; profile?: string }>
+  }
+  return {
+    ...raw,
+    implementations: (raw.implementations ?? []).map((im) => ({
+      ...im,
+      implementationRevision: im.implementationRevision ?? im.revision ?? 0,
+      profile: im.profile ?? im.profileId
+    }))
+  }
 }
 
 export function getRun(call: OpCaller, req: RunGetRequest): Promise<RunProjection> {
@@ -108,11 +192,8 @@ export function previewAssignment(call: OpCaller, req: PreviewRequest): Promise<
  //  selectionToken's modelVersion/role/implementation against CURRENT
  //  grants and ceiling; STALE_REVISION is a normal answer. */
 export function assignTeam(call: OpCaller, req: AssignRequest): Promise<AssignResult> {
-  const { expectedPlanRevision, ...payload } = req
-  return call(OP.teamAssign, payload, {
-    operationId: newOperationId(),
-    expectedRevisions:
-      expectedPlanRevision !== undefined ? { plan: expectedPlanRevision } : undefined
+  return call(OP.teamAssign, req, {
+    operationId: newOperationId()
   }) as Promise<AssignResult>
 }
 
@@ -131,9 +212,7 @@ export function preparePlan(
 }
 
 export function commitPlan(call: OpCaller, req: CommitPlanRequest): Promise<CommitPlanResult> {
-  const { expectedPlanRevision, ...payload } = req
-  return call(OP.planCommit, payload, {
-    operationId: newOperationId(),
-    expectedRevisions: { plan: expectedPlanRevision }
+  return call(OP.planCommit, req, {
+    operationId: newOperationId()
   }) as Promise<CommitPlanResult>
 }

@@ -111,7 +111,9 @@ export type TerminalInputIntent = 'observe' | 'claim'
 export interface TerminalAttachRequest {
   terminalId: TerminalId
   viewId: ViewId
-  outputEpoch?: number
+  // F-039: the host epoch is an opaque string (e.g. 'emu7lke4p-3') — the old
+  // number type dropped every real epoch and crashed string inputs.
+  outputEpoch?: string
   lastSequence?: number
   /** default 'observe' — never grants input ownership */
   inputIntent?: TerminalInputIntent
@@ -134,11 +136,16 @@ export interface TerminalAttachResult {
   terminalId: TerminalId
   /** host-side stream/subscription handle — required for terminal.detach */
   subscriptionId: string
-  outputEpoch?: number
+  outputEpoch?: string
   /** replay start, or null when the host answered with a fresh snapshot */
   replayFromSequence?: number | null
   /** present when the requested cursor fell outside the retained range */
   gap?: { expectedSequence: number; availableFromSequence: number } | null
+  /** F-038: the missed tail the host replayed (base64 chunks) — present
+   *  exactly when replayFromSequence is non-null. Previously dropped by the
+   *  adapter, so a reconnecting client could neither detect truncation nor
+   *  recover the missing output. */
+  replay?: Array<{ sequence: number; dataB64: string }>
   /** bounded screen/history payload as returned by the host */
   snapshot?: unknown
   /** set only when inputIntent:'claim' succeeded */
@@ -179,12 +186,12 @@ export interface TerminalResizeResult {
 /** C-CLIENT terminal.snapshot input */
 export interface TerminalSnapshotRequest {
   terminalId: TerminalId
-  expectedEpoch?: number
+  expectedEpoch?: string
 }
 
 export interface TerminalSnapshotResult {
   terminalId: TerminalId
-  outputEpoch?: number
+  outputEpoch?: string
   lastSequence?: number
   /** bounded screen/history as returned by the host */
   screen?: unknown
@@ -211,6 +218,10 @@ export interface TerminalDetachResult {
 export interface ClientViewUnbindResult {
   unbound: true
   viewId: ViewId
+  /** true when the bound host subscription was released via host.terminal.detach */
+  hostDetached: boolean
+  /** present when the host detach was skipped (no host) or failed */
+  hostError?: string
 }
 
 // ── client-side port (desktop IPC seam) ─────────────────────────────────────

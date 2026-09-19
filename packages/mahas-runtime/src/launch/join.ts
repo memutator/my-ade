@@ -465,8 +465,9 @@ function heartbeatResolveTargets(txn: TxnContext, raw: unknown): TargetRef[] {
  * authorize + expectedRevisions checks (spec/common.md §3); handlers keep
  * the domain binding checks the pipeline cannot express.
  * Bootstrap-surface restriction (only join/show/describe/get allowed before
- * join) is enforced at the worker-auth transport layer via
- * isBootstrapOperationAllowed — AuthenticatedContext carries no mode field.
+ * join) is enforced by decide()'s execution join-state (BOOTSTRAP_OPERATIONS
+ * in access/authorize.ts) — the worker credential carries no mode field, so
+ * no transport-layer check could do it (F-057).
  */
 export function registerJoinOps(registry: OperationRegistry, deps: JoinOpsDeps = {}): void {
   registry.register(

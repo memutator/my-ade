@@ -7,6 +7,8 @@
 
 `admitted → inputs_pinned → resources_claimed → components_materialized → process_attempting → process_confirmed → initial_attached → awaiting_join → joined → task_accepted`.
 
+Dispatch phase 정본은 D-WORK의 `reserved/starting/awaiting_join/awaiting_accept/running/reported/settled/revoked`다. `worker.start`가 기록하는 첫 Dispatch phase는 `awaiting_join`이다. `assigned`는 이 열거에 없다.
+
 각 stage는 cumulative receipt에 남고 failedStage/effects/residualResources/nextAllowedActions를 반환한다. coordination assignment는 task_accepted 대신 coordination_ready로 끝난다. process 생성 성공은 agent join과 다르며 join은 의미 이해 증명이 아니다.
 
 `worker.start`는 같은 launchPlanId/operationId를 재호출하면 같은 receipt를 조회/이어간다. 재계획 없이 새 ID를 만들어 실패 구간을 다시 실행하지 않는다. host process.spawn은 별도 안정 effect key를 사용하여 제어면 응답 유실에서도 process 중복 생성 위험을 다룬다.
@@ -40,7 +42,7 @@ materialized는 로컬 파일 생성, initial_attached는 검증된 recipe로 ar
 
 **주체/범위:** 해당 LaunchPlan 실행 권한자
 
-**입력:** launchPlanId, planDigest, operationId
+**입력:** launchPlanId, planDigest, operationId, generation? (native-resume/fresh가 같은 plan으로 새 generation을 시작할 때; 생략하면 terminal receipt를 replay)
 
 **반환:** stage receipt, executionId, dispatchId?, join state, residuals
 

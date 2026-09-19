@@ -9,6 +9,8 @@ import AgentsPanel from './AgentsPanel'
 import ResponsibilityView from '../workbench/ResponsibilityView'
 import TeamView from '../workbench/TeamView'
 import PlanView from '../workbench/PlanView'
+import InspectorView from '../workbench/InspectorView'
+import { useWorkbench } from '../workbench/store'
 import Tooltip from './Tooltip'
 import { Select } from './Menu'
 
@@ -175,6 +177,11 @@ export default function WidgetTabView({
   // the widget kind is fixed at creation (the + menu's widget submenu) —
   // the only mutable field is the usage widget's provider selection, which
   // rides the tab record so it persists like every other tab field
+  const projectId = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.projectId)
+  useEffect(() => {
+    if (projectId) useWorkbench.getState().setContext({ projectId })
+  }, [projectId])
+
   const onProvider = (provider: string): void => {
     const st = useStore.getState()
     const p = st.workspaces.find((w) => w.id === wsId)?.panes[paneId]
@@ -196,6 +203,8 @@ export default function WidgetTabView({
         <TeamView />
       ) : tab.widget === 'plan' ? (
         <PlanView />
+      ) : tab.widget === 'inspector' ? (
+        <InspectorView />
       ) : (
         <AgentsPanel wsId={wsId} />
       )}

@@ -195,6 +195,11 @@ export type ModelChangeEdit =
       responsibilityStatement: string
       paths?: BoundaryPath[]
       parentBoundaryId?: BoundaryId
+      /** runtime nested / field-name aliases */
+      parentId?: BoundaryId
+      responsibility?: string
+      boundary?: { id?: string; name?: string; responsibility?: string; [key: string]: unknown }
+      criteria?: unknown
     }
   | {
       type: 'boundary.revise'
@@ -221,6 +226,7 @@ export type ModelChangeEdit =
       type: 'boundary.reparent'
       boundaryId: BoundaryId
       newParentBoundaryId: BoundaryId
+      newParentId?: BoundaryId
     }
   | { type: 'boundary.retire'; boundaryId: BoundaryId }
   | {
@@ -257,8 +263,14 @@ export type ModelChangeEdit =
       horizontalRoleName?: string
     }
   | { type: 'role.retire'; roleId: RoleId }
-  | { type: 'horizontalRole.revise'; horizontalRoleName: string }
-  | { type: 'context.register'; contextId: RddContextId; path: string }
+  | { type: 'horizontalRole.revise'; horizontalRoleName: string; name?: string }
+  | {
+      type: 'context.register'
+      contextId: RddContextId
+      path: string
+      id?: RddContextId
+      context?: { id?: string; path?: string }
+    }
   | {
       type: 'context.link'
       contextId: RddContextId
@@ -278,6 +290,9 @@ export type ModelChangeEdit =
       statement: string
       boundaryId: BoundaryId
     }
+
+/** SHARED-APIS name for the typed edit union */
+export type TypedModelEdit = ModelChangeEdit
 
 /** model_changes — a prepared candidate; commit is a CAS on baseVersion +
  *  candidateDigest and publishes the whole snapshot in one transaction */

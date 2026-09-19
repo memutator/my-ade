@@ -15,7 +15,7 @@
 //   - two pins for one path with different digests → MODEL_INVALID
 
 import { readFileSync } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
+import { resolve as resolvePath, sep as pathSep } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { digestBytes, fail, putBlob, type SourceObservation } from './bundle-store.ts'
 
@@ -78,9 +78,14 @@ export function mediaTypeForPath(path: string): string {
 /** Default reader: bytes under `root` (a checkout/repository root supplied
  *  by the caller — never guessed here). */
 export function makeFilesystemReader(root: string): SourceReader {
+  const rootResolved = resolvePath(root)
   return (rel) => {
     try {
-      return new Uint8Array(readFileSync(resolvePath(root, rel)))
+      assertValidSourcePath(rel)
+      const resolved = resolvePath(rootResolved, rel)
+      const prefix = rootResolved.endsWith(pathSep) ? rootResolved : rootResolved + pathSep
+      if (resolved !== rootResolved && !resolved.startsWith(prefix)) return null
+      return new Uint8Array(readFileSync(resolved))
     } catch {
       return null
     }

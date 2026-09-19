@@ -5,6 +5,8 @@
 
 자동 agent 협업은 C-MAIL이고 아래 terminal input은 사용자 사용 표면이다. 두 경로를 통합하여 terminal write receipt를 Delivery ack로 만들지 않는다. 각 client 연결은 protocol/capability를 협상하며 다른 socket의 지원 기능을 가정하지 않는다.
 
+관리 Execution이 붙은 탭의 close는 `terminal.detach` / `client.view.unbind`다. process 종료는 `worker.stop`이다. Restart는 자동 새 spawn이 아니다. unmanaged PTY만 기존 앱 소유 세션으로 탭과 함께 죽는다.
+
 
 ## 연산별 계약
 

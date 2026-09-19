@@ -37,6 +37,18 @@ import { canonicalJson, digestOf, fail, mintId } from './util.ts'
 
 export type ImplementationStatus = 'candidate' | 'published' | 'retired'
 
+/**
+ * Persist activation as JSON `{phase,route}` so componentFromRow can
+ * JSON.parse it, while the compiler also accepts a bare phase string.
+ */
+function serializeActivation(activation: ComponentInput['activation']): string {
+  if (typeof activation === 'string') return JSON.stringify({ phase: activation })
+  return JSON.stringify({
+    phase: activation.phase,
+    ...(activation.route !== undefined ? { route: activation.route } : {})
+  })
+}
+
 interface ImplementationRow {
   id: string
   revision: number
@@ -304,7 +316,7 @@ export function storeCandidate(
       revision,
       c.componentId,
       c.kind,
-      JSON.stringify(c.activation),
+      serializeActivation(c.activation),
       componentBindingJson(c),
       JSON.stringify(c.consumes),
       canonicalJson(byComponent.get(c.componentId) ?? [])

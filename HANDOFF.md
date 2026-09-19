@@ -5,6 +5,12 @@ implemented in this worktree; independent review (REV-01..08) and formal
 verification (VER-01..12) have deliberately NOT been run — "implemented" is
 not "accepted" (docs/implementation-plan/INSTRUCTIONS.md).
 
+**Update 2026-09-19:** a findings-fix session (post-review defect
+remediation, F-001..F-024 per `mahas-architecture/records/orchestration/fix-guide.md`)
+is IN PROGRESS on this worktree — all state, landed fixes, and next steps are
+preserved in "HANDOFF UPDATE — findings-fix session" at the bottom of this
+file.
+
 **Worktree:** `/home/pyosechang/projects/ade-wt-mahas-architecture` (branch `mahas-architecture`, forked from `my-ade` main @ `a1c30db`).
 **Spec package:** `mahas-architecture/` — requirements.md, spec/, implementation-plan/tasks/IMP-01..32, review-plan, verification-plan.
 **Node:** v24 (`node:sqlite` builtin, type stripping). `node_modules` is a **symlink** → `../my-ade/node_modules`.
@@ -86,3 +92,139 @@ not "accepted" (docs/implementation-plan/INSTRUCTIONS.md).
   not advertise them — honest UNAVAILABLE_OPERATION).
 - `ModelChangeEdit` in mahas-contracts is less detailed than the live
   `runtime/src/model/change-set.ts` wire shape (no consumer imports the former).
+
+## HANDOFF UPDATE — findings-fix session (in progress as of 2026-09-19)
+
+Post-review defect remediation against
+`mahas-architecture/records/orchestration/fix-guide.md` (F-001..F-024).
+Progress ledger: `mahas-architecture/records/orchestration/fix-progress.md`
+(assessor note — reflects an EARLIER tree state; the statuses below supersede
+it). All fixes are uncommitted WIP on this worktree (WIP base `83a6d21`,
+repo HEAD `5e72a48`). `findings.md`/`STATUS.md` deliberately untouched.
+
+### Landed — per finding
+
+**Early fixes (assessor probe-verified; evidence in fix-progress.md):**
+F-001, F-003, F-004, F-009, F-010, F-011, F-013, F-016, F-021, F-023.
+
+**Second batch (prior session, all in `packages/mahas-runtime/src/`):**
+
+- **F-005** (tx-depth + reconcile reachability) — `storage/transaction.ts`
+  gained `markTransactionOpen`/`markTransactionClosed` (re-exported as
+  `markTxOpen`/`markTxClose` from `storage/db.ts`); optional
+  `markTxOpen?`/`markTxClose?` added to `StorageBoundary`
+  (`api/handler-ports.ts`); `TxDepthHooks` wired through `runInTransaction` +
+  admission dispatch so the pipeline's raw BEGIN registers depth and nested
+  `withTx()` degrades to SAVEPOINT. Mid-migration regression also fixed:
+  `resolveTargets` in `api/admission.ts` no longer throws MODEL_INVALID for
+  mutations without `resolveTargets` — falls back to
+  `defaultTargetsFromPayload` via the `PAYLOAD_TARGET_KINDS` map (fails closed
+  to `{kind:'principal', id}`). `runtime.reconcile`
+  (`lifecycle/operations.ts`) now carries a full spec — `mutation: true`,
+  `longPoll: true`, inputSchema, `reconcileResolveTargets`
+  (host/execution/runtimeInstance targets).
+- **F-019** (self-revoke commit) — `TxnContext.exemptGrantRecheck?` +
+  `TxnInternals.exemptedGrants` + `withGrantExemptions` in `api/admission.ts`;
+  pre-commit re-check skips self-revoked grants; `access/operations.ts` revoke
+  op registers `result.revokedGrantIds`; `AccessOperationContext` got the
+  optional hook.
+- **F-018** (member↔principal binding) —
+  `memberPrincipalBound`/`requireMemberPrincipalBinding` in
+  `access/authorize.ts`; enforced in decideOn step 1b, the snapshot-verify
+  path, and `effectiveActionsFor`.
+- **F-022/F-024** (grant ownership + revision) — decideOn attestation loop
+  verifies grant ownership (principal or bound member) + attested revision;
+  new `callerGrantRecords` helper (principal + bound-member active grants +
+  owned attested ids); `grantSnapshot` uses it; `coordination/internal.ts`
+  `recheckCallerGrants` + `callerGrantsOfKind` ownership-scoped.
+- **F-002** (list-vs-invoke oracle) — `ALWAYS_SURFACE_OPERATIONS` allowed
+  without grant (decideOn 3b); unjoined-path surface returns bootstrap +
+  always-surface, sorted.
+- **F-020** — `'access.inspect'` added to `requiredActionsFor`
+  (`coordination/member.ts`).
+- **F-006** (stale-endpoint crash) — `rl.on('error')` handler in
+  `hostClient.ts` (reject before connect, `failAll` after) — stops the mahasd
+  crash on a stale host endpoint file.
+
+**Third batch (this session):**
+
+- **F-007** — `packages/mahas-execution-host/src/process-manager.ts`:
+  `persistProcess` now runs BEFORE the `host_terminals` INSERT
+  (`host_terminals.spawn_nonce` FK → `host_processes(spawn_nonce)`); the
+  already-spawned pty can no longer be orphaned by an FK failure.
+- **F-008** (refused boots don't count) — `lifecycle/service-bootstrap.ts`:
+  new `'refused'` journal entry type, settled like ready/stopped in
+  `checkCrashLoop`; `main.ts` writes `'refused'` on lock-acquisition failure
+  and on every `fail()` after the boot marker — only real pre-ready deaths
+  feed the 5-in-120s throttle.
+- **F-012** (cyclic reparent) — `model/change-set.ts` `descendantsOf` BFS has
+  a visited set (cycle members skipped; `validateCandidate` reports
+  CONTAINS_CYCLE separately via `model/structural-rules.ts`); audited the
+  other parent-chain walks (ops.ts role ancestors, structural-rules
+  `ancestorsOf`, territory `ancestorChain`, revocation `collectSubtree`) —
+  all cycle-guarded.
+- **F-015 part 1** (lock keyed to the DB file) —
+  `lifecycle/service-bootstrap.ts`: new `singleWriterLockPath(dbPath)`
+  (`<dbPath>.lock`); `main.ts` takes the single-writer lock from the control
+  DB path instead of the config dir, so two config dirs aiming at one DB
+  exclude each other. **Part 2 (in-DB fence) still pending — see Remaining.**
+
+### Design decisions to preserve
+
+- Binding rule: a member is its own principal (`members.id = principals.id`)
+  or the launch's worker principal `principal-<executionId>`; anything else is
+  UNAUTHENTICATED.
+- Grant ownership: attested grant ids count only when owned by the principal
+  or its bound member; attested ids never widen the candidate set.
+- A `declare module` augmentation for the `runtimeInstance` kind was added
+  then REVERTED — relies on the kernel resolving unknown kinds to self-only
+  ancestry.
+- F-005 is depth-driven, not query-count-driven: `markTxOpen`/`markTxClose`
+  are OPTIONAL on `StorageBoundary` — if the production wiring doesn't supply
+  them, the old nested-tx behavior recurs at runtime.
+
+### Remaining (next steps)
+
+1. **F-015 part 2** — in-DB liveness fence: after the DB is opened and BEFORE
+   `lifecycle.acquireControllerEpoch` in `main.ts`, refuse
+   (ALREADY_RUNNING / LOCK_UNVERIFIABLE via `verdictForProcess`) when any
+   `runtime_instances` row in state 'starting'/'ready' has a live or
+   unverifiable process identity (belt & braces for different path spellings
+   of the same DB file, e.g. symlink).
+2. **F-017** — fresh-DB host lease reclaim: `epoch < stored lease epoch` is a
+   permanent `STALE_EXECUTION` today, blocking DB regeneration/recovery.
+   Dead-evidence takeover already exists (`lease.ts:306-327`) — apply the same
+   pattern on the stale-epoch path: verify the OTHER controller's survival
+   evidence and allow reclaim when it is dead (fix-guide.md §C).
+3. **F-014 residual** — full VER-06 kill-9 drill not re-run (reconcile code
+   landed earlier; socket-driven `runtime.reconcile` was blocked by F-005 and
+   should now be reachable — re-probe it).
+4. Verify the production `StorageBoundary` implementation/wiring actually
+   supplies `markTxOpen`/`markTxClose` (see F-005 note above).
+5. `npx tsc -p packages/mahas-runtime/tsconfig.json --noEmit` — the previous
+   run captured no output; rerun and confirm clean (check
+   `txn.ctx.controllerEpoch` and `TargetRef` typing in the reconcile
+   resolver). Then run tests/smokes; stricter authorize may break existing
+   flows (member grants via bound member, always-surface without grant).
+6. Update `records/orchestration/fix-progress.md` statuses, then commit all
+   fix batches (repo HEAD is still the 5 records-only commits; everything
+   above is uncommitted).
+
+### Verification state
+
+Typecheck/tests have NOT yet been run for the fix batches (subagent runs
+failed on timeout + 429 rate limit; all edits were applied directly). The
+green tsc/lint/build/smoke/e2e evidence in the sections above predates these
+fixes.
+
+### Files touched by the fix session
+
+- `packages/mahas-runtime/src/`: `access/authorize.ts`,
+  `access/operations.ts`, `api/admission.ts`, `api/handler-ports.ts`,
+  `coordination/internal.ts`, `coordination/member.ts`, `hostClient.ts`,
+  `lifecycle/operations.ts`, `lifecycle/service-bootstrap.ts`, `main.ts`,
+  `storage/db.ts`, `storage/transaction.ts`; `model/change-set.ts` (F-012
+  visited set — landed in the WIP, verified present in the live tree).
+- `packages/mahas-execution-host/src/`: `process-manager.ts`.
+- Out of scope: F-025–F-028 (client-probe findings added to the ledger after
+  this session's baseline — not assessed/started).

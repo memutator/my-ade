@@ -9,6 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Id, ArtifactRef } from '../../../mahas-contracts/src/common.ts'
 import type { InputBinding, TaskEdge } from '../../../mahas-contracts/src/work.ts'
 import { all, one, toTaskEdge, toTaskSpec } from './internal.ts'
+import { ACCEPTING_DECISIONS, parseBinding } from './input-resolver.ts'
 
 /** display state vocabulary fixed by D-WORK §2 */
 export type TaskDisplayState =
@@ -61,14 +62,33 @@ interface OutcomeRow {
   dispatchId: string
 }
 
-/** latest outcome reported for a task (any dispatch — newest revision wins) */
-function latestOutcome(db: DatabaseSync, taskId: string): OutcomeRow | null {
+/** latest outcome for a task, optionally pinned to the requirement's task_revision */
+function latestOutcome(db: DatabaseSync, taskId: string, taskRevision?: number): OutcomeRow | null {
+  const r =
+    taskRevision === undefined
+      ? one(
+          db,
+          'SELECT id, revision, task_id AS taskId, task_revision AS taskRevision, dispatch_id AS dispatchId FROM outcomes WHERE task_id=? ORDER BY revision DESC LIMIT 1',
+          taskId
+        )
+      : one(
+          db,
+          'SELECT id, revision, task_id AS taskId, task_revision AS taskRevision, dispatch_id AS dispatchId FROM outcomes WHERE task_id=? AND task_revision=? ORDER BY revision DESC LIMIT 1',
+          taskId,
+          taskRevision
+        )
+  return (r as OutcomeRow | null) ?? null
+}
+
+function planPinnedRevision(db: DatabaseSync, runId: string, planRevision: number, taskId: string): number | undefined {
   const r = one(
     db,
-    'SELECT id, revision, task_id AS taskId, task_revision AS taskRevision, dispatch_id AS dispatchId FROM outcomes WHERE task_id=? ORDER BY revision DESC LIMIT 1',
+    'SELECT task_revision FROM plan_tasks WHERE run_id=? AND plan_revision=? AND task_id=?',
+    runId,
+    planRevision,
     taskId
   )
-  return (r as OutcomeRow | null) ?? null
+  return r ? (r.task_revision as number) : undefined
 }
 
 function outcomeOutput(
@@ -120,9 +140,10 @@ function settlementDecision(
  */
 export function edgeSettlementSatisfied(
   db: DatabaseSync,
-  edge: TaskEdge
+  edge: TaskEdge,
+  predecessorTaskRevision?: number
 ): { ok: boolean; reason?: string } {
-  const outcome = latestOutcome(db, edge.predecessorTaskId as string)
+  const outcome = latestOutcome(db, edge.predecessorTaskId as string, predecessorTaskRevision)
   const req = edge.settlementRequirement ?? SETTLEMENT_ACCEPTED
   if (!outcome) {
     return { ok: false, reason: `predecessor ${edge.predecessorTaskId} has no reported outcome` }
@@ -140,7 +161,7 @@ export function edgeSettlementSatisfied(
     case SETTLEMENT_ACCEPTED:
     default: {
       const dec = settlementDecision(db, outcome.id, outcome.revision)
-      if (dec === 'accepted' || dec === 'accept') return { ok: true }
+      if (dec !== null && (ACCEPTING_DECISIONS as readonly string[]).includes(dec)) return { ok: true }
       return {
         ok: false,
         reason: `predecessor ${edge.predecessorTaskId} outcome not accepted (decision=${dec ?? 'none'})`
@@ -167,25 +188,36 @@ export function resolveInputBindings(
 ): { resolved: ResolvedInput[]; pending: PendingInput[] } {
   const resolved: ResolvedInput[] = []
   const pending: PendingInput[] = []
-  for (const b of bindings) {
-    const slot = (b as { slot?: string }).slot ?? ''
-    const kind = (b as { kind?: string }).kind ?? ''
-    const identity = (b as { identity?: Record<string, unknown> }).identity ?? {}
-    const required = (b as { required?: boolean }).required !== false
+  for (const raw of bindings) {
+    let b
+    try {
+      b = parseBinding(raw)
+    } catch {
+      pending.push({ slot: '', kind: 'unknown', reason: 'input binding is not parseable' })
+      continue
+    }
+    const slot = b.slot
+    const kind = b.kind
+    const required = b.required
     switch (kind) {
       case 'artifact': {
-        const art = one(
-          db,
-          'SELECT id, revision, digest, run_id FROM artifacts WHERE id=? AND revision=?',
-          identity.artifactId as string,
-          identity.revision as number
-        )
+        const art = b.artifactId
+          ? one(
+              db,
+              b.artifactRevision !== undefined
+                ? 'SELECT id, revision, digest, run_id FROM artifacts WHERE id=? AND revision=?'
+                : 'SELECT id, revision, digest, run_id FROM artifacts WHERE id=? ORDER BY revision DESC LIMIT 1',
+              ...(b.artifactRevision !== undefined
+                ? [b.artifactId, b.artifactRevision]
+                : [b.artifactId])
+            )
+          : null
         if (art) {
           if ((art.run_id as string) !== runId) {
             pending.push({
               slot,
               kind,
-              reason: `artifact ${identity.artifactId} belongs to run ${art.run_id}, not ${runId}`
+              reason: `artifact ${b.artifactId} belongs to run ${art.run_id}, not ${runId}`
             })
           } else {
             resolved.push({
@@ -202,28 +234,52 @@ export function resolveInputBindings(
           pending.push({
             slot,
             kind,
-            reason: `artifact ${identity.artifactId}@${identity.revision} not found`
+            reason: `artifact ${b.artifactId}@${b.artifactRevision ?? 'latest'} not found`
           })
         }
         break
       }
       case 'task-output': {
-        const fromTask = (identity.taskId ?? identity.fromTaskId ?? identity.task) as
-          string | undefined
-        const outputSlot = (identity.outputSlot ?? identity.output ?? identity.slot) as
-          string | undefined
+        const fromTask = b.taskId
+        const outputSlot = b.outputSlot
         if (!fromTask || !outputSlot) {
           pending.push({
             slot,
             kind,
-            reason: 'task-output binding missing taskId/outputSlot identity'
+            reason: 'task-output binding missing taskId/outputSlot'
           })
           break
         }
-        const outcome = latestOutcome(db, fromTask)
+        const producer = one(db, 'SELECT run_id FROM tasks WHERE id=?', fromTask)
+        if (producer && (producer.run_id as string) !== runId) {
+          pending.push({
+            slot,
+            kind,
+            reason: `producer task ${fromTask} belongs to run ${producer.run_id}, not ${runId}`
+          })
+          break
+        }
+        const outcome = latestOutcome(db, fromTask, b.taskRevision)
         const art = outcome ? outcomeOutput(db, outcome.id, outcome.revision, outputSlot) : null
-        if (art) {
-          resolved.push({ slot, kind, artifact: art })
+        // F-029: the binding path must agree with the edge path
+        // (edgeSettlementSatisfied) and the strict pinInputs path
+        // (resolveTaskOutput): only an outcome carrying an ACCEPTING
+        // settlement decision is consumable. Resolving the latest outcome
+        // regardless let rejected — and even unsettled — outputs flow into
+        // downstream work while the projection's own edge gate said blocked.
+        if (art && outcome) {
+          const dec = settlementDecision(db, outcome.id, outcome.revision)
+          if (dec !== null && (ACCEPTING_DECISIONS as readonly string[]).includes(dec)) {
+            resolved.push({ slot, kind, artifact: art })
+          } else if (required) {
+            pending.push({
+              slot,
+              kind,
+              reason:
+                `task ${fromTask} outcome rev${outcome.revision} is not accepted ` +
+                `(decision=${dec ?? 'none'}) — output '${outputSlot}' not consumable`
+            })
+          }
         } else if (required) {
           pending.push({
             slot,
@@ -234,12 +290,12 @@ export function resolveInputBindings(
         break
       }
       case 'contract': {
-        const contractId = (identity.contractId ?? identity.id) as string | undefined
+        const contractId = b.contractId
         const c = contractId
           ? one(
               db,
               'SELECT id FROM rdd_contracts WHERE model_version=? AND id=?',
-              modelVersion,
+              b.modelVersion ?? modelVersion,
               contractId
             )
           : null
@@ -249,7 +305,7 @@ export function resolveInputBindings(
           pending.push({
             slot,
             kind,
-            reason: `contract ${contractId ?? '?'} not in model ${modelVersion}`
+            reason: `contract ${contractId ?? '?'} not in model ${b.modelVersion ?? modelVersion}`
           })
         }
         break
@@ -343,10 +399,14 @@ export function computeEligibility(
       if (authority === 'active') {
         state = phase === 'reported' ? 'reported' : 'active'
       } else if (authority === 'settled') {
-        const outcome = latestOutcome(db, taskId)
+        const outcome = latestOutcome(db, taskId, spec.revision as number)
         const dec = outcome ? settlementDecision(db, outcome.id, outcome.revision) : null
         state =
-          dec === 'accepted' || dec === 'accept' ? 'accepted' : dec !== null ? 'failed' : 'reported'
+          dec !== null && (ACCEPTING_DECISIONS as readonly string[]).includes(dec)
+            ? 'accepted'
+            : dec !== null
+              ? 'failed'
+              : 'reported'
       }
       // 'revoked' attempts leave the task re-projected below (no active attempt)
     }
@@ -360,10 +420,11 @@ export function computeEligibility(
     for (const pi of pending) blockedReasons.push(`input '${pi.slot}': ${pi.reason}`)
 
     for (const e of inbound.get(taskId) ?? []) {
-      const sat = edgeSettlementSatisfied(db, e)
+      const predRev = planPinnedRevision(db, runId, planRevision, e.predecessorTaskId as string)
+      const sat = edgeSettlementSatisfied(db, e, predRev)
       if (!sat.ok) blockedReasons.push(sat.reason ?? `edge ${e.predecessorTaskId}→${taskId} unmet`)
       for (const outName of e.requiredOutputNames ?? []) {
-        const outcome = latestOutcome(db, e.predecessorTaskId as string)
+        const outcome = latestOutcome(db, e.predecessorTaskId as string, predRev)
         const art = outcome ? outcomeOutput(db, outcome.id, outcome.revision, outName) : null
         if (!art)
           blockedReasons.push(`required output '${outName}' of ${e.predecessorTaskId} not pinned`)

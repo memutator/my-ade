@@ -11,10 +11,16 @@
 //     an unverifiable group is never blindly signalled — the fallback is a
 //     verified-pid signal with scope honestly marked 'pid-only'
 //   * outcome is positive exit evidence or 'unknown' — a stop whose
-//     confirmation is lost is STOP_UNKNOWN, never assumed dead
+//     confirmation is lost is STOP_UNKNOWN, never assumed dead; but a pid
+//     absent (ESRCH) at re-verify time with the pre-signal birth identity
+//     held IS positive exit evidence (natural death under our signal), and
+//     a zombie (stat state Z) is dead too — only a present-but-reborn pid
+//     (starttime mismatch) is PROCESS_UNVERIFIABLE, never signalled
 
 import type { ProcessIncarnation } from '../../mahas-contracts/src/index.ts'
-import { parsePgid, readProcStat, verifyIncarnation } from './process-identity.ts'
+import { readFileSync } from 'node:fs'
+import { platform } from 'node:os'
+import { parsePgid, pidExists, readProcStat, verifyIncarnation } from './process-identity.ts'
 import { HostOpError } from './lease.ts'
 
 export type StopMode = 'graceful' | 'escalate' | 'immediate'
@@ -92,14 +98,31 @@ export async function stopProcess(
     expectedPgid !== undefined && liveStat !== null && liveStat.pgrp === expectedPgid
   const scope: 'group' | 'pid' = groupVerified ? 'group' : 'pid'
 
-  const send = (signal: 'SIGTERM' | 'SIGKILL'): void => {
+  const send = (signal: 'SIGTERM' | 'SIGKILL'): boolean => {
+    const pid = inc.pid!
     // re-verify immediately before signalling — a stop running concurrent
-    // with an exit+reuse window must not hit the wrong process
-    const stat = readProcStat(inc.pid!)
-    if (!stat || stat.startTime !== inc.birthEvidence) {
+    // with an exit+reuse window must not hit the wrong process. A missing
+    // stat is split three ways, never conflated (F-043):
+    //   pid gone (ESRCH)      → false: the incarnation is dead — with the
+    //                           pre-signal birth identity held, absence IS
+    //                           positive exit evidence (natural death)
+    //   stat present, reborn  → throw: genuine pid reuse, never signalled
+    //   pid present, unreadable → throw: unverifiable, as before
+    const stat = readProcStat(pid)
+    if (!stat) {
+      if (!pidExists(pid)) return false
       throw new HostOpError(
         'PROCESS_UNVERIFIABLE',
-        'identity changed before signal — aborting stop',
+        `cannot verify pid ${pid} before signal — birth evidence unreadable`,
+        'reconcile'
+      )
+    }
+    if (stat.startTime !== inc.birthEvidence) {
+      throw new HostOpError(
+        'PROCESS_UNVERIFIABLE',
+        inc.birthEvidence === undefined
+          ? `no birth evidence for pid ${pid} — aborting stop`
+          : `pid ${pid} reused before signal — aborting stop`,
         'reconcile'
       )
     }
@@ -110,10 +133,17 @@ export async function stopProcess(
         'reconcile'
       )
     }
-    if (scope === 'group') {
-      process.kill(-stat.pgrp, signal)
-    } else {
-      process.kill(stat.pid, signal)
+    try {
+      if (scope === 'group') {
+        process.kill(-stat.pgrp, signal)
+      } else {
+        process.kill(stat.pid, signal)
+      }
+    } catch (e) {
+      // exit squeezed between the stat read and the kill — same natural
+      // death as the pid-gone path above, not a signalling failure
+      if ((e as NodeJS.ErrnoException).code === 'ESRCH' && !pidExists(pid)) return false
+      throw e
     }
     steps.push({
       at: now(),
@@ -121,6 +151,7 @@ export async function stopProcess(
       scope,
       verified: { startTime: stat.startTime, pgrp: stat.pgrp }
     })
+    return true
   }
 
   const awaitExit = async (
@@ -132,14 +163,33 @@ export async function stopProcess(
       if (v.verdict === 'exited') {
         return target.waitExit ? await target.waitExit(0) : { at: now() }
       }
+      if (v.verdict === 'live' && typeof inc.pid === 'number' && isZombiePid(inc.pid)) {
+        // zombie = terminated, awaiting reap — positive exit evidence even
+        // though the starttime still matches (the oracle reads 'live').
+        // Prefer the owned handle's exit record, fall back to the kernel fact.
+        const observed = target.waitExit ? await target.waitExit(0) : null
+        return observed ?? { at: now() }
+      }
       await sleep(Math.min(TERM_WAIT_POLL_MS, Math.max(1, deadline - now())))
     }
     return null
   }
 
   // ---- graceful phase -----------------------------------------------------
+  // send() returning false means the pid is absent at (re-)verify time —
+  // natural death with the pre-signal birth identity held: report exited,
+  // never STOP_UNKNOWN (F-043)
+  const reportGone = async (reason: string): Promise<StopReceipt> => {
+    const observed = target.waitExit ? await target.waitExit(0) : null
+    return {
+      outcome: 'exited',
+      steps,
+      observedExit: normalizeExit(observed ?? { at: now() }, now),
+      evidence: { groupVerified, reason }
+    }
+  }
   if (mode !== 'immediate') {
-    send('SIGTERM')
+    if (!send('SIGTERM')) return reportGone('pid-absent-before-signal')
     const exited = await awaitExit(graceBudgetMs)
     if (exited) {
       return {
@@ -161,7 +211,9 @@ export async function stopProcess(
   }
 
   // ---- escalation ----------------------------------------------------------
-  send('SIGKILL')
+  // a pid absent here died under (or just after) our SIGTERM — the signal
+  // did its job, so this is exited, not kill-unconfirmed (F-043)
+  if (!send('SIGKILL')) return reportGone('pid-absent-after-signal')
   const exited = await awaitExit(Math.max(graceBudgetMs, 1000))
   if (exited) {
     return {
@@ -183,6 +235,25 @@ function normalizeExit(
   now: () => number
 ): { exitCode?: number; signal?: string; at: number } {
   return { exitCode: e.exitCode, signal: e.signal, at: e.at ?? now() }
+}
+
+/**
+ * Linux zombie check — /proc/<pid>/stat field 3 (state). Local to this
+ * controller, not the shared identity oracle: a zombie's starttime still
+ * matches, so verifyIncarnation honestly reads 'live'; the kernel state is
+ * the cheaper positive death evidence. Non-Linux always answers false.
+ */
+function isZombiePid(pid: number): boolean {
+  if (platform() !== 'linux') return false
+  let raw: string
+  try {
+    raw = readFileSync(`/proc/${pid}/stat`, 'utf8')
+  } catch {
+    return false
+  }
+  const close = raw.lastIndexOf(')')
+  if (close < 0) return false
+  return raw.slice(close + 1).trim().split(/\s+/)[0] === 'Z'
 }
 
 function sleep(ms: number): Promise<void> {

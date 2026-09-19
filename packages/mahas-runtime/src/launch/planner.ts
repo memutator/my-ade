@@ -34,9 +34,9 @@ import {
   REQUIRED_SOURCES,
   type ArgvEntry,
   type InjectionRoute,
-  type LaunchRecipe,
   type PlannedProcessSpec
 } from './initial-attachment.ts'
+import { launchRecipeFromProfile } from './recipe-adapter.ts'
 
 // ---------------------------------------------------------------------------
 // storage projections (snake_case rows per spec/storage.md §3)
@@ -484,10 +484,7 @@ export async function workerPrepare(
           implementationId: impl.id,
           implementationRevision: impl.revision,
           surfaceDigest,
-          sourceSnapshotPins: {
-            assignmentId: assignment.id,
-            assignmentRevision: assignment.revision
-          }
+          sourceSnapshotPins: [] as Array<{ path: string; digest: string }>
         })) as { bundleDigest?: string; manifest?: unknown; requiredTextDigest?: string }
         bundleDigest = built.bundleDigest ?? ''
         manifest = built.manifest ?? null
@@ -548,12 +545,7 @@ export async function workerPrepare(
   let processSpec: PlannedProcessSpec | null = null
   let routes: InjectionRoute[] = []
   if (profile) {
-    let recipe: LaunchRecipe | null = null
-    try {
-      recipe = JSON.parse(profile.recipe_json) as LaunchRecipe
-    } catch {
-      recipe = null
-    }
+    const recipe = launchRecipeFromProfile(profile)
     const exe = recipe?.process?.executable
     if (
       !recipe ||
@@ -568,9 +560,12 @@ export async function workerPrepare(
         )
       )
     } else {
+      const recipeArgv = recipe.process.argv as ArgvEntry[]
+      const argv0 = recipeArgv[0]
+      const exeAlready = argv0 !== undefined && 'literal' in argv0 && argv0.literal === exe
       processSpec = {
         executable: exe,
-        argv: recipe.process.argv as ArgvEntry[],
+        argv: exeAlready ? recipeArgv : [{ literal: exe }, ...recipeArgv],
         stdio: recipe.process.stdio ?? 'pty',
         ...(recipe.process.terminalSize ? { terminalSize: recipe.process.terminalSize } : {}),
         ...(recipe.process.env ? { env: recipe.process.env } : {}),

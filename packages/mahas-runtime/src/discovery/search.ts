@@ -25,7 +25,6 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
 import type { DiscoveryDeps } from './deps.ts'
 import {
-  ancestorsOf,
   boundarySubtree,
   boundarySummary,
   claimantsForPath,
@@ -38,6 +37,7 @@ import {
   listRoles,
   membersForRole,
   parentOf,
+  projectRepositoryRoot,
   resolveModelVersion,
   roleDigest,
   roleSummary,
@@ -45,8 +45,13 @@ import {
   visibilityDigest
 } from './model-read.ts'
 import type { BoundaryRow, NormalizedPath, PathClaim, RoleRow } from './model-read.ts'
-import { availabilityForRole } from './implementation-availability.ts'
+import {
+  availabilityForRole,
+  implementationPinDigest,
+  implementationSetDigest
+} from './implementation-availability.ts'
 import { issueSelectionToken, openPageCursor, sealPageCursor } from './selection-token.ts'
+import { resolveVisibleTerritory } from './locate.ts'
 import { discoveryError, target, SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT } from './types.ts'
 import { makeVisibility } from './visibility.ts'
 import type {
@@ -74,7 +79,7 @@ interface SearchFilter {
   scopeBoundaryId?: string
 }
 
-function normalizeFilter(raw: Partial<SearchRequest>): SearchFilter {
+function normalizeFilter(raw: Partial<SearchRequest>, repositoryRoot?: string): SearchFilter {
   const f: SearchFilter = {
     paths: [],
     rawPaths: [],
@@ -85,7 +90,7 @@ function normalizeFilter(raw: Partial<SearchRequest>): SearchFilter {
   if (typeof raw.query === 'string' && raw.query.trim().length > 0) f.query = raw.query.trim()
   if (Array.isArray(raw.paths))
     for (const p of raw.paths) {
-      const np = typeof p === 'string' ? tryNormalizeRepoPath(p) : null
+      const np = typeof p === 'string' ? tryNormalizeRepoPath(p, repositoryRoot) : null
       if (np === null) f.invalidPaths.push(String(p))
       else {
         f.paths.push(np)
@@ -129,7 +134,10 @@ function sameFilter(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-function validateSearchRequest(payload: unknown): {
+function validateSearchRequest(
+  payload: unknown,
+  repositoryRoot?: string
+): {
   projectId: string
   modelVersion?: string
   filter: SearchFilter
@@ -149,7 +157,7 @@ function validateSearchRequest(payload: unknown): {
       throw discoveryError('MODEL_INVALID', 'limit must be a positive integer')
     limit = Math.min(p.limit, SEARCH_MAX_LIMIT)
   }
-  const filter = normalizeFilter(p ?? {})
+  const filter = normalizeFilter(p ?? {}, repositoryRoot)
   if (p?.cursor === undefined && !filterHasSignal(filter))
     throw discoveryError(
       'MODEL_INVALID',
@@ -281,7 +289,11 @@ export function responsibilitySearch(
   deps: DiscoveryDeps,
   payload: unknown
 ): SearchResult {
-  const req = validateSearchRequest(payload)
+  const projectId =
+    typeof (payload as { projectId?: unknown })?.projectId === 'string'
+      ? (payload as { projectId: string }).projectId
+      : ''
+  const req = validateSearchRequest(payload, projectId ? projectRepositoryRoot(db, projectId) : undefined)
   const now = deps.now !== undefined ? deps.now() : Date.now()
 
   // --- cursor handling: bind model snapshot + visibility + filter -------
@@ -349,26 +361,14 @@ export function responsibilitySearch(
   for (const np of filter.paths) {
     const claims = claimantsForPath(db, mv.id, np).filter((c) => vis.boundaryVisible(c.boundaryId))
     const owners = claims.filter((c) => c.claim === 'owns')
-    const maxDepth = owners.length > 0 ? Math.max(...owners.map((c) => c.depth)) : -1
-    const deepest = owners.filter((c) => c.depth === maxDepth)
-    // ambiguity = same-depth claims not in an ancestor relation
-    const ancCache = new Map<string, Set<string>>()
-    const anc = (id: string): Set<string> => {
-      let s = ancCache.get(id)
-      if (s === undefined) {
-        s = new Set(ancestorsOf(db, mv.id, id))
-        ancCache.set(id, s)
-      }
-      return s
-    }
-    const resolved =
-      deepest.length <= 1
-        ? deepest
-        : deepest.filter((d) =>
-            deepest.every((o) => o === d || anc(d.boundaryId).has(o.boundaryId))
-          )
-    const tied = resolved.length === 1 ? [] : deepest.map((c) => c.boundaryId)
-    const ownerIds = new Set(owners.map((c) => c.boundaryId))
+    const territory = resolveVisibleTerritory(db, mv.id, np, (id) => vis.boundaryVisible(id))
+    const tied =
+      territory.status === 'ambiguous' ? territory.ambiguousBoundaryIds : []
+    const ownerIds = new Set(
+      territory.status === 'resolved' && territory.winnerId
+        ? [territory.winnerId]
+        : owners.map((c) => c.boundaryId)
+    )
     const claimantIds = new Set(claims.map((c) => c.boundaryId))
     const res: PathResolution = {
       np,
@@ -563,6 +563,31 @@ export function responsibilitySearch(
     const { interfaceDigests, items: impls } = availabilityForRole(db, mv.id, role.id, {
       observedAt: now
     })
+    const implPin =
+      impls.length === 1
+        ? {
+            implementationId: impls[0]!.implementationId,
+            implementationRevision: impls[0]!.revision,
+            implementationDigest: implementationPinDigest({
+              id: impls[0]!.implementationId,
+              revision: impls[0]!.revision,
+              interfaceDigest: impls[0]!.interfaceDigest,
+              profileId: impls[0]!.profileId,
+              profileRevision: impls[0]!.profileRevision,
+              status: impls[0]!.status
+            }),
+            implementationCandidateDigest: implementationPinDigest({
+              id: impls[0]!.implementationId,
+              revision: impls[0]!.revision,
+              interfaceDigest: impls[0]!.interfaceDigest,
+              profileId: impls[0]!.profileId,
+              profileRevision: impls[0]!.profileRevision,
+              status: impls[0]!.status
+            })
+          }
+        : impls.length > 1
+          ? { implementationCandidateDigest: implementationSetDigest(impls) }
+          : {}
 
     const memberAvailability: MemberAvailability[] = membersForRole(
       db,
@@ -589,6 +614,7 @@ export function responsibilitySearch(
       roleId: role.id,
       roleDigest: roleDigest(role, mv.id),
       ...(interfaceDigests.length === 1 ? { interfaceDigest: interfaceDigests[0] } : {}),
+      ...implPin,
       ...(filter.scopeBoundaryId !== undefined
         ? { scope: { scopeBoundaryId: filter.scopeBoundaryId } }
         : {}),

@@ -14,7 +14,7 @@
 // re-derive scope from payload claims.
 
 import type { DatabaseSync } from 'node:sqlite'
-import type { TargetRef, TxnContext } from '../api/registry.ts'
+import type { DomainEventInput, TargetRef, TxnContext } from '../api/registry.ts'
 import type { Checkout, Workspace } from '../../../mahas-contracts/src/resource.ts'
 import type { Id } from '../../../mahas-contracts/src/common.ts'
 import {
@@ -246,7 +246,7 @@ export async function workspacePrepareHandler(
   const startedAt = deps.now()
 
   // ---- reservation: project lookup, overlap scan, rows, claim, intent ---
-  const reserved = inTx(db, () => {
+  const reserved: ReservedPrepare = inTx(db, () => {
     const project = db
       .prepare('SELECT id, repository_root FROM projects WHERE id=?')
       .get(projectId) as { id: string; repository_root: string } | undefined
@@ -342,7 +342,16 @@ export async function workspacePrepareHandler(
       scope: { projectId },
       payload: { workspaceId, checkoutId, claimId, effectId, hostId, pathGuess }
     })
-    return { hostId, pathGuess, workspaceId, checkoutId, claimId, effectId, hostPayload }
+    return {
+      hostId,
+      pathGuess,
+      targetPath,
+      workspaceId,
+      checkoutId,
+      claimId,
+      effectId,
+      hostPayload
+    }
   })
 
   // ---- host effect: the execution-host does the real fs work ------------
@@ -359,7 +368,53 @@ export async function workspacePrepareHandler(
     hostError = e
   }
 
-  // ---- identity finalize: host receipt is the authority ------------------
+  // ---- identity finalize: host receipt is the authority.
+  // F-034: shared with the recovery outbox pump (settleWorkspacePrepareEffect
+  // below) — one finalize, two callers, never a reinterpretation.
+  return settleWorkspacePrepareEffect(
+    db,
+    {
+      workspaceId: reserved.workspaceId,
+      checkoutId: reserved.checkoutId,
+      effectId: reserved.effectId,
+      targetPath,
+      pathGuess: reserved.pathGuess
+    },
+    { hostResult, hostError },
+    { now: () => deps.now(), emit: (event) => txn.emitEvent(event), startedAt }
+  )
+}
+
+/**
+ * F-034 — pump-shared workspace-prepare finalize. The recovery outbox pump
+ * (recovery/reconciler.ts drainEffectOutbox) adopts or re-issues the host
+ * effect by the SAME key and settles the control rows through THIS function —
+ * the host receipt is interpreted once, identically, whether the verdict
+ * arrived inline (op path) or late (pump path). Partial failure stays
+ * effect state + residuals, never a fresh-id retry (REQ-13/14).
+ */
+export interface WorkspaceSettleInput {
+  workspaceId: string
+  checkoutId: string
+  effectId: string
+  targetPath: string
+  pathGuess: string
+}
+
+export interface WorkspaceHostVerdict {
+  hostResult: HostPrepareResult | null
+  hostError: unknown
+}
+
+export function settleWorkspacePrepareEffect(
+  db: DatabaseSync,
+  input: WorkspaceSettleInput,
+  verdict: WorkspaceHostVerdict,
+  opts: { now: () => number; emit: (event: DomainEventInput) => void; startedAt: number }
+): WorkspacePrepareResult {
+  const { hostResult, hostError } = verdict
+  const { startedAt } = opts
+  const reserved = input
   return inTx(db, () => {
     const residuals: unknown[] = [...(hostResult?.residuals ?? [])]
     let effectState: string
@@ -402,11 +457,20 @@ export async function workspacePrepareHandler(
           },
           hostReceipt: hostResult.receipt
         }
-        return finishPrepare(db, txn, reserved, deps, startedAt, effectState, receipt, residuals)
+        return finishPrepare(
+          db,
+          { emitEvent: opts.emit },
+          reserved,
+          { now: opts.now },
+          startedAt,
+          effectState,
+          receipt,
+          residuals
+        )
       }
       db.prepare("UPDATE workspaces SET state='ready' WHERE id=?").run(reserved.workspaceId)
       effectState = 'confirmed'
-      receipt = { state: 'confirmed', hostReceipt: hostResult.receipt, at: deps.now() }
+      receipt = { state: 'confirmed', hostReceipt: hostResult.receipt, at: opts.now() }
     } else if (hostResult && hostResult.state === 'rejected') {
       db.prepare("UPDATE workspaces SET state='failed' WHERE id=?").run(reserved.workspaceId)
       effectState = 'rejected'
@@ -436,11 +500,20 @@ export async function workspacePrepareHandler(
       residuals.push({
         resourceRef: reserved.checkoutId,
         reason: 'prepare-outcome-unverified',
-        liveEvidence: { canonicalPathGuess: reserved.pathGuess, targetPath },
+        liveEvidence: { canonicalPathGuess: reserved.pathGuess, targetPath: reserved.targetPath },
         cleanupPolicy: 'preserve-until-reconciled'
       })
     }
-    return finishPrepare(db, txn, reserved, deps, startedAt, effectState, receipt, residuals)
+    return finishPrepare(
+      db,
+      { emitEvent: opts.emit },
+      reserved,
+      { now: opts.now },
+      startedAt,
+      effectState,
+      receipt,
+      residuals
+    )
   })
 }
 
@@ -452,13 +525,14 @@ interface ReservedPrepare {
   claimId: string
   effectId: string
   hostPayload: HostPreparePayload
+  targetPath: string
 }
 
 function finishPrepare(
   db: DatabaseSync,
-  txn: TxnContext,
-  r: ReservedPrepare,
-  deps: ResolvedResourceDeps,
+  txn: { emitEvent: (event: DomainEventInput) => void },
+  r: { workspaceId: string; checkoutId: string; effectId: string },
+  deps: { now: () => number },
   startedAt: number,
   effectState: string,
   receipt: unknown,

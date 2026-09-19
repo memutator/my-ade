@@ -20,7 +20,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { SupportAttestation } from '../../../mahas-contracts/src/observation.ts'
 import { authorize } from '../access/authorize.ts'
 import type { TxnContext } from '../api/registry.ts'
-import { appendDomainEvent, stageEffectIntent } from '../storage/db.ts'
+import { appendDomainEvent } from '../storage/db.ts'
 import { COMPONENT_KINDS, type ComponentKind } from './component-graph.ts'
 import {
   asRecord,
@@ -352,6 +352,8 @@ export async function harnessProfileInspect(
     fail('MODEL_INVALID', `unknown harness profile ${profileId}${revision ? `@${revision}` : ''}`)
   }
 
+  // Probe I/O must not run inside the write transaction. Reads are done;
+  // the observation is returned to the caller and not persisted here.
   let observation: InstallationObservation | null = null
   if (deps.probeInstallation !== undefined && hostId !== undefined) {
     observation = await deps.probeInstallation(
@@ -362,38 +364,6 @@ export async function harnessProfileInspect(
       },
       hostId
     )
-    // the probe is an explicit diagnostic record (contract: 명시 진단 effect로
-    // 기록, prompt 실행 안 함) — persisted as an Observation fact plus a
-    // completed diagnostic effect intent (staged already 'confirmed': the
-    // diagnostic ran inline). Nothing is written when no probe ran.
-    txn.db
-      .prepare(
-        'INSERT INTO observations (id, execution_id, dispatch_id, source, fact_type, observed_at, ' +
-          'payload_json, identity_evidence_json) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?)'
-      )
-      .run(
-        mintId('obs'),
-        'harness.profile.inspect',
-        'installation-probe',
-        observation.observedAt,
-        canonicalJson(observation),
-        canonicalJson({ profileId: profile.profileId, profileRevision: profile.revision, hostId })
-      )
-    stageEffectIntent(txn.db, {
-      id: mintId('eff'),
-      operationKey: `harness.profile.inspect:${profile.profileId}@${profile.revision}:${hostId}`,
-      kind: 'diagnostic.installation-probe',
-      fingerprint: digestOf({
-        profileId: profile.profileId,
-        revision: profile.revision,
-        hostId,
-        observation
-      }),
-      hostId,
-      state: 'confirmed',
-      payload: { profileId: profile.profileId, revision: profile.revision },
-      receipt: observation
-    })
   }
 
   return {

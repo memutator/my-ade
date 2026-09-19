@@ -312,7 +312,7 @@ export interface CrashLoopPolicy {
 export const DEFAULT_CRASH_LOOP: CrashLoopPolicy = { windowMs: 120_000, maxFailures: 5 }
 
 interface BootJournalEntry {
-  t: 'boot' | 'ready' | 'stopped'
+  t: 'boot' | 'ready' | 'stopped' | 'refused'
   bootId: string
   pid: number
   at: number
@@ -348,8 +348,10 @@ export async function recordBootMarker(
 
 /**
  * Admit or refuse this start based on recent boot failures. A 'boot' marker
- * with no following 'ready'/'stopped' inside the window counts as a failed
- * boot — the process died before publishing readiness.
+ * with no following 'ready'/'stopped'/'refused' inside the window counts as a
+ * failed boot — the process died before publishing readiness. 'refused' is a
+ * deliberate refusal (lock held, endpoint verdict, explicit policy), which is
+ * NOT a crash and must not feed the throttle (F-008).
  */
 export async function checkCrashLoop(
   journalPath: string,
@@ -362,7 +364,9 @@ export async function checkCrashLoop(
   const boots: BootJournalEntry[] = []
   for (const e of entries) {
     if (e.t === 'boot' && e.at >= since) boots.push(e)
-    if ((e.t === 'ready' || e.t === 'stopped') && e.at >= since) settled.add(e.bootId)
+    if ((e.t === 'ready' || e.t === 'stopped' || e.t === 'refused') && e.at >= since) {
+      settled.add(e.bootId)
+    }
   }
   const failures = boots.filter((b) => !settled.has(b.bootId)).length
   // journal hygiene: keep the file bounded so a long-lived host does not grow it
@@ -391,6 +395,18 @@ export function lifecyclePaths(configDir: string): {
     bootJournal: join(configDir, 'mahasd-boots.log'),
     db: join(configDir, 'mahas.sqlite')
   }
+}
+
+/**
+ * F-015 — the single-writer lock is keyed to the CONTROL DB FILE, not the
+ * config dir. Two daemons started with different config dirs but the same
+ * `--db` path used to take two different locks and both serve, violating the
+ * single-writer invariant (and writing `interrupted` over a live epoch).
+ * Deriving the path from the DB path (plus the in-DB `runtime_instances`
+ * liveness fence in main.ts) restores the invariant for every spelling.
+ */
+export function singleWriterLockPath(dbPath: string): string {
+  return `${dbPath}.lock`
 }
 
 export { randomUUID }

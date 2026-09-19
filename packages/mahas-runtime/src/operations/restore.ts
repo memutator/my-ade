@@ -357,14 +357,34 @@ function markRestoreOnRegistryRow(db: DatabaseSync, backupSetId: string): void {
 }
 
 function markExecutionsUnconfirmed(tx: DatabaseSync): number {
+  const now = Date.now()
+  let n = 0
   try {
     const res = tx
-      .prepare(`UPDATE executions SET liveness = 'unverifiable' WHERE liveness = 'live'`)
+      .prepare(
+        `UPDATE executions
+         SET liveness = 'unverifiable',
+             state = CASE
+               WHEN state IN ('exited', 'abandoned') THEN state
+               ELSE 'start_unknown'
+             END
+         WHERE liveness = 'live' OR state NOT IN ('exited', 'abandoned')`
+      )
       .run()
-    return Number(res.changes)
+    n = Number(res.changes)
   } catch {
-    return 0
+    /* no executions table in this snapshot */
   }
+  try {
+    tx.prepare(
+      `UPDATE execution_credentials
+       SET revoked_at = ?, revision = revision + 1
+       WHERE revoked_at IS NULL`
+    ).run(now)
+  } catch {
+    /* no credentials table in this snapshot */
+  }
+  return n
 }
 
 function restoreContent(
@@ -388,7 +408,10 @@ function restoreContent(
   for (const c of manifest.content ?? []) {
     if (c.status !== 'captured' || !c.path || !c.sha256) continue
     try {
-      copyVerified(c.path, c.sha256, c.digest)
+      // F-003: external blob dest must use the writer's shard rule
+      // (<digest[0:2]>/<digest>), matching putExternalContentBlob's
+      // external_ref — a flat <root>/<digest> write is unreadable by getContentBlob.
+      copyVerified(c.path, c.sha256, `${c.digest.slice(0, 2)}/${c.digest}`)
       restoredBlobs++
     } catch (e) {
       warnings.push(

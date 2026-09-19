@@ -32,6 +32,7 @@ import {
   withTimeout,
   type AuthenticatedContext,
   type DatabaseSync,
+  type EffectIntentRow,
   type ExecutionHostRow,
   type ExecutionRow,
   type RecoveryDeps,
@@ -42,6 +43,7 @@ import { assertCurrentControllerEpoch, probeProcess } from './identity-probe.ts'
 import { applyProbeVerdict } from './reattach.ts'
 import { applyStopOutcome, type StopOutcomeVerdict } from './stop.ts'
 import { classifyHostProcess, quarantineOrphan, type OrphanRecord } from './orphan.ts'
+import { settleWorkspacePrepareEffect, type HostPrepareResult } from '../resources/workspace.ts'
 
 // ---------------------------------------------------------------------------
 // shapes of what a host can tell us (C-HOST inventory/effect/probe results)
@@ -176,12 +178,6 @@ async function fetchInventory(
           ? e.message
           : String(e)
     }
-  } finally {
-    try {
-      client.close()
-    } catch {
-      /* ignore */
-    }
   }
 }
 
@@ -225,12 +221,6 @@ async function fetchHostEffect(
     return {
       found: false,
       reason: isMahasError(e) ? e.message : e instanceof Error ? e.message : String(e)
-    }
-  } finally {
-    try {
-      client.close()
-    } catch {
-      /* ignore */
     }
   }
 }
@@ -584,6 +574,27 @@ export async function reconcileExecutions(
   if (report.decisions.some((d) => d.decision === 'reattached')) actions.add('worker.inspect')
   if (report.unresolvedResources.length > 0) actions.add('worker.release')
   if (report.orphans.length > 0) actions.add('operator: resolveOrphan')
+  // F-034: pump the effect outbox at the end of every reconcile pass. The
+  // pump had no caller, so prepared workspace effects never reached the
+  // host and their claims wedged canonical paths as RESOURCE_BUSY.
+  // Non-terminal pump outcomes join the report as unreconciled effects.
+  const drain = await drainEffectOutbox(
+    deps,
+    db,
+    scope.hostId ? { hostId: scope.hostId } : undefined
+  )
+  for (const p of drain.processed) {
+    if (p.action === 'resolved' || p.action === 'adopted') continue
+    const fresh = loadEffectIntent(db, p.effectId)
+    report.unreconciledEffects.push({
+      effectId: p.effectId,
+      kind: p.kind,
+      state: fresh?.state ?? p.action,
+      detail: `outbox pump: ${p.detail}`
+    })
+  }
+  if (drain.processed.some((p) => p.action === 'pending' || p.action === 'reissued'))
+    actions.add('runtime.reconcile')
   report.nextAllowedActions = [...actions]
   return report
 }
@@ -617,12 +628,221 @@ export interface DrainReport {
 }
 
 /**
- * effect_outbox pump for recovery-owned effects. Only 'process.stop' is
- * driven here — other kinds belong to their owner services and are skipped,
- * never hijacked. A held-back outbox row is settled by host.effect.get on
+ * effect_outbox pump for recovery-owned effects. 'process.stop' and
+ * 'host.workspace.prepare' are driven here (F-034) — other kinds belong to
+ * their owner services and are skipped, never hijacked. A held-back outbox
+ * row is settled by host.effect.get on
  * the SAME key; a confirmed-negative gets ONE re-issue of the same keyed
  * stop (the host dedups); nothing ever spawns anew (C-RECOVERY step 6).
  */
+/**
+ * F-034 — drive one host.workspace.prepare intent: adopt the host receipt
+ * for the same key when it exists, else re-issue the SAME payload under the
+ * SAME key (the host journal dedups — never a fresh effect), then settle
+ * the control rows through the shared finalize. The intent row is closed
+ * (state + receipt, outbox deleted) only on a definitive host verdict;
+ * anything else stays open with backoff, exactly like the stop path.
+ */
+async function drainWorkspacePrepare(
+  deps: RecoveryDeps,
+  db: DatabaseSync,
+  intent: EffectIntentRow,
+  report: DrainReport
+): Promise<void> {
+  const push = (action: DrainReport['processed'][number]['action'], detail: string): void => {
+    report.processed.push({ effectId: intent.id, kind: intent.kind, action, detail })
+  }
+  const backoff = (): void => {
+    db.prepare('UPDATE effect_outbox SET next_attempt_at=? WHERE effect_id=?').run(
+      deps.now() + 30_000,
+      intent.id
+    )
+  }
+  const payload = (intent.payload ?? {}) as {
+    claimToken?: unknown
+    targetPath?: unknown
+  }
+  // control rows: claim token → resource → checkout → workspace, with the
+  // pending-identity row as fallback (claim row predates the token write).
+  let rows: { workspace_id: string; checkout_id: string } | undefined
+  if (typeof payload.claimToken === 'string' && payload.claimToken.length > 0) {
+    rows = db
+      .prepare(
+        `SELECT w.id AS workspace_id, c.id AS checkout_id
+         FROM resource_claims cl
+         JOIN checkouts c ON c.resource_id = cl.resource_id
+         JOIN workspaces w ON w.checkout_id = c.id
+         WHERE cl.id = ?`
+      )
+      .get(payload.claimToken) as { workspace_id: string; checkout_id: string } | undefined
+  }
+  rows ??= db
+    .prepare(
+      `SELECT w.id AS workspace_id, c.id AS checkout_id
+       FROM checkouts c JOIN workspaces w ON w.checkout_id = c.id
+       WHERE c.filesystem_identity = ?`
+    )
+    .get(`pending:${intent.id}`) as { workspace_id: string; checkout_id: string } | undefined
+  if (!rows) {
+    push('pending', 'control rows missing for this intent — kept for operator inspection')
+    backoff()
+    return
+  }
+  const targetPath = typeof payload.targetPath === 'string' ? payload.targetPath : ''
+  const host = intent.hostId ? loadHost(db, intent.hostId) : null
+  if (!host) {
+    push('pending', 'host mirror missing — intent stays open')
+    backoff()
+    return
+  }
+  const settle = (hostResult: HostPrepareResult | null, hostError: unknown): void => {
+    const settled = settleWorkspacePrepareEffect(
+      db,
+      {
+        workspaceId: rows!.workspace_id,
+        checkoutId: rows!.checkout_id,
+        effectId: intent.id,
+        targetPath,
+        pathGuess: targetPath
+      },
+      { hostResult, hostError },
+      {
+        now: () => deps.now(),
+        emit: (event) =>
+          deps.appendDomainEvent(
+            db,
+            event.aggregateId,
+            event.aggregateRevision,
+            event.eventType,
+            event.scope,
+            event.payload
+          ),
+        // the op-path startedAt is unrecoverable here — 0 marks pump origin.
+        startedAt: 0
+      }
+    )
+    deps.withTx(db, (tx) => {
+      const fresh = loadEffectIntent(tx, intent.id)
+      if (!fresh) return
+      tx.prepare('UPDATE effect_intents SET state=?, receipt_json=? WHERE id=?').run(
+        settled.effect.state,
+        JSON.stringify({ pumpSettled: true, result: settled, at: deps.now() }),
+        intent.id
+      )
+      if (settled.effect.state === 'confirmed' || settled.effect.state === 'rejected') {
+        tx.prepare('DELETE FROM effect_outbox WHERE effect_id=?').run(intent.id)
+      } else {
+        tx.prepare('UPDATE effect_outbox SET next_attempt_at=? WHERE effect_id=?').run(
+          deps.now() + 30_000,
+          intent.id
+        )
+      }
+    })
+  }
+
+  // 1) adopt an existing host receipt for the same key
+  const found = await fetchHostEffect(deps, host, intent.id)
+  if (found.found && found.entry) {
+    const hostResult = workspaceHostResultFrom(found.entry, intent.id)
+    if (!hostResult) {
+      push('pending', 'host receipt for this key is unreadable — kept for retry via same key')
+      backoff()
+      return
+    }
+    settle(hostResult, null)
+    push(
+      hostResult.state === 'confirmed' || hostResult.state === 'rejected' ? 'resolved' : 'adopted',
+      `host receipt adopted → ${hostResult.state}`
+    )
+    return
+  }
+  if (!found.negativeEvidence) {
+    push(
+      'pending',
+      `no host receipt for this key${found.reason ? ` (${found.reason})` : ''} — kept unknown; a retry must reuse the same key`
+    )
+    backoff()
+    return
+  }
+  // 2) confirmed-negative → ONE re-issue of the same keyed prepare
+  const endpoint = host.identity.endpoint
+  if (typeof endpoint !== 'string' || endpoint.length === 0) {
+    push('pending', 'host endpoint missing')
+    backoff()
+    return
+  }
+  const timeout = deps.hostCallTimeoutMs ?? 10_000
+  try {
+    const client = await withTimeout(deps.connectHost(endpoint), timeout)
+    const res = await withTimeout(
+      client.call<Record<string, unknown>>('host.workspace.prepare', intent.payload, {
+        effectKey: intent.id
+      }),
+      timeout
+    )
+    const hostResult = workspaceHostResultFrom(res, intent.id)
+    if (!hostResult) {
+      push('pending', 're-issued prepare returned an unreadable verdict — kept for retry')
+      backoff()
+      return
+    }
+    settle(hostResult, null)
+    push(
+      hostResult.state === 'confirmed' || hostResult.state === 'rejected' ? 'resolved' : 'reissued',
+      hostResult.state === 'confirmed' || hostResult.state === 'rejected'
+        ? `re-issued prepare settled → ${hostResult.state}`
+        : 're-issued, outcome unknown'
+    )
+  } catch (e) {
+    push('pending', `re-issue failed: ${e instanceof Error ? e.message : String(e)}`)
+    backoff()
+  }
+}
+
+/**
+ * Normalize the many shapes a host workspace verdict can arrive in
+ * (wire result, journaled receipt, effect.get envelope) into the control
+ * HostPrepareResult. Returns null when no definitive shape is readable —
+ * the caller keeps the intent open rather than guessing.
+ */
+function workspaceHostResultFrom(entry: unknown, effectId: string): HostPrepareResult | null {
+  const root = (entry ?? {}) as Record<string, unknown>
+  // host.effect.get wraps the journal row in .effect; the journal receipt in
+  // .receipt; doPrepare's outcome in .result — look through all three.
+  const wrapped = (root.effect ?? root) as Record<string, unknown>
+  const stored = (wrapped.receipt ?? {}) as Record<string, unknown>
+  const result = (stored.result ?? {}) as Record<string, unknown>
+  const inner = (stored.receipt ?? {}) as Record<string, unknown>
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+  const state = str(stored.state) ?? str(wrapped.state) ?? str(root.state) ?? str(result.state)
+  if (state !== 'confirmed' && state !== 'rejected' && state !== 'unknown') return null
+  const bag = (v: unknown): Record<string, unknown> =>
+    v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  const co = [result.checkout, stored.checkout, inner.checkout, wrapped.checkout, root.checkout]
+    .map(bag)
+    .find(
+      (c) => typeof c.canonicalPath === 'string' && typeof c.filesystemIdentity === 'string'
+    ) as HostPrepareResult['checkout'] | undefined
+  const reason = [result.reason, stored.reason, inner.reason, wrapped.reason, root.reason]
+    .map(bag)
+    .find((r) => typeof r.code === 'string') as HostPrepareResult['reason'] | undefined
+  const residuals = [result.residuals, stored.residuals, wrapped.residuals, root.residuals].find(
+    Array.isArray
+  ) as unknown[] | undefined
+  const receipt =
+    stored.receipt !== undefined && Object.keys(stored).length > 0
+      ? (stored.receipt ?? stored)
+      : (result.receipt ?? wrapped.receipt ?? root.receipt ?? entry)
+  return {
+    effectKey: effectId,
+    state,
+    receipt,
+    ...(co ? { checkout: co } : {}),
+    ...(residuals ? { residuals } : {}),
+    ...(reason ? { reason } : {})
+  }
+}
+
 export async function drainEffectOutbox(
   deps: RecoveryDeps,
   db: DatabaseSync,
@@ -651,6 +871,13 @@ export async function drainEffectOutbox(
       continue
     }
     if (scope?.hostId && intent.hostId !== scope.hostId) continue
+    // F-034: host.workspace.prepare is recovery-driven (adopt-or-reissue by
+    // the same key + the shared control finalize). Remaining kinds belong to
+    // their owner services and are skipped, never hijacked.
+    if (intent.kind === 'host.workspace.prepare') {
+      await drainWorkspacePrepare(deps, db, intent, report)
+      continue
+    }
     if (intent.kind !== 'process.stop') {
       report.processed.push({
         effectId: intent.id,
@@ -729,35 +956,30 @@ export async function drainEffectOutbox(
       const timeout = deps.hostCallTimeoutMs ?? 10_000
       try {
         const client = await withTimeout(deps.connectHost(endpoint), timeout)
-        try {
-          const res = await withTimeout(
-            client.call<Record<string, unknown>>('host.process.stop', {
-              effectKey: intent.id,
-              expectedProcessIncarnation: exec.processIdentity,
-              mode: payload.mode ?? 'graceful',
-              graceBudget: payload.graceBudgetMs,
-              reason: payload.reason,
-              executionId: exec.id,
-              generation: payload.generation ?? exec.generation
-            }),
-            timeout
-          )
-          const oc = res?.outcome ?? res?.state
-          verdict =
-            oc === 'exited' || oc === 'already-exited' || oc === 'stopped' || oc === 'confirmed'
-              ? { kind: 'exited', evidence: res }
-              : {
-                  kind: 'unknown',
-                  reason: 're-issued stop returned no positive exit evidence',
-                  evidence: res
-                }
-        } finally {
-          try {
-            client.close()
-          } catch {
-            /* ignore */
-          }
-        }
+        const res = await withTimeout(
+          client.call<Record<string, unknown>>('host.process.stop', {
+            effectKey: intent.id,
+            processIncarnation: exec.processIdentity,
+            expectedProcessIncarnation: exec.processIdentity,
+            mode: payload.mode ?? 'graceful',
+            graceBudget: payload.graceBudgetMs,
+            reason: payload.reason,
+            executionId: exec.id,
+            generation: payload.generation ?? exec.generation
+          }),
+          timeout
+        )
+        const stop = res?.stop as Record<string, unknown> | undefined
+        const receipt = stop?.receipt as Record<string, unknown> | undefined
+        const oc = stop?.outcome ?? receipt?.outcome ?? res?.outcome ?? res?.state
+        verdict =
+          oc === 'exited' || oc === 'already-exited' || oc === 'stopped' || oc === 'confirmed'
+            ? { kind: 'exited', evidence: res }
+            : {
+                kind: 'unknown',
+                reason: 're-issued stop returned no positive exit evidence',
+                evidence: res
+              }
       } catch (e) {
         verdict = {
           kind: 'unknown',

@@ -42,16 +42,23 @@ export interface ResolveOptions {
   connectionFile?: string
 }
 
+/** true when this process was issued as a worker — no operator fallback. */
+function isWorkerContext(env: NodeJS.ProcessEnv): boolean {
+  return env[MAHAS_ROLE_ENV] === 'worker' || workerConnectionPath(env) !== null
+}
+
 /**
  * Which side of mahasd this process talks to. Worker context is detected by
- * the launch-stamped MAHAS_CONNECTION_FILE; MAHAS_ROLE pins explicitly.
- * Default (a human at a shell) is operator.
+ * the launch-stamped MAHAS_CONNECTION_FILE or MAHAS_ROLE=worker and STAYS
+ * worker even if `--as operator` is passed — worker mode has no
+ * fallback-admin path (C-ACCESS). Default (a human at a shell) is operator.
  */
 export function inferRole(env: NodeJS.ProcessEnv, explicit?: CliRole): CliRole {
+  if (isWorkerContext(env)) return 'worker'
   if (explicit) return explicit
   const pinned = env[MAHAS_ROLE_ENV]
-  if (pinned === 'worker' || pinned === 'operator') return pinned
-  return workerConnectionPath(env) !== null ? 'worker' : 'operator'
+  if (pinned === 'operator') return 'operator'
+  return 'operator'
 }
 
 /**
@@ -104,6 +111,13 @@ async function resolveOperator(
 
 export async function resolveConnection(opts: ResolveOptions): Promise<ResolvedConnection> {
   const env = opts.env ?? process.env
+  if (opts.role === 'operator' && isWorkerContext(env)) {
+    throw mahasError(
+      'UNAUTHENTICATED',
+      'worker context cannot use --as operator — no fallback-admin path ' +
+        `(${MAHAS_ROLE_ENV}=worker or ${MAHAS_CONNECTION_FILE_ENV} is set)`
+    )
+  }
   const role = inferRole(env, opts.role)
   return role === 'worker'
     ? resolveWorker(env, opts.connectionFile)

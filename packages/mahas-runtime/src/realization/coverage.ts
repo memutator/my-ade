@@ -35,7 +35,43 @@ export const COMPONENT_KINDS = new Set([
   'launch-config'
 ])
 export const LOAD_PHASES = new Set(['inline', 'preload', 'catalog'])
+/** IMP-07 authoring vocab accepted and mapped onto LOAD_PHASES */
+export const AUTHORING_LOAD_PHASES = new Set(['initial', 'conditional'])
 export const REALIZATIONS = new Set(['verbatim', 'reexpressed'])
+
+/**
+ * Unify IMP-07 ('initial'|'conditional') with compiler
+ * ('inline'|'preload'|'catalog'). initial → inline (instruction) or
+ * preload (skill/subagent); conditional → catalog.
+ */
+export function normalizeLoadPhase(phase: string, kind?: string): string {
+  if (phase === 'inline' || phase === 'preload' || phase === 'catalog') return phase
+  if (phase === 'conditional') return 'catalog'
+  if (phase === 'initial') {
+    if (kind === 'skill' || kind === 'subagent') return 'preload'
+    return 'inline'
+  }
+  return phase
+}
+
+/** activation column may be a phase string or JSON `{phase,route}` */
+export function normalizeActivation(activation: string): string {
+  if (activation === 'initial' || activation === 'conditional') return activation
+  const trimmed = activation.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (parsed === 'initial' || parsed === 'conditional') return parsed
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const phase = (parsed as { phase?: unknown }).phase
+        if (phase === 'initial' || phase === 'conditional') return phase
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return activation
+}
 
 /** kinds whose bindings must point at a real section of authored text */
 const TEXT_CARRYING_KINDS = new Set(['instruction', 'skill', 'subagent'])
@@ -112,7 +148,10 @@ export function validateCoverage(
         `component ${component.id} has unknown kind ${JSON.stringify(component.kind)}`
       )
     }
+    const activation = normalizeActivation(component.activation)
+    component.activation = activation
     for (const binding of component.coverage) {
+      binding.requiredLoadPhase = normalizeLoadPhase(binding.requiredLoadPhase, component.kind)
       const clause = clauses.get(binding.clauseId)
       if (!clause) {
         fail(
@@ -124,7 +163,7 @@ export function validateCoverage(
           }
         )
       }
-      if (!LOAD_PHASES.has(binding.requiredLoadPhase)) {
+      if (!LOAD_PHASES.has(binding.requiredLoadPhase) && !AUTHORING_LOAD_PHASES.has(binding.requiredLoadPhase)) {
         fail(
           'MODEL_INVALID',
           `component ${component.id} binding ${binding.clauseId} has unknown requiredLoadPhase`,
@@ -168,19 +207,19 @@ export function validateCoverage(
       } else {
         const initialPhase =
           binding.requiredLoadPhase === 'inline' || binding.requiredLoadPhase === 'preload'
-        if (initialPhase && component.activation !== 'initial') {
+        if (initialPhase && activation !== 'initial') {
           fail(
             'MODEL_INVALID',
             `component ${component.id} is conditional but binds clause ${binding.clauseId} for initial delivery`,
             {
               componentId: component.id,
               clauseId: binding.clauseId,
-              activation: component.activation,
+              activation,
               requiredLoadPhase: binding.requiredLoadPhase
             }
           )
         }
-        if (binding.requiredLoadPhase === 'catalog' && component.activation !== 'conditional') {
+        if (binding.requiredLoadPhase === 'catalog' && activation !== 'conditional') {
           fail(
             'MODEL_INVALID',
             `component ${component.id} is initial but binds clause ${binding.clauseId} as catalog-only`,

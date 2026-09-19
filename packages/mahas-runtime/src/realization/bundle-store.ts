@@ -136,6 +136,10 @@ export interface ComponentManifestEntry {
   activation: string
   installPath: string
   blobDigest: string
+  /** materializer aliases — same values as installPath / blobDigest */
+  path: string
+  digest: string
+  loadPhase?: string
   byteLength: number
   mediaType: string
   loadRoutes: string[]

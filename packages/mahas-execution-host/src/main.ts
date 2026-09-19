@@ -109,6 +109,9 @@ async function main(): Promise<void> {
     },
     assertMutationAllowed: (op, ctx) => service!.assertMutationAllowed(op, ctx)
   })
+  // F-041: socket close drops that connection's terminal subscriptions —
+  // without this, subs owned by dead conns are permanent orphans.
+  service.setDropConnection((id) => processOps!.manager.terminals.dropConnection(id))
   registerWorkspaceHostOps(
     (spec, handler) =>
       service!.registerHostOp(

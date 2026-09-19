@@ -130,6 +130,8 @@ export type ModelEdit =
         providerBoundaryId?: string
         addConsumerBoundaryIds?: string[]
         removeConsumerBoundaryIds?: string[]
+        /** contract ModelChangeEdit full-replace alias */
+        consumerBoundaryIds?: string[]
       }
     }
   | { type: 'contract.retire'; contractId: string }
@@ -263,14 +265,17 @@ function criterionInputs(v: unknown, field: string): CriterionInput[] | undefine
 
 function newBoundary(v: unknown): NewBoundaryInput {
   if (!isObj(v)) bad('boundary spec must be an object', v)
-  const parentId = v.parentId === undefined ? undefined : (v.parentId as string | null)
+  const parentRaw = v.parentId ?? v.parentBoundaryId
+  const parentId = parentRaw === undefined ? undefined : (parentRaw as string | null)
   if (parentId !== undefined && parentId !== null && typeof parentId !== 'string') {
     bad('parentId must be a string or null', v)
   }
+  const id = optStr(v, 'id') ?? reqStr(v, 'boundaryId')
+  const responsibility = optStr(v, 'responsibility') ?? reqStr(v, 'responsibilityStatement')
   return {
-    id: reqStr(v, 'id'),
+    id,
     name: reqStr(v, 'name'),
-    responsibility: reqStr(v, 'responsibility'),
+    responsibility,
     parentId: parentId ?? undefined,
     paths: pathInputs(v.paths, 'paths'),
     criteria: criterionInputs(v.criteria, 'criteria'),
@@ -282,8 +287,20 @@ function contextTarget(v: unknown): ContextLinkTarget {
   if (!isObj(v)) bad('context link target must be an object', v)
   const kind = reqStr(v, 'kind')
   if (kind === 'boundary') return { kind: 'boundary', boundaryId: reqStr(v, 'boundaryId') }
-  if (kind === 'horizontalRole') return { kind: 'horizontalRole', name: reqStr(v, 'name') }
+  if (kind === 'horizontalRole')
+    return { kind: 'horizontalRole', name: optStr(v, 'name') ?? reqStr(v, 'horizontalRoleName') }
   bad(`context link target kind must be "boundary" or "horizontalRole"`, v)
+}
+
+/** contract ModelChangeEdit is flat (boundaryId / horizontalRoleName); runtime uses `target` */
+function contextLinkTarget(e: Obj): ContextLinkTarget {
+  if (e.target !== undefined) return contextTarget(e.target)
+  if (typeof e.boundaryId === 'string' && e.boundaryId.length > 0) {
+    return { kind: 'boundary', boundaryId: e.boundaryId }
+  }
+  const hr = optStr(e, 'horizontalRoleName') ?? optStr(e, 'name')
+  if (hr) return { kind: 'horizontalRole', name: hr }
+  bad('context link needs target, boundaryId, or horizontalRoleName', e)
 }
 
 const EDIT_TYPES = [
@@ -323,7 +340,7 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
     case 'goal.revise':
       return { type, goal: reqStr(e, 'goal') }
     case 'boundary.create':
-      return { type, boundary: newBoundary(e.boundary ?? reqObj(e, 'boundary')) }
+      return { type, boundary: newBoundary(isObj(e.boundary) ? e.boundary : e) }
     case 'boundary.revise': {
       const set = optObj(e, 'set') ?? e
       return {
@@ -331,11 +348,11 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
         boundaryId: reqStr(e, 'boundaryId'),
         set: {
           name: optStr(set, 'name'),
-          responsibility: optStr(set, 'responsibility'),
-          setPaths: pathInputs(set.setPaths, 'setPaths'),
+          responsibility: optStr(set, 'responsibility') ?? optStr(set, 'responsibilityStatement'),
+          setPaths: pathInputs(set.setPaths ?? set.paths, 'paths'),
           addPaths: pathInputs(set.addPaths, 'addPaths'),
           removePaths: strArr(set, 'removePaths'),
-          setCriteria: criterionInputs(set.setCriteria, 'setCriteria'),
+          setCriteria: criterionInputs(set.setCriteria ?? set.criteria, 'criteria'),
           addCriteria: criterionInputs(set.addCriteria, 'addCriteria'),
           removeCriterionIds: strArr(set, 'removeCriterionIds'),
           addContextIds: strArr(set, 'addContextIds'),
@@ -353,14 +370,18 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
         boundaryId: reqStr(e, 'boundaryId'),
         children: rawChildren.map(newBoundary),
         roleRemap: strMap(e, 'roleRemap'),
-        contractProviderRemap: strMap(e, 'contractProviderRemap'),
+        contractProviderRemap: strMap(e, 'contractProviderRemap') ?? strMap(e, 'contractRemap'),
         contractConsumerRemap: strMap(e, 'contractConsumerRemap'),
         nonGoalRemap: strMap(e, 'nonGoalRemap'),
         contextRemap: strMap(e, 'contextRemap')
       }
     }
     case 'boundary.reparent':
-      return { type, boundaryId: reqStr(e, 'boundaryId'), newParentId: reqStr(e, 'newParentId') }
+      return {
+        type,
+        boundaryId: reqStr(e, 'boundaryId'),
+        newParentId: optStr(e, 'newParentId') ?? reqStr(e, 'newParentBoundaryId')
+      }
     case 'boundary.retire': {
       const remap = optObj(e, 'remap')
       return {
@@ -379,11 +400,11 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
       }
     }
     case 'contract.bind': {
-      const c = reqObj(e, 'contract')
+      const c = isObj(e.contract) ? e.contract : e
       return {
         type,
         contract: {
-          id: reqStr(c, 'id'),
+          id: optStr(c, 'id') ?? reqStr(c, 'contractId'),
           name: reqStr(c, 'name'),
           schemaPath: reqStr(c, 'schemaPath'),
           providerBoundaryId: reqStr(c, 'providerBoundaryId'),
@@ -402,18 +423,19 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
           schemaPath: optStr(set, 'schemaPath'),
           providerBoundaryId: optStr(set, 'providerBoundaryId'),
           addConsumerBoundaryIds: strArr(set, 'addConsumerBoundaryIds'),
-          removeConsumerBoundaryIds: strArr(set, 'removeConsumerBoundaryIds')
+          removeConsumerBoundaryIds: strArr(set, 'removeConsumerBoundaryIds'),
+          consumerBoundaryIds: strArr(set, 'consumerBoundaryIds')
         }
       }
     }
     case 'contract.retire':
       return { type, contractId: reqStr(e, 'contractId') }
     case 'role.define': {
-      const r = reqObj(e, 'role')
+      const r = isObj(e.role) ? e.role : e
       return {
         type,
         role: {
-          id: reqStr(r, 'id'),
+          id: optStr(r, 'id') ?? reqStr(r, 'roleId'),
           name: reqStr(r, 'name'),
           description: reqStr(r, 'description'),
           boundaryId: reqStr(r, 'boundaryId'),
@@ -439,25 +461,28 @@ function normalizeEdit(type: ModelEdit['type'], e: Obj, i: number): ModelEdit {
     case 'horizontalRole.revise':
       return {
         type,
-        name: reqStr(e, 'name'),
+        name: optStr(e, 'name') ?? reqStr(e, 'horizontalRoleName'),
         renameTo: optStr(e, 'renameTo'),
         addContextIds: strArr(e, 'addContextIds'),
         removeContextIds: strArr(e, 'removeContextIds')
       }
     case 'context.register': {
-      const c = reqObj(e, 'context')
-      return { type, context: { id: reqStr(c, 'id'), path: reqStr(c, 'path') } }
+      const c = isObj(e.context) ? e.context : e
+      return {
+        type,
+        context: { id: optStr(c, 'id') ?? reqStr(c, 'contextId'), path: reqStr(c, 'path') }
+      }
     }
     case 'context.link':
-      return { type, contextId: reqStr(e, 'contextId'), target: contextTarget(e.target) }
+      return { type, contextId: reqStr(e, 'contextId'), target: contextLinkTarget(e) }
     case 'context.unlink':
-      return { type, contextId: reqStr(e, 'contextId'), target: contextTarget(e.target) }
+      return { type, contextId: reqStr(e, 'contextId'), target: contextLinkTarget(e) }
     case 'nonGoal.revise': {
-      const n = reqObj(e, 'nonGoal')
+      const n = isObj(e.nonGoal) ? e.nonGoal : e
       return {
         type,
         nonGoal: {
-          id: reqStr(n, 'id'),
+          id: optStr(n, 'id') ?? reqStr(n, 'nonGoalId'),
           boundaryId: optStr(n, 'boundaryId'),
           statement: optStr(n, 'statement'),
           remove: typeof n.remove === 'boolean' ? n.remove : undefined
@@ -748,6 +773,9 @@ function applyOne(s: ModelSnapshot, e: ModelEdit, d: Diagnostic[]): void {
       if (set.name !== undefined) c.name = set.name
       if (set.schemaPath !== undefined) c.schemaPath = set.schemaPath
       if (set.providerBoundaryId !== undefined) c.providerBoundaryId = set.providerBoundaryId
+      if (set.consumerBoundaryIds !== undefined) {
+        c.consumerBoundaryIds = [...set.consumerBoundaryIds]
+      }
       if (set.addConsumerBoundaryIds !== undefined) {
         for (const x of set.addConsumerBoundaryIds)
           if (!c.consumerBoundaryIds.includes(x)) c.consumerBoundaryIds.push(x)
@@ -1035,12 +1063,17 @@ export function diffSnapshots(base: ModelSnapshot, cand: ModelSnapshot): Snapsho
   }
 
   const descendantsOf = (s: ModelSnapshot, root: string): string[] => {
+    // F-012: visited set — a cyclic parent map must not loop forever
+    // pushing ids (RangeError escape). Cycle members are skipped here;
+    // validateCandidate already reports CONTAINS_CYCLE for the refusal.
     const out: string[] = []
+    const seen = new Set<string>([root])
     const queue = [root]
     while (queue.length > 0) {
       const cur = queue.shift()!
       for (const b of s.boundaries.values()) {
-        if (b.parentId === cur) {
+        if (b.parentId === cur && !seen.has(b.id)) {
+          seen.add(b.id)
           out.push(b.id)
           queue.push(b.id)
         }

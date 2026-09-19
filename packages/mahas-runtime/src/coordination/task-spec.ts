@@ -18,6 +18,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { appendDomainEvent } from '../storage/db.ts'
 import { fail, one, run, toTask, toTaskSpec } from './internal.ts'
+import { encodeBinding, parseBinding } from './input-resolver.ts'
 import type { Task, TaskSpec } from '../../../mahas-contracts/src/work.ts'
 
 // ── reads ─────────────────────────────────────────────────────────────────
@@ -157,7 +158,9 @@ function insertSpecRow(
     c.requirementText,
     c.ownerRoleId,
     c.assignedMemberId ?? null,
-    JSON.stringify(c.inputBindings ?? []),
+    JSON.stringify(
+      (c.inputBindings ?? []).map((raw) => encodeBinding(parseBinding(raw)))
+    ),
     JSON.stringify(c.outputSlots ?? []),
     JSON.stringify(c.settlementPolicy ?? null)
   )

@@ -157,6 +157,7 @@ export type {
   DiagnosticSeverity,
   ModelDiagnostic,
   ModelChangeEdit,
+  TypedModelEdit,
   ModelChange,
   SearchRow
 } from './rdd.ts'

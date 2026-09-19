@@ -22,19 +22,29 @@ import type {
   PlanPatch,
   PlanTaskDraft,
   PreparePlanResult,
-  RunProjection
+  RunProjection,
+  TaskEdge
 } from './contracts.ts'
 import { useWorkbench } from './store.ts'
-import { Field, KV, ListLines, OpError, Pill, Section } from './bits.tsx'
+import { ContextBar, Field, KV, ListLines, OpError, Pill, Section } from './bits.tsx'
 
 // local draft-row shapes — mapped onto the contract's TaskSpecRevision /
 //  edge payloads on send. taskId empty = a new task in the draft.
-interface TaskDraft extends Omit<PlanTaskDraft, 'inputBindings' | 'outputSlots'> {
+interface TaskDraft extends Omit<PlanTaskDraft, 'inputBindings' | 'outputSlots' | 'inputs' | 'outputs'> {
   key: string
   retired: boolean
-  disposition: 'keep' | 'stop'
-  inputs: { slot: string; kind: string; identity: string; revision: string; required: boolean }[]
-  outputs: { name: string }[]
+  disposition: 'keep' | 'revoke' | 'replace'
+  inputs: {
+    slot: string
+    kind: string
+    taskId: string
+    outputSlot: string
+    artifactId: string
+    contractId: string
+    revision: string
+    required: boolean
+  }[]
+  outputs: { slot: string }[]
   settlementText: string
 }
 
@@ -44,40 +54,58 @@ interface EdgeDraft extends PlanEdgeDraft {
 
 const uid = (): string => crypto.randomUUID()
 
-const newTask = (): TaskDraft => ({
-  key: uid(),
-  title: '',
-  requirementText: '',
-  ownerRoleId: '',
-  assignedMemberId: '',
-  retired: false,
-  disposition: 'keep',
-  inputs: [],
-  outputs: [],
-  settlementText: ''
-})
+const newTask = (): TaskDraft => {
+  const id = `tsk_${uid()}`
+  return {
+    key: id,
+    taskId: id,
+    title: '',
+    requirementText: '',
+    ownerRoleId: '',
+    assignedMemberId: '',
+    retired: false,
+    disposition: 'keep',
+    inputs: [],
+    outputs: [],
+    settlementText: ''
+  }
+}
 
 const toPatch = (tasks: TaskDraft[], edges: EdgeDraft[], base: number): PlanPatch => ({
   basePlanRevision: base,
   tasks: tasks
     .filter((t) => !t.retired)
-    .map((t) => ({
-      taskId: t.taskId || undefined,
-      revision: t.revision,
-      title: t.title,
-      requirementText: t.requirementText,
-      ownerRoleId: t.ownerRoleId || undefined,
-      assignedMemberId: t.assignedMemberId || undefined,
-      inputBindings: t.inputs.map((i) => ({
+    .map((t) => {
+      const inputs = t.inputs.map((i) => ({
         slot: i.slot,
-        kind: i.kind,
-        identity: i.identity || undefined,
-        revision: i.revision ? Number(i.revision) : undefined,
-        required: i.required
-      })),
-      outputSlots: t.outputs.map((o) => ({ name: o.name })),
-      settlementPolicy: t.settlementText || undefined
-    })) as unknown as PlanTaskDraft[],
+        kind: i.kind as 'artifact' | 'task-output' | 'contract',
+        required: i.required,
+        ...(i.kind === 'task-output'
+          ? { taskId: i.taskId || undefined, outputSlot: i.outputSlot || undefined }
+          : {}),
+        ...(i.kind === 'artifact'
+          ? {
+              artifactId: i.artifactId || undefined,
+              artifactRevision: i.revision ? Number(i.revision) : undefined
+            }
+          : {}),
+        ...(i.kind === 'contract' ? { contractId: i.contractId || undefined } : {})
+      }))
+      const outputs = t.outputs.map((o) => ({ slot: o.slot }))
+      return {
+        taskId: t.taskId || undefined,
+        revision: t.revision,
+        title: t.title,
+        requirementText: t.requirementText,
+        ownerRoleId: t.ownerRoleId || undefined,
+        assignedMemberId: t.assignedMemberId || undefined,
+        inputs,
+        outputs,
+        inputBindings: inputs,
+        outputSlots: outputs,
+        settlementPolicy: t.settlementText || undefined
+      }
+    }) as unknown as PlanTaskDraft[],
   edges: edges.map((e) => ({
     fromTask: e.fromTask,
     toTask: e.toTask,
@@ -87,7 +115,7 @@ const toPatch = (tasks: TaskDraft[], edges: EdgeDraft[], base: number): PlanPatc
   retireTaskIds: tasks.filter((t) => t.retired && t.taskId).map((t) => t.taskId!),
   activeAttemptDisposition: tasks
     .filter((t) => !t.retired && t.taskId)
-    .map((t) => ({ taskId: t.taskId!, disposition: t.disposition }))
+    .map((t) => ({ taskId: t.taskId!, action: t.disposition }))
 })
 
 export default function PlanView(): React.JSX.Element {
@@ -114,6 +142,56 @@ export default function PlanView(): React.JSX.Element {
         setRun(r)
         const rev = r.planRevision ?? r.run?.currentPlanRevision
         if (rev !== undefined) setBaseRev(String(rev))
+        const specs = r.planTasks ?? r.tasks ?? []
+        setTasks(
+          specs.map((s) => {
+            const rawInputs = (s.inputs ?? s.inputBindings ?? []) as Array<Record<string, unknown>>
+            const rawOutputs = (s.outputs ?? s.outputSlots ?? []) as Array<Record<string, unknown>>
+            return {
+              key: String(s.taskId),
+              taskId: String(s.taskId),
+              revision: s.revision as number | undefined,
+              title: s.title,
+              requirementText: s.requirementText,
+              ownerRoleId: String(s.ownerRoleId ?? ''),
+              assignedMemberId: s.assignedMemberId ? String(s.assignedMemberId) : '',
+              retired: false,
+              disposition: 'keep' as const,
+              inputs: rawInputs.map((i) => ({
+                slot: String(i.slot ?? ''),
+                kind: String(i.kind ?? 'task-output'),
+                taskId: String(i.taskId ?? ''),
+                outputSlot: String(i.outputSlot ?? ''),
+                artifactId: String(i.artifactId ?? ''),
+                contractId: String(i.contractId ?? ''),
+                revision: i.artifactRevision != null ? String(i.artifactRevision) : '',
+                required: i.required !== false
+              })),
+              outputs: rawOutputs.map((o) => ({
+                slot: String(o.slot ?? o.name ?? '')
+              })),
+              settlementText:
+                typeof s.settlementPolicy === 'string'
+                  ? s.settlementPolicy
+                  : s.settlementPolicy
+                    ? JSON.stringify(s.settlementPolicy)
+                    : ''
+            }
+          })
+        )
+        const edges = r.planEdges ?? r.edges ?? []
+        setEdges(
+          edges.map((e) => {
+            const row = e as TaskEdge & { fromTask?: string; toTask?: string; requiredOutputs?: string[] }
+            return {
+              key: uid(),
+              fromTask: String(row.predecessorTaskId ?? row.fromTask ?? ''),
+              toTask: String(row.successorTaskId ?? row.toTask ?? ''),
+              requiredOutputs: [...(row.requiredOutputNames ?? row.requiredOutputs ?? [])],
+              settlementRequirement: row.settlementRequirement ?? ''
+            }
+          })
+        )
       })
       .catch(fail)
   }
@@ -155,6 +233,7 @@ export default function PlanView(): React.JSX.Element {
 
   return (
     <div className="wb-view">
+      <ContextBar />
       <Section
         title={t('wbPlanTitle')}
         right={
@@ -185,7 +264,11 @@ export default function PlanView(): React.JSX.Element {
           </button>
         }
       >
-        {tasks.length === 0 && <div className="wb-note">{t('wbNoTasks')}</div>}
+        {tasks.length === 0 && (
+          <div className="wb-note">
+            {run ? t('wbNoTasks') : 'Load a run to edit its plan, or add a task'}
+          </div>
+        )}
         {tasks.map((task) => (
           <div key={task.key} className={`wb-card${task.retired ? ' retired' : ''}`}>
             <div className="wb-card-h">
@@ -249,12 +332,13 @@ export default function PlanView(): React.JSX.Element {
                         value={task.disposition}
                         onChange={(e) =>
                           patchTask(task.key, {
-                            disposition: e.target.value as 'keep' | 'stop'
+                            disposition: e.target.value as 'keep' | 'revoke' | 'replace'
                           })
                         }
                       >
                         <option value="keep">{t('wbKeep')}</option>
-                        <option value="stop">{t('wbStop')}</option>
+                        <option value="revoke">{t('wbStop')}</option>
+                        <option value="replace">replace</option>
                       </select>
                     </label>
                   )}
@@ -272,7 +356,10 @@ export default function PlanView(): React.JSX.Element {
                             {
                               slot: '',
                               kind: 'task-output',
-                              identity: '',
+                              taskId: '',
+                              outputSlot: '',
+                              artifactId: '',
+                              contractId: '',
                               revision: '',
                               required: true
                             }
@@ -312,18 +399,62 @@ export default function PlanView(): React.JSX.Element {
                         <option value="task-output">task-output</option>
                         <option value="contract">contract</option>
                       </select>
-                      <input
-                        className="wb-in mono"
-                        placeholder={t('wbIdentity')}
-                        value={inp.identity}
-                        onChange={(e) =>
-                          patchTask(task.key, {
-                            inputs: task.inputs.map((x, j) =>
-                              j === i ? { ...x, identity: e.target.value } : x
-                            )
-                          })
-                        }
-                      />
+                      {inp.kind === 'task-output' && (
+                        <>
+                          <input
+                            className="wb-in mono"
+                            placeholder="taskId"
+                            value={inp.taskId}
+                            onChange={(e) =>
+                              patchTask(task.key, {
+                                inputs: task.inputs.map((x, j) =>
+                                  j === i ? { ...x, taskId: e.target.value } : x
+                                )
+                              })
+                            }
+                          />
+                          <input
+                            className="wb-in mono"
+                            placeholder="outputSlot"
+                            value={inp.outputSlot}
+                            onChange={(e) =>
+                              patchTask(task.key, {
+                                inputs: task.inputs.map((x, j) =>
+                                  j === i ? { ...x, outputSlot: e.target.value } : x
+                                )
+                              })
+                            }
+                          />
+                        </>
+                      )}
+                      {inp.kind === 'artifact' && (
+                        <input
+                          className="wb-in mono"
+                          placeholder="artifactId"
+                          value={inp.artifactId}
+                          onChange={(e) =>
+                            patchTask(task.key, {
+                              inputs: task.inputs.map((x, j) =>
+                                j === i ? { ...x, artifactId: e.target.value } : x
+                              )
+                            })
+                          }
+                        />
+                      )}
+                      {inp.kind === 'contract' && (
+                        <input
+                          className="wb-in mono"
+                          placeholder="contractId"
+                          value={inp.contractId}
+                          onChange={(e) =>
+                            patchTask(task.key, {
+                              inputs: task.inputs.map((x, j) =>
+                                j === i ? { ...x, contractId: e.target.value } : x
+                              )
+                            })
+                          }
+                        />
+                      )}
                       <label className="wb-check">
                         <input
                           type="checkbox"
@@ -356,7 +487,7 @@ export default function PlanView(): React.JSX.Element {
                     <button
                       className="wb-mini"
                       onClick={() =>
-                        patchTask(task.key, { outputs: [...task.outputs, { name: '' }] })
+                        patchTask(task.key, { outputs: [...task.outputs, { slot: '' }] })
                       }
                     >
                       +
@@ -366,12 +497,12 @@ export default function PlanView(): React.JSX.Element {
                     <div key={i} className="wb-row">
                       <input
                         className="wb-in mono"
-                        placeholder={t('wbName')}
-                        value={o.name}
+                        placeholder={t('wbSlot')}
+                        value={o.slot}
                         onChange={(e) =>
                           patchTask(task.key, {
                             outputs: task.outputs.map((x, j) =>
-                              j === i ? { name: e.target.value } : x
+                              j === i ? { slot: e.target.value } : x
                             )
                           })
                         }

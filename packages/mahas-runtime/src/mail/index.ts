@@ -24,7 +24,10 @@ import { artifactRead } from '../artifacts/reader.ts'
 
 export function registerMailOps(registry: OperationRegistry, deps: MailDeps): void {
   registry.register({ name: 'inbox.check', visibility: 'member', mutation: true }, inboxCheck(deps))
-  registry.register({ name: 'inbox.wait', visibility: 'member', mutation: false }, inboxWait(deps))
+  registry.register(
+    { name: 'inbox.wait', visibility: 'member', mutation: false, longPoll: true },
+    inboxWait(deps)
+  )
   registry.register(
     { name: 'delivery.ack', visibility: 'member', mutation: true },
     deliveryAck(deps)
@@ -74,6 +77,8 @@ export type {
 
 // fence helpers for the member-retire / stop path (IMP-13/22 composition)
 export { rebindOutstandingDeliveries, fenceDeliveriesForMember } from './shared.ts'
+export { executionWake, parseExecutionWakePayload } from './wake-service.ts'
+export type { WakeReceipt, WakeReceiptStatus, ExecutionWakeInput } from './wake-service.ts'
 
 // retention primitives (artifact-scoped pins; reclaim policy lives elsewhere)
 export {

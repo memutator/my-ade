@@ -26,7 +26,7 @@ import type {
   SearchResponse
 } from './contracts.ts'
 import { isStale, useWorkbench } from './store.ts'
-import { Field, ListLines, OpError, Pill, Section } from './bits.tsx'
+import { ContextBar, Field, ListLines, OpError, Pill, Section } from './bits.tsx'
 import { entryText } from './wire.ts'
 
 const lines = (s: string): string[] =>
@@ -181,22 +181,39 @@ function InspectDrawer({ boundaryId }: { boundaryId: string }): React.JSX.Elemen
       />
     )
   if (!res) return <div className="wb-note">{t('loading')}</div>
-  const missingView = res.viewStatus === 'missing' || res.coordinationView == null
+  const view = res.coordinationView
+  const viewStatus =
+    res.viewStatus ??
+    (view && typeof view === 'object' ? view.status : view == null ? 'missing' : 'present')
+  const missingView = viewStatus === 'missing' || view == null
+  const clauses =
+    view && typeof view === 'object' && Array.isArray(view.clauses) ? view.clauses : []
   return (
     <div className="wb-drawer">
       {missingView ? (
         // REQ-06: no authored coordination view — say so; never summarize
         // the boundary's implementation body on the fly
         <Pill tone="warn">{t('wbMissingView')}</Pill>
+      ) : typeof view === 'string' ? (
+        <div className="wb-resp">{view}</div>
       ) : (
-        <div className="wb-resp">{res.coordinationView}</div>
+        <div className="wb-sub">
+          <span className="wb-sub-l">{viewStatus}</span>
+          <ul className="wb-lines tight">
+            {clauses.map((c, i) => (
+              <li key={c.clauseId ?? i}>
+                {c.requiredMeaning || c.clauseId}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      <div className="wb-resp">{res.responsibility}</div>
-      {res.criteria.length > 0 && (
+      <div className="wb-resp">{res.boundary?.responsibility ?? res.responsibility}</div>
+      {(res.boundary?.criteria ?? res.criteria).length > 0 && (
         <div className="wb-sub">
           <span className="wb-sub-l">{t('wbCriteria')}</span>
           <ul className="wb-lines tight">
-            {res.criteria.map((c, i) => (
+            {(res.boundary?.criteria ?? res.criteria).map((c, i) => (
               <li key={c.id ?? i}>
                 {c.criterion}
                 {c.description ? ` — ${c.description}` : ''}
@@ -341,6 +358,7 @@ export default function ResponsibilityView({
 
   return (
     <div className="wb-view">
+      <ContextBar />
       <Section title={t('widgetWorkbenchFind')}>
         <Field
           label={t('wbSearch')}
@@ -386,7 +404,7 @@ export default function ResponsibilityView({
 
       {resp && (
         <Section
-          title={`${t('wbCandidates')} · ${resp.candidates.length}`}
+          title={`${t('wbCandidates')} · ${(resp.items ?? resp.candidates).length}${resp.status ? ` · ${resp.status}` : ''}`}
           right={
             <span className="wb-dim">
               model {resp.modelVersion}

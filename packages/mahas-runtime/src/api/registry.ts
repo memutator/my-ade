@@ -75,7 +75,7 @@ export type {
   SurfaceOperationDescriptor
 } from './surface.ts'
 
-// ── operation name 정본 (spec/operations.md — 92 entries) ────────────────────
+// ── operation name 정본 (spec/operations.md — 93 entries, F-025 추가 runtime.unsubscribe) ────────────────────
 // IMP-02 may also export name constants; until it lands this table is the
 // contract. 'contract' records the C-* authority for each operation so
 // registrations/traces can link back without reading the spec table again.
@@ -171,6 +171,7 @@ export const OPERATION_TABLE: readonly OperationNameEntry[] = [
   { name: 'intervention.resolve', contract: 'C-OBSERVATION', owner: 'IMP-26' },
   { name: 'runtime.snapshot', contract: 'C-OBSERVATION', owner: 'IMP-26' },
   { name: 'runtime.subscribe', contract: 'C-OBSERVATION', owner: 'IMP-26' },
+  { name: 'runtime.unsubscribe', contract: 'C-OBSERVATION', owner: 'IMP-26' },
   { name: 'terminal.attach', contract: 'C-CLIENT', owner: 'IMP-28' },
   { name: 'terminal.input', contract: 'C-CLIENT', owner: 'IMP-28' },
   { name: 'terminal.resize', contract: 'C-CLIENT', owner: 'IMP-28' },

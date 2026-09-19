@@ -369,6 +369,18 @@ export function runClose(txn: TxnContext, payload: unknown): RunCloseResult {
   ).map((r) => r.id as string)
 
   const rd = input.resourceDisposition
+  const allowed = {
+    activeDispatches: ['keep', 'revoke'],
+    executions: ['keep', 'request-stop'],
+    deliveries: ['keep', 'fence'],
+    claims: ['keep', 'release-requested']
+  } as const
+  for (const key of Object.keys(allowed) as (keyof typeof allowed)[]) {
+    const v = rd[key]
+    if (v !== undefined && typeof v === 'string' && !(allowed[key] as readonly string[]).includes(v)) {
+      badInput(`${op}: resourceDisposition.${key} must be ${allowed[key].join('|')} (got ${v})`)
+    }
+  }
   if (activeDispatches.length > 0 && rd.activeDispatches === undefined) {
     badInput(
       `${op}: ${activeDispatches.length} active dispatch(es) — resourceDisposition.activeDispatches required`
@@ -409,30 +421,24 @@ export function runClose(txn: TxnContext, payload: unknown): RunCloseResult {
   }
   if (rd.executions === 'request-stop') {
     for (const eId of liveExecutions) {
-      const intentId = newId('eff')
-      exec(
-        txn.db,
-        "INSERT INTO effect_intents(id,operation_key,kind,fingerprint,host_id,state,payload_json,receipt_json,residuals_json) VALUES(?,?,'worker.stop',?,NULL,'prepared',?,'{}','{}')",
-        intentId,
-        `${op}:${input.runId}:${eId}`,
-        digestOf({ op, runId: input.runId, executionId: eId }),
-        JSON.stringify({ executionId: eId, reason: 'run.close disposition' })
+      effectIntentIds.push(
+        txn.intendEffect({
+          kind: 'worker.stop',
+          payload: { executionId: eId, reason: 'run.close disposition' },
+          fingerprint: digestOf({ op, runId: input.runId, executionId: eId })
+        })
       )
-      effectIntentIds.push(intentId)
     }
   }
   if (rd.claims === 'release-requested') {
     for (const cId of heldClaims) {
-      const intentId = newId('eff')
-      exec(
-        txn.db,
-        "INSERT INTO effect_intents(id,operation_key,kind,fingerprint,host_id,state,payload_json,receipt_json,residuals_json) VALUES(?,?,'claim.release',?,NULL,'prepared',?,'{}','{}')",
-        intentId,
-        `${op}:${input.runId}:${cId}`,
-        digestOf({ op, runId: input.runId, claimId: cId }),
-        JSON.stringify({ claimId: cId, reason: 'run.close disposition' })
+      effectIntentIds.push(
+        txn.intendEffect({
+          kind: 'claim.release',
+          payload: { claimId: cId, reason: 'run.close disposition' },
+          fingerprint: digestOf({ op, runId: input.runId, claimId: cId })
+        })
       )
-      effectIntentIds.push(intentId)
     }
   }
 

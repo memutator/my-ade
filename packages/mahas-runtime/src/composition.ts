@@ -21,7 +21,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { randomBytes, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { AuthenticatedContext } from '../../mahas-contracts/src/index.ts'
+import {
+  HOST_OPERATION_NAMES,
+  type AuthenticatedContext
+} from '../../mahas-contracts/src/index.ts'
 import {
   OPERATION_NAMES,
   createOperationRegistry,
@@ -29,6 +32,7 @@ import {
   type OperationRegistry
 } from './api/registry.ts'
 import * as accessBoundary from './access/authorize.ts'
+import { currentGrantRevisions } from './access/grant.ts'
 import { registerAccessOperations } from './access/operations.ts'
 import * as storage from './storage/db.ts'
 import { registerModelOps } from './model/ops.ts'
@@ -47,6 +51,7 @@ import {
 import { registerMailOps } from './mail/index.ts'
 import { registerLaunchOps, registerJoinOps } from './launch/index.ts'
 import { registerRecoveryOps } from './recovery/index.ts'
+import type { RecoveryDeps } from './recovery/ports.ts'
 import { registerResourceOps } from './resources/mod.ts'
 import { registerObservationOps } from './observation/index.ts'
 import { registerMaintenanceOps } from './maintenance/impact-service.ts'
@@ -83,6 +88,7 @@ export interface ComposeOptions {
 
 export interface ComposedRuntime {
   registry: OperationRegistry
+  recoveryDeps: RecoveryDeps
   /** local execution-host attachment, or null when none verifiably exists */
   localHost: { hostId: string; endpoint: string } | null
   /** register the local host (hello + acquire) — safe to call more than once */
@@ -100,9 +106,11 @@ interface HostSession {
   client: HostClient
   controllerEpoch: number
   leaseProof: string
+  dead: boolean
 }
 
-/** wrap a raw host client so every mutation carries epoch + lease fence */
+/** wrap a raw host client so every mutation carries epoch + lease fence.
+ *  close is a no-op — recovery/lifecycle must not drop the composition-owned socket. */
 function fenced(session: HostSession): HostClient {
   return {
     call<T = unknown>(
@@ -116,7 +124,94 @@ function fenced(session: HostSession): HostClient {
         leaseProof: session.leaseProof
       })
     },
-    close: () => session.client.close()
+    close() {
+      /* composition owns the socket; borrows must not close it */
+    }
+  }
+}
+
+/** syscall errnos that prove the socket died (never a host verdict). */
+const TRANSPORT_ERRNOS: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EPIPE',
+  'ENOENT',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTCONN',
+  'EBADF',
+  'EIO'
+])
+
+/** transport-death phrasing from hostClient.ts ('host client closed',
+ *  'execution-host connection closed', 'cannot connect …: connect
+ *  ECONNREFUSED …') plus raw socket errors. */
+const TRANSPORT_MESSAGE_RE =
+  /ECONNREFUSED|ECONNRESET|EPIPE|ENOENT|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTCONN|socket hang up|connection (closed|reset|refused)|client closed|not connected|ended by the other party|closed/i
+
+/**
+ * True when the call failed because the transport died — the session's socket
+ * can never succeed again. A named host verdict (STALE_EXECUTION,
+ * SCOPE_DENIED, …) is a decision about this call, not the socket, so it never
+ * counts: only the client-synthesized CONTROL_UNAVAILABLE transport code and
+ * syscall errnos fall through to message matching.
+ */
+function isTransportError(err: unknown): boolean {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? (err as { code?: unknown }).code
+      : undefined
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null && 'message' in err
+        ? String((err as { message?: unknown }).message)
+        : String(err)
+  if (typeof code === 'string' && code !== 'CONTROL_UNAVAILABLE' && !TRANSPORT_ERRNOS.has(code)) {
+    return false
+  }
+  if (typeof code === 'string' && TRANSPORT_ERRNOS.has(code)) return true
+  return TRANSPORT_MESSAGE_RE.test(message)
+}
+
+/** mark the session dead when the underlying transport dies so callers re-attach */
+function watchClient(
+  raw: HostClient,
+  session: HostSession,
+  onDead?: (session: HostSession) => void
+): HostClient {
+  const markDead = (): void => {
+    session.dead = true
+    try {
+      raw.close()
+    } catch {
+      /* already gone */
+    }
+    try {
+      onDead?.(session)
+    } catch {
+      /* eviction is best-effort */
+    }
+  }
+  return {
+    async call<T = unknown>(
+      operation: string,
+      payload?: unknown,
+      opts?: { [key: string]: unknown }
+    ): Promise<T> {
+      try {
+        return await raw.call<T>(operation, payload, opts)
+      } catch (err) {
+        // Transport death kills the session (eager evict + close) so the next
+        // lookup re-dials via attachHost. Host verdicts leave it live.
+        if (isTransportError(err)) markDead()
+        throw err
+      }
+    },
+    close() {
+      markDead()
+    }
   }
 }
 
@@ -138,36 +233,105 @@ function selectionTokenSecret(configDir: string): { secret: Uint8Array; keyId: s
   return { secret: new TextEncoder().encode(raw), keyId: 'local-1' }
 }
 
-/**
- * Deployment bootstrap: the local operator principal + its standing grant.
- * The v1 trust boundary is the 0600 operator socket/credential file; this
- * seed only gives that authenticated operator principal a real grant row so
- * admission's "no grant covers this" rule stays honest (no special-case
- * bypass in authorize). Idempotent; revoked seeds are never re-created.
- */
-function seedLocalOperator(db: DatabaseSync): void {
-  const principalId = 'operator-local'
-  const grantId = 'grant-operator-local'
-  const existing = db.prepare('SELECT id FROM principals WHERE id=?').get(principalId) as
-    { id: string } | undefined
+const OPERATOR_PRINCIPAL_ID = 'operator-local'
+const OPERATOR_ASSIGNMENT_GRANT_ID = 'grant-operator-local'
+const OPERATOR_PROVISIONING_GRANT_ID = 'grant-operator-local-provisioning'
+const SERVICE_PRINCIPAL_ID = 'service:mahasd'
+const SERVICE_GRANT_ID = 'grant-service-mahasd'
+
+/** C-HOST names are execution-plane only — never part of an operator grant. */
+function operatorActions(): string[] {
+  const host = new Set<string>(HOST_OPERATION_NAMES as readonly string[])
+  return OPERATION_NAMES.filter((n) => !host.has(n) && !n.startsWith('host.'))
+}
+
+/** internal makeCaller surface — workspace/context/claim ops materialize and launch need. */
+const SERVICE_ACTIONS: readonly string[] = [
+  'workspace.inspect',
+  'workspace.prepare',
+  'context.build',
+  'context.inspect',
+  'claim.handoff',
+  'claim.release',
+  'surface.describe',
+  'operation.get'
+]
+
+function ensurePrincipal(db: DatabaseSync, id: string, kind: string): void {
+  const existing = db.prepare('SELECT id FROM principals WHERE id=?').get(id) as
+    | { id: string }
+    | undefined
   if (!existing) {
-    db.prepare("INSERT INTO principals(id,kind,status) VALUES(?,'operator','active')").run(
-      principalId
-    )
+    db.prepare('INSERT INTO principals(id,kind,status) VALUES(?,?,?)').run(id, kind, 'active')
   }
-  const grant = db.prepare('SELECT id FROM grants WHERE id=?').get(grantId) as
-    { id: string } | undefined
-  if (!grant) {
+}
+
+function upsertSeedGrant(
+  db: DatabaseSync,
+  row: { id: string; kind: string; principalId: string; scope: unknown; actions: readonly string[] }
+): void {
+  const existing = db.prepare('SELECT id, revoked_at FROM grants WHERE id=?').get(row.id) as
+    | { id: string; revoked_at: number | null }
+    | undefined
+  if (existing?.revoked_at != null) return
+  if (!existing) {
     db.prepare(
       `INSERT INTO grants(id, revision, kind, principal_id, parent_grant_id, policy_id, policy_revision, expires_at, revoked_at, scope_json, actions_json)
-       VALUES(?, 1, 'assignment', ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`
-    ).run(
-      grantId,
-      principalId,
-      JSON.stringify({ targets: [{ kind: '*', id: '*' }] }),
-      JSON.stringify([...OPERATION_NAMES])
-    )
+       VALUES(?, 1, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`
+    ).run(row.id, row.kind, row.principalId, JSON.stringify(row.scope), JSON.stringify(row.actions))
+    return
   }
+  db.prepare('UPDATE grants SET kind=?, scope_json=?, actions_json=? WHERE id=?').run(
+    row.kind,
+    JSON.stringify(row.scope),
+    JSON.stringify(row.actions),
+    row.id
+  )
+}
+
+/**
+ * Deployment bootstrap: local operator principal + assignment grant (no
+ * C-HOST names), a ProvisioningGrant so team.assign's checkProvisioning
+ * finds a covering row, and a narrow service:mahasd principal/grant for
+ * internal makeCaller. Idempotent; revoked seeds are never re-created.
+ */
+function seedLocalOperator(db: DatabaseSync): void {
+  ensurePrincipal(db, OPERATOR_PRINCIPAL_ID, 'operator')
+  ensurePrincipal(db, SERVICE_PRINCIPAL_ID, 'service')
+
+  const wildcard = { targets: [{ kind: '*', id: '*' }] }
+  upsertSeedGrant(db, {
+    id: OPERATOR_ASSIGNMENT_GRANT_ID,
+    kind: 'assignment',
+    principalId: OPERATOR_PRINCIPAL_ID,
+    scope: wildcard,
+    actions: operatorActions()
+  })
+  // checkProvisioning reads grant.scope as ProvisioningScope (top-level
+  // allowedRoleIds / placementScope). Nested `provisioning` satisfies the
+  // access kernel. Empty placementScope.hostIds means any placement.
+  upsertSeedGrant(db, {
+    id: OPERATOR_PROVISIONING_GRANT_ID,
+    kind: 'provisioning',
+    principalId: OPERATOR_PRINCIPAL_ID,
+    scope: {
+      ...wildcard,
+      placementScope: {},
+      provisioning: {
+        allowedRoleIds: ['*'],
+        placementScope: [{ kind: '*', id: '*' }]
+      }
+    },
+    // must be a superset of member assignment actions (child-within-parent)
+    actions: operatorActions()
+  })
+  upsertSeedGrant(db, {
+    id: SERVICE_GRANT_ID,
+    kind: 'assignment',
+    principalId: SERVICE_PRINCIPAL_ID,
+    scope: wildcard,
+    actions: SERVICE_ACTIONS
+  })
 }
 
 /** the same file the operator-auth RPC path reads (v1 local trust) */
@@ -215,13 +379,30 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
         controllerProcessIdentity: controllerIdentity,
         ttlMs: 120_000
       })) as { epoch: number; leaseProof: string }
+      const prev = sessions.get(hello.hostId)
+      if (prev) {
+        prev.dead = true
+        try {
+          prev.client.close()
+        } catch {
+          /* replaced */
+        }
+        sessions.delete(hello.hostId)
+      }
       const session: HostSession = {
         hostId: hello.hostId,
         endpoint,
         client: raw,
         controllerEpoch,
-        leaseProof: lease.leaseProof
+        leaseProof: lease.leaseProof,
+        dead: false
       }
+      session.client = watchClient(raw, session, (s) => {
+        // Eager eviction: a transport-dead session must not linger as a
+        // live-looking entry. Identity-checked so a late failure on a
+        // superseded socket can never evict its replacement.
+        if (sessions.get(s.hostId) === s) sessions.delete(s.hostId)
+      })
       sessions.set(session.hostId, session)
       // control mirror — upsert, never delete/reinsert (FKs point here)
       db.prepare(
@@ -248,7 +429,30 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
       log({ t: 'mahasd.host-attached', hostId: session.hostId, endpoint, leaseEpoch: lease.epoch })
       return session
     } catch (err) {
-      client?.close()
+      // A failed dial is never cached as a live session (nothing is inserted
+      // above before success). When the dial died at the transport — or got
+      // far enough to hold a fresh socket — whatever is parked at this
+      // endpoint is a corpse on the same dead socket, so evict it and the next
+      // call re-dials instead of reusing it. Verdict failures (auth/lease
+      // rejections with no fresh socket) leave a parked session alone: the
+      // socket may still be good and killing it would destroy live transport.
+      if (client != null || isTransportError(err)) {
+        const parked = [...sessions.values()].find((s) => s.endpoint === endpoint)
+        if (parked) {
+          parked.dead = true
+          if (sessions.get(parked.hostId) === parked) sessions.delete(parked.hostId)
+          try {
+            parked.client.close()
+          } catch {
+            /* already gone */
+          }
+        }
+      }
+      try {
+        client?.close()
+      } catch {
+        /* fresh dial socket — never published, just release it */
+      }
       log({
         t: 'mahasd.host-attach-failed',
         endpoint,
@@ -268,9 +472,9 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   accessBoundary.bindAccessDb(db)
   const registry = await createOperationRegistry(db)
   const serviceCtx = (): AuthenticatedContext => ({
-    principalId: 'service:mahasd' as never,
+    principalId: SERVICE_PRINCIPAL_ID as never,
     controllerEpoch: controllerEpoch as never,
-    grantRevisions: {},
+    grantRevisions: currentGrantRevisions(db, SERVICE_PRINCIPAL_ID),
     transportSessionId: `mahasd:${process.pid}`
   })
   const caller = (
@@ -279,8 +483,20 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
     payload?: unknown
   ): Promise<unknown> => makeCaller(registry, ctx)(operation, payload)
 
+  function dropDead(session: HostSession | undefined): HostSession | undefined {
+    if (!session) return undefined
+    if (!session.dead) return session
+    sessions.delete(session.hostId)
+    try {
+      session.client.close()
+    } catch {
+      /* already gone */
+    }
+    return undefined
+  }
+
   async function hostClient(hostId: string): Promise<HostClient> {
-    const existing = sessions.get(hostId)
+    const existing = dropDead(sessions.get(hostId))
     if (existing) return fenced(existing)
     // not attached yet — the mirror tells us where it lives
     const row = db.prepare('SELECT identity_json FROM execution_hosts WHERE id=?').get(hostId) as
@@ -305,7 +521,7 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   }
 
   async function hostClientByEndpoint(endpoint: string): Promise<HostClient> {
-    const known = [...sessions.values()].find((s) => s.endpoint === endpoint)
+    const known = dropDead([...sessions.values()].find((s) => s.endpoint === endpoint))
     if (known) return fenced(known)
     const session = await attachHost(endpoint)
     if (!session) {
@@ -351,6 +567,8 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
       roleId: v.claims.roleId,
       roleDigest: v.claims.roleDigest,
       interfaceDigest: v.claims.interfaceDigest,
+      implementationId: v.claims.implementationId,
+      implementationCandidateDigest: v.claims.implementationCandidateDigest,
       scope: v.claims.scope,
       issuedAt: v.claims.issuedAt
     }
@@ -369,9 +587,35 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   /* ── launch / recovery ────────────────────────────────────────────────── */
 
   registerLaunchOps(registry, {
-    call: caller,
+    // Launch orchestration is an internal service workflow. The initiating
+    // member is authorized for worker.prepare/start at admission, while its
+    // cross-domain context.build/workspace.prepare calls run under the
+    // deliberately narrow service grant.
+    call: (_ctx, operation, payload) => caller(serviceCtx(), operation, payload),
     host: (hostId: string) => hostClient(hostId),
     materialize: async (req) => {
+      const extra = req as typeof req & {
+        envelope?: {
+          digest: string
+          initialText: string
+          envelopeJson: unknown
+        }
+        memberId?: string
+        launchPlanId?: string
+        cli?: { executablePath: string; endpoint: string; extraEnv?: Record<string, string> }
+        operationKey?: string
+        connection?: { files: { name: string; bytes: Uint8Array }[] }
+      }
+      const connection =
+        extra.connection ??
+        (req.secretFiles && req.secretFiles.length > 0
+          ? {
+              files: req.secretFiles.map((f) => ({
+                name: f.path.replace(/^connection\//, ''),
+                bytes: f.bytes
+              }))
+            }
+          : undefined)
       const result = await materializeBundle(
         {
           db,
@@ -382,33 +626,90 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
         {
           executionId: req.executionId as never,
           bundleDigest: req.bundleDigest as never,
-          workspaceId: req.workspaceId as never
+          ...(req.workspaceId ? { workspaceId: req.workspaceId as never } : {}),
+          ...(extra.memberId ? { memberId: extra.memberId as never } : {}),
+          ...(extra.launchPlanId ? { launchPlanId: extra.launchPlanId as never } : {}),
+          ...(extra.envelope ? { envelope: extra.envelope } : {}),
+          ...(connection ? { connection } : {}),
+          ...(extra.cli ? { cli: extra.cli } : {}),
+          ...(extra.operationKey ? { operationKey: extra.operationKey } : {})
         }
       )
+      const want = new Set(req.wantBytes ?? [])
+      const files = result.files.map((f) => {
+        const rec: {
+          path: string
+          digest: string
+          byteLength: number
+          bytes?: Uint8Array
+          verified?: boolean
+        } = {
+          path: f.path,
+          digest: f.digest ?? '',
+          byteLength: 0,
+          verified: true
+        }
+        if (want.has(f.path) || f.private) {
+          try {
+            const bytes = readFileSync(join(result.executionRoot, f.path))
+            rec.byteLength = bytes.byteLength
+            if (want.has(f.path)) rec.bytes = bytes
+          } catch {
+            rec.verified = false
+          }
+        }
+        return rec
+      })
+      for (const p of want) {
+        if (files.some((f) => f.path === p)) continue
+        try {
+          const bytes = readFileSync(join(result.executionRoot, p))
+          files.push({
+            path: p,
+            digest: '',
+            byteLength: bytes.byteLength,
+            bytes,
+            verified: true
+          })
+        } catch {
+          /* wantBytes path not on disk — caller sees it missing */
+        }
+      }
       return {
         executionRoot: result.executionRoot,
         manifestDigest: result.manifestDigest,
-        files: result.files as never,
+        files: files as never,
         residuals: result.residualResources as never
       }
     },
-    ensureEnvelope: (txnDb, req) =>
-      (req.assignment.kind === 'task'
-        ? buildTaskEnvelope(txnDb, {
-            assignmentId: req.assignment.id,
-            assignmentRevision: req.assignment.revision,
-            taskId: (req.assignment.taskId ?? '') as string,
-            taskRevision: (req.assignment.taskRevision ?? 0) as number
-          })
-        : buildCoordinationEnvelope(txnDb, {
-            assignmentId: req.assignment.id,
-            assignmentRevision: req.assignment.revision,
-            roleContext: {
-              roleId: req.member.roleId,
-              implementationId: req.member.implementationId,
-              implementationRevision: req.member.implementationRevision
-            }
-          })) as never,
+    // F-027: launch/planner.ts passes raw snake_case storage rows cast as
+    // domain objects (AssignmentRow.task_id, MemberRow.role_id, …), so read
+    // both conventions — camelCase-first, snake_case fallback. Without the
+    // fallback taskId resolves to '' and every task-kind worker.prepare dies
+    // with INVALID_TRANSITION "assignment does not cover task".
+    ensureEnvelope: (txnDb, req) => {
+      const asg = req.assignment as unknown as Record<string, unknown>
+      const mem = req.member as unknown as Record<string, unknown>
+      return (
+        req.assignment.kind === 'task'
+          ? buildTaskEnvelope(txnDb, {
+              assignmentId: req.assignment.id,
+              assignmentRevision: req.assignment.revision,
+              taskId: ((asg.taskId ?? asg.task_id ?? '') as string) || '',
+              taskRevision: ((asg.taskRevision ?? asg.task_revision ?? 0) as number) || 0
+            })
+          : buildCoordinationEnvelope(txnDb, {
+              assignmentId: req.assignment.id,
+              assignmentRevision: req.assignment.revision,
+              roleContext: {
+                roleId: (mem.roleId ?? mem.role_id) as string,
+                implementationId: (mem.implementationId ?? mem.implementation_id) as string,
+                implementationRevision: (mem.implementationRevision ??
+                  mem.implementation_revision) as number
+              }
+            })
+      ) as never
+    },
     appendDomainEvent: storage.appendDomainEvent,
     digest: storage.sha256Hex,
     newId: (kind: string) => `${kind}-${randomUUID()}`,
@@ -416,16 +717,17 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
     endpoint: opts.endpoint
   })
   registerJoinOps(registry, { now: () => Date.now() })
-  registerRecoveryOps(registry, {
+  const recoveryDeps: RecoveryDeps = {
     withTx: storage.withTx,
     appendDomainEvent: storage.appendDomainEvent,
     sha256Hex: storage.sha256Hex,
     authorize: (ctx, operation, targets) => accessBoundary.authorize(ctx, operation, targets),
-    connectHost: (endpoint) => hostClientByEndpoint(endpoint),
+    connectHost: (endpoint: string) => hostClientByEndpoint(endpoint),
     makeCaller: (reg, ctx) => makeCaller(reg, ctx) as never,
     now: () => Date.now(),
     newId: () => randomUUID()
-  })
+  }
+  registerRecoveryOps(registry, recoveryDeps)
 
   /* ── resources / observation / maintenance / client / ops ─────────────── */
 
@@ -447,15 +749,7 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   registerClientOps(registry as unknown as ClientOpsRegistry, {
     host: {
       call: async <T>(operation: string, payload?: unknown): Promise<T> => {
-        const session = localSession ?? (await attachHost(hostEndpoint)) ?? null
-        if (!session) {
-          throw {
-            code: 'CONTROL_UNAVAILABLE',
-            message: 'no execution-host attached',
-            retry: 'reconcile'
-          }
-        }
-        return fenced(session).call<T>(operation, payload)
+        return (await hostClientByEndpoint(hostEndpoint)).call<T>(operation, payload)
       }
     },
     call: (operation, payload) => caller(serviceCtx(), operation, payload),
@@ -483,11 +777,15 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
 
   return {
     registry,
+    recoveryDeps,
     localHost: localSession
       ? { hostId: localSession.hostId, endpoint: localSession.endpoint }
       : null,
     async ensureLocalHost() {
-      if (localSession) return { hostId: localSession.hostId, endpoint: localSession.endpoint }
+      const live = dropDead(
+        [...sessions.values()].find((s) => s.endpoint === hostEndpoint) ?? localSession ?? undefined
+      )
+      if (live) return { hostId: live.hostId, endpoint: live.endpoint }
       const session = await attachHost(hostEndpoint)
       return session ? { hostId: session.hostId, endpoint: session.endpoint } : null
     },

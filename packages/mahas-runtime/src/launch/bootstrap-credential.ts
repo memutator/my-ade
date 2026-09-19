@@ -45,19 +45,6 @@ import {
   type CredentialRow
 } from './store.ts'
 
-/** bootstrap mode admits only these operations — spec/domains/access.md §3 */
-export const BOOTSTRAP_ALLOWED_ACTIONS: readonly string[] = [
-  'execution.join',
-  'assignment.show',
-  'surface.describe',
-  'operation.get'
-] as const
-
-/** worker-auth (IMP-12) pre-dispatch check: bootstrap credentials may not reach beyond this surface */
-export function isBootstrapOperationAllowed(operation: string): boolean {
-  return BOOTSTRAP_ALLOWED_ACTIONS.includes(operation)
-}
-
 export function hashWorkerSecret(secret: string): string {
   return `sha256:${sha256Hex(secret)}`
 }
@@ -153,9 +140,11 @@ export function bindingToContextFields(binding: WorkerCredentialBinding): {
 /**
  * Resolve a presented credential to its execution binding, or null.
  * Deliberately returns null for unknown id / revoked / bad secret alike —
- * the failure mode must not disclose which check failed. The caller
- * (IMP-12 worker-auth) additionally enforces the bootstrap surface via
- * isBootstrapOperationAllowed when binding.mode === 'bootstrap'.
+ * the failure mode must not disclose which check failed. The bootstrap
+ * surface is NOT enforced here: binding.mode is carried on the returned
+ * binding but dropped by bindingToContextFields (AuthenticatedContext has
+ * no mode field) — the pre-join operation restriction lives in decide()'s
+ * execution join-state check (access/authorize.ts BOOTSTRAP_OPERATIONS).
  */
 export function authenticateWorkerCredential(
   db: DatabaseSync,

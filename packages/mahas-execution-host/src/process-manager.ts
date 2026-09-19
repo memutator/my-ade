@@ -31,7 +31,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessIncarnation } from '../../mahas-contracts/src/index.ts'
 import type { HostCallContext, HostOpContext, HostOpSpec } from './host.ts'
 import { HostOpError, fingerprintPayload } from './lease.ts'
-import { withTx } from './storage.ts'
+import { sha256Hex, withTx } from './storage.ts'
 import {
   spawnProcess,
   ptyAvailable,
@@ -275,6 +275,7 @@ export class ProcessManager {
     if (!String(spec.argv[0]).startsWith('/')) {
       throw new HostOpError('INVALID_ARGUMENT', 'spec.argv[0] must be an absolute path')
     }
+    assertSpawnArgv(spec.argv)
     if (spec.pty && !ptyAvailable()) {
       throw new HostOpError(
         'UNAVAILABLE_OPERATION',
@@ -308,6 +309,32 @@ export class ProcessManager {
         `spawnNonce ${spawnNonce} already bound to a different execution`
       )
     }
+    // F-054: same spawnNonce under a different effectKey is the SAME
+    // process, not a new one — spawning again would leave the first child
+    // live but unaddressable after the row overwrite. A live row answers
+    // with replay semantics instead; only a dead row may rebind the nonce.
+    // (Same effectKey + different fingerprint already threw above in
+    // begin() — that discipline is untouched.)
+    if (existingNonce && isLiveRow(existingNonce)) {
+      const receipt = {
+        state: 'confirmed' as const,
+        effectKey,
+        deduped: 'spawn-nonce-live',
+        processIncarnation: existingNonce.incarnation,
+        terminalId: existingNonce.terminalId,
+        pid: existingNonce.incarnation.pid ?? null,
+        birthEvidence: existingNonce.incarnation.birthEvidence ?? null,
+        groupIdentity: existingNonce.incarnation.processGroupIdentity ?? null,
+        at: this.now()
+      }
+      ctx.effects.record(effectKey, 'confirmed', receipt)
+      return {
+        processIncarnation: existingNonce.incarnation,
+        terminalId: existingNonce.terminalId,
+        replayed: true,
+        spawn: receipt
+      }
+    }
 
     // intent journaled (prepared) → mark the OS call in-flight. If the host
     // dies between spawn and commit the row stays 'attempting' — the crash
@@ -315,8 +342,10 @@ export class ProcessManager {
     ctx.effects.record(effectKey, 'attempting', { attemptingAt: this.now() })
 
     // stamp the child for downstream attribution (hook/observation evidence)
+    const initialStdin = coerceInitialStdin(spec, payload)
     const stampedSpec: SpawnSpec = {
       ...spec,
+      ...(initialStdin !== undefined ? { initialStdin } : {}),
       env: { ...(spec.env ?? {}), MAHAS_SPAWN_NONCE: spawnNonce }
     }
 
@@ -361,6 +390,10 @@ export class ProcessManager {
       queue: Promise.resolve()
     }
     this.procs.set(spawnNonce, mp)
+    // F-007: host_terminals.spawn_nonce REFERENCES host_processes — the process
+    // row MUST exist before the terminal row INSERT below, otherwise the FK
+    // fails and the (already spawned) pty is recorded as an unknown receipt.
+    this.persistProcess(ctx.db, mp)
 
     let terminalId: string | undefined
     if (child.kind === 'pty' && spec.pty) {
@@ -596,6 +629,20 @@ export class ProcessManager {
 // payload helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * F-054: is this row's process still the live incarnation? A host-owned
+ * handle that hasn't reported exit is positive liveness; a recovered row
+ * (no handle after a host restart) goes through the identity oracle.
+ * Exited/rejected rows — or rows with nothing verifiable — are NOT live,
+ * so a fresh spawn may bind the nonce.
+ */
+function isLiveRow(mp: ManagedProcess): boolean {
+  if (mp.state === 'exited' || mp.state === 'spawn_rejected') return false
+  if (mp.child) return !mp.child.exited
+  if (typeof mp.incarnation.pid !== 'number') return false
+  return verifyIncarnation(mp.incarnation).verdict === 'live'
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
 }
@@ -613,15 +660,60 @@ function asRec(payload: unknown): Record<string, unknown> {
   return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
 }
 
-/** callers may pass {spawnNonce} or a full {processIncarnation} */
+/** callers may pass {processIncarnation}, {expectedProcessIncarnation}, or {spawnNonce} */
 function expectedIncarnation(payload: Record<string, unknown>): ProcessIncarnation {
-  const pi = payload.processIncarnation as ProcessIncarnation | undefined
-  if (pi) return pi
+  const pi =
+    (payload.processIncarnation as ProcessIncarnation | undefined) ??
+    (payload.expectedProcessIncarnation as ProcessIncarnation | undefined)
+  if (pi && typeof pi === 'object') return pi
   const inc: ProcessIncarnation = {}
   if (str(payload.spawnNonce)) inc.spawnNonce = str(payload.spawnNonce)
   if (num(payload.pid)) inc.pid = num(payload.pid)
   if (str(payload.birthEvidence)) inc.birthEvidence = str(payload.birthEvidence)
   return inc
+}
+
+const MAX_ARG_STRLEN_BYTES = 128 * 1024
+const MAX_ARGV_TOTAL_BYTES = 1_500_000
+
+function assertSpawnArgv(argv: string[]): void {
+  let total = 0
+  for (const arg of argv) {
+    if (typeof arg !== 'string') {
+      throw new HostOpError('INVALID_ARGUMENT', 'spec.argv entries must be strings')
+    }
+    if (arg.includes('\0')) {
+      throw new HostOpError('INVALID_ARGUMENT', 'spec.argv must not contain NUL bytes')
+    }
+    const n = Buffer.byteLength(arg)
+    if (n > MAX_ARG_STRLEN_BYTES) {
+      throw new HostOpError(
+        'INVALID_ARGUMENT',
+        `spec.argv entry exceeds 128KiB (${n} bytes)`
+      )
+    }
+    total += n + 1
+  }
+  if (total > MAX_ARGV_TOTAL_BYTES) {
+    throw new HostOpError(
+      'INVALID_ARGUMENT',
+      `spec.argv total ${total} bytes exceeds ARG_MAX guard ${MAX_ARGV_TOTAL_BYTES}`
+    )
+  }
+}
+
+function coerceInitialStdin(
+  spec: SpawnSpec,
+  payload: Record<string, unknown>
+): string | undefined {
+  if (typeof spec.initialStdin === 'string') return spec.initialStdin
+  const extra = payload.initialStdin
+  if (typeof extra === 'string') return extra
+  if (extra && typeof extra === 'object') {
+    const b64 = (extra as { bytesB64?: unknown }).bytesB64
+    if (typeof b64 === 'string') return Buffer.from(b64, 'base64').toString('utf8')
+  }
+  return undefined
 }
 
 /** payload-level re-check for ops that carry expectedHostIncarnation inline
@@ -691,12 +783,51 @@ export function registerProcessOps(
       deps.assertMutationAllowed?.('host.terminal.input', ctx)
       const p = asRec(payload)
       requirePayloadIncarnation(p, deps.hostIncarnation)
-      return manager.terminals.input({
-        terminalId: String(p.terminalId ?? ''),
-        inputLeaseRevision: num(p.inputLeaseRevision),
-        inputBytes: String(p.inputBytes ?? ''),
-        expectedHostIncarnation: str(p.expectedHostIncarnation)
+      const terminalId = String(p.terminalId ?? '')
+      const inputBytes = String(p.inputBytes ?? '')
+      const inputLeaseRevision = num(p.inputLeaseRevision)
+      // F-056: input bytes are an OS side effect — journal them so an
+      // identical retry replays the stored receipt instead of writing
+      // twice. The caller's envelope key wins; otherwise the key derives
+      // from the exact bytes+lease, so different bytes/lease never dedupe.
+      const effectKey =
+        str(ctx.envelope.effectKey) ??
+        `terminal-input:${terminalId}:${inputLeaseRevision ?? 'none'}:${sha256Hex(inputBytes)}`
+      const fingerprint = fingerprintPayload({
+        terminalId,
+        inputBytes,
+        inputLeaseRevision: inputLeaseRevision ?? null,
+        expectedHostIncarnation: str(p.expectedHostIncarnation) ?? null
       })
+      const { effect: prior, replayed } = ctx.effects.begin({
+        effectKey,
+        kind: 'terminal.input',
+        fingerprint,
+        intent: { terminalId, inputBytes, inputLeaseRevision: inputLeaseRevision ?? null }
+      })
+      if (replayed) {
+        return { ...(prior.receipt as Record<string, unknown>), replayed: true }
+      }
+      ctx.effects.record(effectKey, 'attempting', { attemptingAt: deps.now?.() ?? Date.now() })
+      try {
+        const receipt = manager.terminals.input({
+          terminalId,
+          inputLeaseRevision,
+          inputBytes,
+          expectedHostIncarnation: str(p.expectedHostIncarnation)
+        })
+        ctx.effects.record(effectKey, 'confirmed', receipt)
+        return receipt
+      } catch (e) {
+        // settle the row so a retry replays this outcome instead of a
+        // dangling 'attempting' stub — then rethrow so the caller still
+        // sees the refusal (mirrors process.stop discipline)
+        ctx.effects.record(effectKey, 'unknown', {
+          state: 'unknown',
+          reason: String((e as Error).message ?? e)
+        })
+        throw e
+      }
     },
     { mutation: true, requiresLease: true }
   )

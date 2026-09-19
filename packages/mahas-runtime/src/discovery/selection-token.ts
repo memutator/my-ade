@@ -71,6 +71,11 @@ export interface IssueSelectionTokenInput {
   roleDigest: string
   /** interface digest the implementation candidate must satisfy */
   interfaceDigest?: string
+  implementationId?: string
+  implementationRevision?: number
+  implementationDigest?: string
+  /** digest of the shown implementation, or of the published candidate set */
+  implementationCandidateDigest?: string
   scope?: { scopeBoundaryId?: string; runId?: string }
   issuedAt: number
   keyId?: string
@@ -88,6 +93,16 @@ export function issueSelectionToken(
     roleId: input.roleId,
     roleDigest: input.roleDigest,
     ...(input.interfaceDigest !== undefined ? { interfaceDigest: input.interfaceDigest } : {}),
+    ...(input.implementationId !== undefined ? { implementationId: input.implementationId } : {}),
+    ...(input.implementationRevision !== undefined
+      ? { implementationRevision: input.implementationRevision }
+      : {}),
+    ...(input.implementationDigest !== undefined
+      ? { implementationDigest: input.implementationDigest }
+      : {}),
+    ...(input.implementationCandidateDigest !== undefined
+      ? { implementationCandidateDigest: input.implementationCandidateDigest }
+      : {}),
     ...(input.scope !== undefined ? { scope: input.scope } : {}),
     issuedAt: input.issuedAt,
     ...(input.keyId !== undefined ? { keyId: input.keyId } : {})

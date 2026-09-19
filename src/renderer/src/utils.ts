@@ -30,7 +30,20 @@ export function blockLabel(tab: PaneTab, lang: Language): string {
     case 'file':
       return tab.name || translate(lang, 'editor')
     case 'widget':
-      return translate(lang, tab.widget === 'usage' ? 'widgetUsage' : 'widgetAgents')
+      return translate(
+        lang,
+        tab.widget === 'usage'
+          ? 'widgetUsage'
+          : tab.widget === 'responsibility'
+            ? 'widgetResponsibility'
+            : tab.widget === 'team'
+              ? 'widgetTeam'
+              : tab.widget === 'plan'
+                ? 'widgetPlan'
+                : tab.widget === 'inspector'
+                  ? 'widgetInspector'
+                  : 'widgetAgents'
+      )
   }
 }
 

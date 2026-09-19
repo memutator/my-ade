@@ -25,7 +25,7 @@ import type {
   AssignmentPreview,
   ImplementationOffer
 } from './contracts.ts'
-import { Field, KV, ListLines, OpError, Pill, Section } from './bits.tsx'
+import { ContextBar, Field, KV, ListLines, OpError, Pill, Section } from './bits.tsx'
 
 interface AssignForm {
   assignmentKind: AssignmentKind
@@ -256,7 +256,7 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
                   {im.support && <Pill>{im.support}</Pill>}
                   {im.blockers?.map((b, i) => (
                     <Pill key={i} tone="warn">
-                      {b}
+                      {typeof b === 'string' ? b : (b.detail ?? b.kind ?? JSON.stringify(b))}
                     </Pill>
                   ))}
                 </label>
@@ -321,7 +321,11 @@ function AssignCard({ entry }: { entry: AssignQueueEntry }): React.JSX.Element {
             <button
               className="wb-btn accent"
               onClick={doAssign}
-              disabled={step.phase !== 'previewed' || !runId}
+              disabled={
+                step.phase !== 'previewed' ||
+                !runId ||
+                (step.phase === 'previewed' && step.preview.contextBlockers.length > 0)
+              }
             >
               <UserCheck className="wb-ico" />
               {step.phase === 'assigning' ? '…' : t('wbAssignBtn')}
@@ -366,6 +370,7 @@ export default function TeamView(): React.JSX.Element {
 
   return (
     <div className="wb-view">
+      <ContextBar />
       {!runId && <div className="wb-note">{t('wbNeedRun')}</div>}
       {assignQueue.length === 0 ? (
         <div className="wb-empty">

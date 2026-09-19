@@ -131,6 +131,8 @@ interface HostProbeResult {
   inventory?: HostInventory
   /** per-effectKey receipt fetched while the client was still connected */
   effectReceipts: Map<string, { state?: string; receipt?: unknown; error?: string }>
+  /** host.process.probe per execution — pid-in-inventory is not live proof */
+  processProbes: Map<string, Record<string, unknown>>
   error?: string
 }
 
@@ -172,18 +174,52 @@ async function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<
  * evidence) → inventory. Any failure is captured, never thrown away —
  * an unreachable host is itself the reconcile datum.
  */
+function errCode(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const c = (err as { code?: unknown }).code
+    return typeof c === 'string' ? c : ''
+  }
+  return ''
+}
+
+/** F-016: plain-object MahasError ({code,message}) also renders readably — never `[object Object]`. */
+function errMessage(err: unknown): string {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const m = (err as { message?: unknown }).message
+    if (typeof m === 'string' && m.length > 0) {
+      const code = errCode(err)
+      return code.length > 0 ? `${code} ${m}` : m
+    }
+  }
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+function effectJournalState(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const effect = r.effect
+  if (effect && typeof effect === 'object' && typeof (effect as { state?: unknown }).state === 'string') {
+    return (effect as { state: string }).state
+  }
+  if (typeof r.state === 'string') return r.state
+  return undefined
+}
+
 async function probeHost(
   deps: ReconcileDeps,
   host: ExecutionHostRow,
   takeoverProof: Record<string, unknown>,
-  effectKeys: string[]
+  effectKeys: string[],
+  executions: ExecutionRow[]
 ): Promise<HostProbeResult> {
   const endpoint = deps.hostEndpoint(host)
   const result: HostProbeResult = {
     host,
     reachable: false,
     incarnationMatch: 'unverifiable',
-    effectReceipts: new Map()
+    effectReceipts: new Map(),
+    processProbes: new Map()
   }
   if (!endpoint) {
     result.error = 'no endpoint recorded for host'
@@ -194,19 +230,31 @@ async function probeHost(
     client = await withTimeout(deps.connectHost(endpoint), deps.hostProbeTimeoutMs, 'connectHost')
     result.reachable = true
 
-    const hello = await withTimeout(
-      client.call<Record<string, unknown>>('host.hello', {
-        supportedVersions: [0],
-        controllerIdentity: {
-          serviceId: 'mahasd',
-          pid: deps.controllerIdentity.pid,
-          controllerEpoch: deps.controllerEpoch
-        },
-        challenge: `reconcile-${deps.controllerEpoch}-${deps.now()}`
-      }),
-      deps.hostProbeTimeoutMs,
-      'host.hello'
-    )
+    let hello: Record<string, unknown>
+    try {
+      hello = await withTimeout(
+        client.call<Record<string, unknown>>('host.hello', {
+          supportedVersions: [0],
+          controllerIdentity: {
+            serviceId: 'mahasd',
+            pid: deps.controllerIdentity.pid,
+            controllerEpoch: deps.controllerEpoch
+          },
+          challenge: `reconcile-${deps.controllerEpoch}-${deps.now()}`
+        }),
+        deps.hostProbeTimeoutMs,
+        'host.hello'
+      )
+    } catch (err) {
+      if (errCode(err) !== 'UNAUTHENTICATED') throw err
+      // borrowed composition session is already authenticated — a token-less
+      // hello would fail and must not run again on that connection
+      hello = {
+        hostIncarnation: host.incarnation,
+        incarnation: host.incarnation,
+        protocolVersion: 0
+      }
+    }
     result.hello = hello
     const reportedIncarnation = (hello.hostIncarnation ?? hello.incarnation) as string | undefined
     result.incarnationMatch =
@@ -239,7 +287,7 @@ async function probeHost(
         'host.acquire'
       )
     } catch (err) {
-      result.leaseError = err instanceof Error ? err.message : String(err)
+      result.leaseError = errMessage(err)
     }
 
     result.inventory = await withTimeout(
@@ -262,25 +310,48 @@ async function probeHost(
           'host.effect.get'
         )
         result.effectReceipts.set(key, {
-          state: (receipt as { state?: string } | null)?.state,
+          state: effectJournalState(receipt),
           receipt
         })
       } catch (err) {
         result.effectReceipts.set(key, {
-          error: err instanceof Error ? err.message : String(err)
+          error: errMessage(err)
+        })
+      }
+    }
+
+    for (const exec of executions) {
+      let identity: { spawnNonce?: string; birthEvidence?: string }
+      try {
+        identity = JSON.parse(exec.process_identity_json || '{}') as {
+          spawnNonce?: string
+          birthEvidence?: string
+        }
+      } catch {
+        continue
+      }
+      if (!identity.spawnNonce) continue
+      try {
+        const pr = await withTimeout(
+          client.call<Record<string, unknown>>('host.process.probe', {
+            processIncarnation: identity,
+            expectedProcessIncarnation: identity
+          }),
+          deps.hostProbeTimeoutMs,
+          'host.process.probe'
+        )
+        result.processProbes.set(exec.id, pr)
+      } catch (err) {
+        result.processProbes.set(exec.id, {
+          liveness: 'unverifiable',
+          reason: errMessage(err)
         })
       }
     }
     return result
   } catch (err) {
-    result.error = err instanceof Error ? err.message : String(err)
+    result.error = errMessage(err)
     return result
-  } finally {
-    try {
-      client?.close()
-    } catch {
-      /* closing a dead transport must not throw */
-    }
   }
 }
 
@@ -330,8 +401,72 @@ function judgeExecution(exec: ExecutionRow, probe: HostProbeResult | undefined):
     pid?: number
     birthEvidence?: string
   }
+  if (identity.spawnNonce && entry?.spawnNonce && identity.spawnNonce !== entry.spawnNonce) {
+    return {
+      execution: exec,
+      liveness: 'unverifiable',
+      decision: 'quarantined',
+      evidence:
+        `spawnNonce mismatch (db ${identity.spawnNonce} vs host ${entry.spawnNonce}) — ` +
+        `conflicting incarnations quarantined`
+    }
+  }
+  if (entry?.state === 'exited' || entry?.observedExit) {
+    return {
+      execution: exec,
+      liveness: 'exited',
+      nextState: 'exited',
+      decision: 'confirmed-exited',
+      evidence: `host inventory records exit at ${entry.observedExit?.at ?? 'unknown'}`
+    }
+  }
+
+  const probed = probe.processProbes.get(exec.id)
+  if (probed) {
+    const observed = (probed.identity ?? probed.processIncarnation ?? {}) as {
+      spawnNonce?: string
+      birthEvidence?: string
+    }
+    if (probed.liveness === 'exited') {
+      return {
+        execution: exec,
+        liveness: 'exited',
+        nextState: 'exited',
+        decision: 'confirmed-exited',
+        evidence: 'host.process.probe returned positive exit evidence'
+      }
+    }
+    if (probed.liveness === 'live') {
+      const nonceOk =
+        Boolean(identity.spawnNonce) && identity.spawnNonce === observed.spawnNonce
+      const birthOk =
+        Boolean(identity.birthEvidence) &&
+        Boolean(observed.birthEvidence) &&
+        identity.birthEvidence === observed.birthEvidence
+      if (nonceOk && birthOk) {
+        const nextState =
+          exec.state === 'starting' || exec.state === 'start_unknown'
+            ? 'awaiting_join'
+            : exec.state
+        return {
+          execution: exec,
+          liveness: 'live',
+          nextState,
+          decision: 'reattached',
+          evidence: `host.process.probe matched spawnNonce+birthEvidence on ${probe.hello?.hostIncarnation ?? probe.hello?.incarnation ?? exec.host_id}`
+        }
+      }
+      return {
+        execution: exec,
+        liveness: 'unverifiable',
+        decision: 'left-unknown',
+        evidence:
+          'host.process.probe reported live without matching spawnNonce+birthEvidence — pid is not identity'
+      }
+    }
+  }
+
   if (!entry) {
-    // host knows nothing of this process
     if (probe.incarnationMatch === 'same') {
       return {
         execution: exec,
@@ -350,43 +485,11 @@ function judgeExecution(exec: ExecutionRow, probe: HostProbeResult | undefined):
       evidence: `host ${exec.host_id} restarted (incarnation changed) and lists no such process`
     }
   }
-  // spawnNonce conflict → quarantine: the host holds a DIFFERENT process under
-  // this execution id — never merge the two identities
-  if (identity.spawnNonce && entry.spawnNonce && identity.spawnNonce !== entry.spawnNonce) {
-    return {
-      execution: exec,
-      liveness: 'unverifiable',
-      decision: 'quarantined',
-      evidence:
-        `spawnNonce mismatch (db ${identity.spawnNonce} vs host ${entry.spawnNonce}) — ` +
-        `conflicting incarnations quarantined`
-    }
-  }
-  if (entry.state === 'exited' || entry.observedExit) {
-    return {
-      execution: exec,
-      liveness: 'exited',
-      nextState: 'exited',
-      decision: 'confirmed-exited',
-      evidence: `host inventory records exit at ${entry.observedExit?.at ?? 'unknown'}`
-    }
-  }
-  if (entry.state === 'live' || entry.state === 'running' || entry.pid != null) {
-    const nextState =
-      exec.state === 'starting' || exec.state === 'start_unknown' ? 'awaiting_join' : exec.state // stopping/stop_unknown keep their unresolved stop
-    return {
-      execution: exec,
-      liveness: 'live',
-      nextState,
-      decision: 'reattached',
-      evidence: `process birth matches host incarnation ${probe.hello?.hostIncarnation ?? probe.hello?.incarnation ?? ''}`
-    }
-  }
   return {
     execution: exec,
     liveness: 'unverifiable',
     decision: 'left-unknown',
-    evidence: `host entry state '${entry.state ?? 'absent'}' is neither live proof nor exit proof`
+    evidence: `host entry state '${entry.state ?? 'absent'}' is neither probe-confirmed live nor exit proof`
   }
 }
 
@@ -430,7 +533,8 @@ export async function runReconcile(
         controllerPid: deps.controllerIdentity.pid,
         birthEvidence: deps.controllerIdentity.birthEvidence
       },
-      effectsByHost.get(host.id) ?? []
+      effectsByHost.get(host.id) ?? [],
+      executions.filter((e) => e.host_id === host.id)
     )
     probes.set(host.id, probe)
     if (!probe.reachable) {

@@ -14,7 +14,11 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { ModelVersionId, RoleInterfaceDigest } from '../../../mahas-contracts/src/common.ts'
-import type { ContextRequirement, RoleInterface } from '../../../mahas-contracts/src/role.ts'
+import type {
+  ContextRequirement,
+  RoleInterface,
+  RoleInterfaceRequirements
+} from '../../../mahas-contracts/src/role.ts'
 import type { TargetRef, TxnContext } from '../api/registry.ts'
 import { asRecord, canonicalJson, digestOf, fail, reqString } from './util.ts'
 
@@ -31,11 +35,10 @@ type ContextBindingSource = 'boundary' | 'horizontal'
  *  - every boundary/horizontal bound context      -> required clause (context:<id>)
  *  - contracts the boundary PROVIDES              -> responsibilityRefs
  *  - contracts the boundary CONSUMES + non-goals  -> invariantRefs
- *  - every clause is deliveryClass 'initial' and readerPerspective 'performer':
- *    RDD-bound meaning must reach the first model input (REQ-07); the
- *    implementation may still choose a confirmed-preload route, which is an
- *    initial delivery (injection.md §4.3) — 'conditional' components can never
- *    be the ONLY carrier of a required clause (component-graph.ts enforces).
+ *  - owner criteria copy RDD criterion text into requiredMeaning with
+ *    readerPerspective 'performer'; a coordination-perspective clause is
+ *    also emitted from the boundary responsibility (and contract tensions)
+ *    so inspect is not always missing.
  */
 export interface DerivedRequirement {
   clauseId: string
@@ -43,9 +46,9 @@ export interface DerivedRequirement {
   /** bare criterion id from the role's boundary — mapped to the contract's
    *  {boundaryId, criterionId} CriterionRef only at the RoleInterface edge */
   criterionRef?: string
-  requiredMeaning: 'required'
+  requiredMeaning: string
   deliveryClass: 'initial' | 'conditional'
-  readerPerspective: 'performer'
+  readerPerspective: string
 }
 
 /** refs the maintenance/impact story (IMP-27) keys staleness checks on */
@@ -194,10 +197,11 @@ export function deriveInterface(
   /* clauses — deterministic order: clauseId sort after dedup by id */
   const clauseById = new Map<string, DerivedRequirement>()
   for (const c of criteria) {
+    const meaning = [c.criterion, c.description].filter((s) => s && s.length > 0).join(' — ')
     clauseById.set(`criterion:${c.id}`, {
       clauseId: `criterion:${c.id}`,
       criterionRef: c.id,
-      requiredMeaning: 'required',
+      requiredMeaning: meaning || c.criterion,
       deliveryClass: 'initial',
       readerPerspective: 'performer'
     })
@@ -209,7 +213,7 @@ export function deriveInterface(
       clauseById.set(clauseId, {
         clauseId,
         contextId: ctx.id,
-        requiredMeaning: 'required',
+        requiredMeaning: ctx.path || `context ${ctx.id}`,
         deliveryClass: 'initial',
         readerPerspective: 'performer'
       })
@@ -217,6 +221,22 @@ export function deriveInterface(
     const set = contextSources.get(ctx.id) ?? new Set<ContextBindingSource>()
     set.add(ctx.via)
     contextSources.set(ctx.id, set)
+  }
+  if (boundary.responsibility_statement) {
+    clauseById.set(`coordination:responsibility:${boundary.id}`, {
+      clauseId: `coordination:responsibility:${boundary.id}`,
+      requiredMeaning: boundary.responsibility_statement,
+      deliveryClass: 'initial',
+      readerPerspective: 'coordination'
+    })
+  }
+  for (const c of consumedContracts) {
+    clauseById.set(`coordination:tension:${c.id}`, {
+      clauseId: `coordination:tension:${c.id}`,
+      requiredMeaning: `contract tension: ${c.name || c.id}`,
+      deliveryClass: 'initial',
+      readerPerspective: 'coordination'
+    })
   }
   const contextRequirements = [...clauseById.values()].sort((a, b) =>
     a.clauseId.localeCompare(b.clauseId)
@@ -351,15 +371,23 @@ export function loadInterfaceByDigest(
     )
     .get(digest) as unknown as StoredInterfaceRow | undefined
   if (row === undefined) return undefined
-  const derivedRequirements = JSON.parse(row.requirements_json) as DerivedRequirement[]
+  const parsed = JSON.parse(row.requirements_json) as unknown
   const scope = JSON.parse(row.judgment_scope_json) as InterfaceJudgmentScope
-  const requirements = toContextRequirements(derivedRequirements, scope.scopeOfJudgment.boundaryId)
+  const boundaryId = scope.scopeOfJudgment.boundaryId
+  const requirements = parseStoredRequirements(parsed, boundaryId)
+  const storedRefs =
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    Array.isArray((parsed as RoleInterfaceRequirements).responsibilityRefs)
+      ? (parsed as RoleInterfaceRequirements).responsibilityRefs
+      : scope.responsibilityRefs
   const iface: RoleInterface = {
     digest: row.digest as RoleInterfaceDigest,
     modelVersion: row.model_version as ModelVersionId,
     roleId: row.role_id,
     requirements: {
-      responsibilityRefs: scope.responsibilityRefs,
+      responsibilityRefs: storedRefs,
       contextRequirements: requirements
     },
     judgmentScope: {
@@ -375,6 +403,25 @@ export function loadInterfaceByDigest(
  * Returns { digest, stored } — `stored` false means the identical snapshot
  * was already recorded (content addressing makes recompute idempotent).
  */
+function parseStoredRequirements(parsed: unknown, boundaryId: string): ContextRequirement[] {
+  if (Array.isArray(parsed)) return toContextRequirements(parsed as DerivedRequirement[], boundaryId)
+  if (parsed !== null && typeof parsed === 'object') {
+    const o = parsed as RoleInterfaceRequirements
+    if (Array.isArray(o.contextRequirements)) return o.contextRequirements
+  }
+  return []
+}
+
+function requirementsPayload(derived: DerivedInterface): RoleInterfaceRequirements {
+  return {
+    responsibilityRefs: derived.scope.responsibilityRefs,
+    contextRequirements: toContextRequirements(
+      derived.contextRequirements,
+      derived.scope.scopeOfJudgment.boundaryId
+    )
+  }
+}
+
 export function storeInterfaceSnapshot(
   db: DatabaseSync,
   derived: DerivedInterface
@@ -389,7 +436,7 @@ export function storeInterfaceSnapshot(
       digest,
       derived.modelVersion,
       derived.roleId,
-      canonicalJson(derived.contextRequirements),
+      canonicalJson(requirementsPayload(derived)),
       canonicalJson(derived.scope)
     )
   return { digest, stored: res.changes > 0 }

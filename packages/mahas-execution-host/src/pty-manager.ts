@@ -117,17 +117,14 @@ export function spawnProcess(spec: SpawnSpec): Promise<SpawnedChild> {
   return spec.pty ? spawnPty(file, args, env, spec) : spawnPipes(file, args, env, spec)
 }
 
-/** env = the caller's allowlisted map only, plus what the medium needs */
+/** env = the caller's map only, plus PTY term keys. PATH/HOME are inherited
+ *  from the host process only when the spec itself included them. */
 function buildEnv(spec: SpawnSpec): Record<string, string> {
   const env: Record<string, string> = { ...(spec.env ?? {}) }
   if (spec.pty) {
-    // a pty with no TERM is not a usable terminal
     env.TERM ??= 'xterm-256color'
     env.COLORTERM ??= 'truecolor'
   }
-  // no PATH at all makes execvp fall back to a default, but be explicit
-  env.PATH ??= process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin'
-  env.HOME ??= process.env.HOME ?? '/'
   return env
 }
 

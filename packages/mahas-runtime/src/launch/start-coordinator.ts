@@ -17,13 +17,14 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ExecutionLiveness, ExecutionState } from '../../../mahas-contracts/src/identity.ts'
 import type { TxnContext } from '../api/registry.ts'
 import type { HostClient } from '../hostClient.ts'
+import { mahasdWorkerEndpoint } from '../rpc/endpoints.ts'
+import { issueBootstrapCredential } from './bootstrap-credential.ts'
 import {
+  asMahasError,
   describeError,
   emitEvent,
   getRow,
-  isMahasError,
   mahasError,
-  newCredentialSecret,
   runSql,
   tx,
   type MaterializedFile,
@@ -31,14 +32,13 @@ import {
 } from './deps.ts'
 import type { LaunchPins } from './planner.ts'
 import {
-  buildConnectionFile,
   buildSpawnSpec,
-  stdinDigest,
   writeInjectionReceipt,
   joinRoot,
   type AttachEvidence,
   type PlannedProcessSpec
 } from './initial-attachment.ts'
+import { writeWorkerConnection } from './worker-connection.ts'
 import {
   addResiduals,
   DRIVEN_STAGES,
@@ -98,14 +98,23 @@ interface MemberRow {
 }
 
 /** thrown-host errors that prove the spawn was never admitted → definitive
- *  negative, NOT unknown. Everything else thrown is ambiguous. */
+ *  negative, NOT unknown. GRANT_REVOKED is omitted: after the OS call is
+ *  in-flight a revoked grant is not proof the process never started. */
 const SPAWN_NEVER_ADMITTED = new Set([
   'HOST_PROTOCOL_MISMATCH',
   'UNAUTHENTICATED',
   'SCOPE_DENIED',
-  'GRANT_REVOKED',
   'STALE_EXECUTION'
 ])
+
+/** worker socket stamped into the connection file — never the operator path */
+function workerEndpointFrom(deps: ResolvedDeps): string {
+  const ep = deps.endpoint
+  if (typeof ep === 'string' && ep.length > 0) {
+    return ep.replace(/mahasd\.sock$/, 'mahasd-worker.sock')
+  }
+  return mahasdWorkerEndpoint('.')
+}
 
 // ---------------------------------------------------------------------------
 // shared stage context — hydrated from confirmed stage receipts on resume
@@ -204,8 +213,19 @@ export async function workerStart(
     receipt.operationIds.push(operationId)
   }
 
-  // same plan already driven to its terminal stage → the same receipt
-  if (receipt.terminal) return result(receipt)
+  // same plan already driven to its terminal stage → replay that receipt
+  // unless this call is a new generation (native-resume/fresh).
+  const requestedGen =
+    typeof (p as { generation?: number }).generation === 'number'
+      ? (p as { generation: number }).generation
+      : undefined
+  if (receipt.terminal) {
+    const priorGen = receipt.generation
+    const newGen = requestedGen !== undefined && (priorGen === undefined || requestedGen > priorGen)
+    if (!newGen) return result(receipt)
+    receipt = newReceipt(plan.id, plan.digest, pins.assignment.kind, operationId, deps.now())
+    receipt.generation = requestedGen
+  }
 
   const ctx: StageCtx = { db, txn, deps, plan, pins, spec, receipt, shared: { files: new Map() } }
   hydrateShared(ctx)
@@ -266,9 +286,15 @@ export async function workerStart(
         deps.now()
       )
       addResiduals(receipt, verdict.residuals)
-      if (verdict.executionState) transitionExecution(ctx, verdict.executionState, verdict.liveness)
+      const released =
+        verdict.status === 'failed' ? releaseDefinitivePreSpawnAdmission(ctx, stage) : false
+      if (verdict.executionState && !released)
+        transitionExecution(ctx, verdict.executionState, verdict.liveness)
       receipt.failedStage = stage
-      receipt.nextAllowedActions = verdict.next
+      receipt.nextAllowedActions =
+        receipt.residuals.length > 0 && !verdict.next.includes('worker.release')
+          ? [...verdict.next, 'worker.release']
+          : verdict.next
       saveReceipt(db, deps, receipt)
       return result(receipt)
     }
@@ -297,6 +323,79 @@ export async function workerStart(
       : ['execution.join', 'coordination-mandate', 'worker.inspect', 'worker.stop:authorized']
   saveReceipt(db, deps, receipt)
   return result(receipt)
+}
+
+/** A definitive failure before a process can exist must not leave the member
+ * permanently bound to a dead `preparing` execution. Fence the dispatch and
+ * generation authority, release the member pointer, and retain claims as
+ * explicit residuals for worker.release. Unknown/ambiguous spawn outcomes do
+ * not enter this path. */
+function releaseDefinitivePreSpawnAdmission(ctx: StageCtx, stage: DrivenStageName): boolean {
+  const { db, deps, shared } = ctx
+  if (!shared.executionId) return false
+  const preSpawn = new Set<DrivenStageName>([
+    'inputs_pinned',
+    'resources_claimed',
+    'components_materialized',
+    'process_attempting'
+  ])
+  if (!preSpawn.has(stage)) return false
+  const execution = getRow<{ state: string; member_id: string; generation: number }>(
+    db,
+    'SELECT state, member_id, generation FROM executions WHERE id=?',
+    shared.executionId
+  )
+  if (!execution || !['preparing', 'starting'].includes(execution.state)) return false
+
+  tx(db, () => {
+    const dispatch = getRow<{ id: string; task_id: string }>(
+      db,
+      "SELECT id, task_id FROM dispatches WHERE execution_id=? AND authority_state='active'",
+      shared.executionId
+    )
+    if (dispatch) {
+      runSql(
+        db,
+        "UPDATE dispatches SET authority_state='revoked', phase='revoked', revision=revision+1 WHERE id=?",
+        dispatch.id
+      )
+      runSql(
+        db,
+        'UPDATE tasks SET current_dispatch_id=NULL WHERE id=? AND current_dispatch_id=?',
+        dispatch.task_id,
+        dispatch.id
+      )
+    }
+    runSql(
+      db,
+      "UPDATE executions SET state='exited', liveness='exited', revision=revision+1 WHERE id=?",
+      shared.executionId
+    )
+    runSql(
+      db,
+      'UPDATE members SET current_execution_id=NULL, revision=revision+1 WHERE id=? AND current_execution_id=?',
+      execution.member_id,
+      shared.executionId
+    )
+    runSql(
+      db,
+      `UPDATE execution_credentials SET revoked_at=?, revision=revision+1
+       WHERE execution_id=? AND generation=? AND revoked_at IS NULL`,
+      deps.now(),
+      shared.executionId,
+      execution.generation
+    )
+    emitEvent(
+      db,
+      deps,
+      shared.executionId!,
+      currentRevision(db, shared.executionId!),
+      'execution.start_failed',
+      { launchPlanId: ctx.plan.id, failedStage: stage },
+      { definitiveNoProcess: true, residualResources: ctx.receipt.residuals }
+    )
+  })
+  return true
 }
 
 function result(r: LaunchReceipt): StartResult {
@@ -328,7 +427,10 @@ interface StageVerdict {
 
 function stageFailure(stage: DrivenStageName, e: unknown): StageVerdict {
   const error = describeError(e)
-  const m = isMahasError(e) ? e : null
+  // F-046: classify through the makeCaller wrapper — a cross-domain
+  // validation refusal (INPUT_NOT_READY/…) is definitive (failed/replan),
+  // never ambiguous (unknown/reconcile).
+  const m = asMahasError(e)
 
   switch (stage) {
     case 'admitted':
@@ -482,7 +584,7 @@ async function stageAdmitted(ctx: StageCtx): Promise<StageOutcome> {
     )!.g
     const generation = maxGen + 1
     const executionId = deps.newId('execution')
-    const principalId = deps.newId('principal')
+    const principalId = `principal-${executionId}`
 
     runSql(
       db,
@@ -602,7 +704,7 @@ function admitDispatch(
   runSql(
     db,
     `INSERT INTO dispatches(id,task_id,task_revision,member_id,execution_id,generation,envelope_digest,phase,authority_state,assignment_delivery_id,revision)
-     VALUES (?,?,?,?,?,?,?,'assigned','active',?,1)`,
+     VALUES (?,?,?,?,?,?,?,'awaiting_join','active',?,1)`,
     dispatchId,
     task.id,
     task.revision,
@@ -636,6 +738,7 @@ function recoverAdmission(ctx: StageCtx): boolean {
   if (!existing) return false
   shared.executionId = existing.id
   shared.generation = existing.generation
+  shared.principalId = `principal-${existing.id}`
   receipt.executionId = existing.id
   receipt.generation = existing.generation
   const dsp = getRow<{ id: string }>(
@@ -735,14 +838,34 @@ async function stageResourcesClaimed(ctx: StageCtx): Promise<StageOutcome> {
       'workspace.prepare caller not wired (handoff:IMP-11/IMP-16 pending)'
     )
   }
+  // F-046: the payload must match the workspace.prepare contract
+  // ({projectId, placementIntent, ownerReservation}) — the old shape
+  // ({reservationId, owner, memberId, runId, …}) was rejected INPUT_NOT_READY
+  // on every shipped worker.start. projectId comes from the run row; the
+  // claim owner is this launch's execution.
+  const runRow = getRow<{ project_id: string }>(
+    db,
+    'SELECT project_id FROM runs WHERE id=?',
+    pins.run.id
+  )
+  if (!runRow?.project_id) {
+    throw mahasError('INPUT_NOT_READY', `run ${pins.run.id} not found for placement`, 'replan')
+  }
+  if (!shared.executionId) {
+    throw mahasError(
+      'INPUT_NOT_READY',
+      'execution identity not issued before resources_claimed',
+      'replan'
+    )
+  }
   const payload = {
-    reservationId: `${plan.id}:checkout`,
+    projectId: runRow.project_id,
     placementIntent: pins.placementIntent,
-    owner: { kind: 'execution', id: shared.executionId },
-    memberId: pins.member.id,
-    runId: pins.run.id,
-    purpose: pins.purpose,
-    mode: 'write'
+    ownerReservation: {
+      ownerKind: 'execution',
+      ownerId: shared.executionId,
+      ...(shared.generation !== undefined ? { generation: shared.generation } : {})
+    }
   }
   tx(db, () => {
     putEffect(db, deps, {
@@ -757,26 +880,35 @@ async function stageResourcesClaimed(ctx: StageCtx): Promise<StageOutcome> {
     saveReceipt(db, deps, receipt)
   })
   try {
+    // WorkspacePrepareResult = {workspace, checkout, claim, effect} — map the
+    // nested shape onto the coordinator's flat claim view (F-046: the old
+    // code read top-level checkoutPath off the nested result and always
+    // threw CONTROL_UNAVAILABLE even on success).
     const out = (await deps.call(txn.ctx, 'workspace.prepare', payload)) as {
-      checkoutId?: string
-      checkoutPath?: string
-      workspaceId?: string
-      claims?: unknown[]
+      workspace?: { id?: string }
+      checkout?: { id?: string; canonicalPath?: string }
+      claim?: unknown
     }
-    if (!out || typeof out.checkoutPath !== 'string') {
+    const mapped = {
+      checkoutId: out?.checkout?.id,
+      checkoutPath: out?.checkout?.canonicalPath,
+      workspaceId: out?.workspace?.id,
+      claims: out?.claim ? [out.claim] : []
+    }
+    if (typeof mapped.checkoutPath !== 'string' || !mapped.checkoutId || !mapped.workspaceId) {
       throw mahasError(
         'CONTROL_UNAVAILABLE',
         'workspace.prepare returned no canonical checkout path'
       )
     }
     tx(db, () => {
-      setEffectState(db, eid, 'confirmed', out, out.claims ?? [])
-      hydrateClaim(out, shared)
+      setEffectState(db, eid, 'confirmed', mapped, mapped.claims)
+      hydrateClaim(mapped, shared)
     })
-    return { receipt: out, residuals: claimResiduals(shared) }
+    return { receipt: mapped, residuals: claimResiduals(shared) }
   } catch (e) {
     tx(db, () => {
-      setEffectState(db, eid, isMahasError(e) ? 'rejected' : 'unknown', { error: describeError(e) })
+      setEffectState(db, eid, asMahasError(e) ? 'rejected' : 'unknown', { error: describeError(e) })
     })
     throw e
   }
@@ -831,27 +963,19 @@ async function stageComponentsMaterialized(ctx: StageCtx): Promise<StageOutcome>
   if (!shared.checkoutPath)
     throw mahasError('INPUT_NOT_READY', 'no claimed checkout path', 'same-operation')
 
+  const envelope = loadMaterializationEnvelope(db, pins.envelope.digest)
+
   const wantBytes = textSources(spec)
-  const secret = newCredentialSecret()
-  shared.secret = secret
-  const secretFiles = [
-    {
-      path: 'connection/worker',
-      bytes: buildConnectionFile({
-        ...(deps.endpoint ? { endpoint: deps.endpoint } : {}),
-        executionId: shared.executionId!,
-        generation: shared.generation!,
-        token: secret
-      })
-    }
-  ]
   const payload = {
     executionId: shared.executionId,
     bundleDigest: pins.bundle.digest,
     checkoutPath: shared.checkoutPath,
     workspaceId: shared.workspaceId,
-    wantBytes,
-    secretFiles: secretFiles.map((f) => f.path) // effect payload lists paths, never bytes
+    memberId: pins.member.id,
+    launchPlanId: plan.id,
+    operationKey: eid,
+    envelope,
+    wantBytes
   }
   tx(db, () => {
     putEffect(db, deps, {
@@ -875,8 +999,11 @@ async function stageComponentsMaterialized(ctx: StageCtx): Promise<StageOutcome>
       bundleDigest: pins.bundle.digest,
       checkoutPath: shared.checkoutPath!,
       ...(shared.workspaceId ? { workspaceId: shared.workspaceId } : {}),
-      wantBytes,
-      secretFiles
+      memberId: pins.member.id,
+      launchPlanId: plan.id,
+      operationKey: eid,
+      envelope,
+      wantBytes
     })
     shared.executionRoot = out.executionRoot
     shared.manifestDigest = out.manifestDigest
@@ -887,27 +1014,97 @@ async function stageComponentsMaterialized(ctx: StageCtx): Promise<StageOutcome>
       files: out.files.map((f) => ({ path: f.path, digest: f.digest, byteLength: f.byteLength })),
       receipts: out.receipts
     }
-    tx(db, () => {
-      setEffectState(db, eid, 'confirmed', publicReceipt, out.residuals ?? [])
-      // bootstrap credential — secret HASH only; raw secret stays in the
-      // connection file bytes and in memory, never in this DB
+    const principalId = shared.principalId ?? `principal-${shared.executionId}`
+    shared.principalId = principalId
+    const at = deps.now()
+    const issued = tx(db, () => {
       runSql(
         db,
-        `INSERT INTO execution_credentials(id,secret_hash,principal_id,execution_id,generation,mode,revoked_at,revision)
-         VALUES (?,?,?,?,?,'bootstrap',NULL,1)`,
-        deps.newId('credential'),
-        deps.digest(secret),
-        shared.principalId,
+        `UPDATE execution_credentials SET revoked_at=?, revision=revision+1
+         WHERE execution_id=? AND generation=? AND revoked_at IS NULL`,
+        at,
         shared.executionId,
         shared.generation
       )
+      return issueBootstrapCredential(db, {
+        executionId: shared.executionId!,
+        generation: shared.generation!,
+        principalId,
+        at
+      })
+    })
+    writeWorkerConnection(out.executionRoot, {
+      endpoint: workerEndpointFrom(deps),
+      credentialId: issued.credentialId,
+      secret: issued.secret,
+      executionId: issued.executionId,
+      generation: issued.generation,
+      issuedAt: at
+    })
+    tx(db, () => {
+      setEffectState(db, eid, 'confirmed', publicReceipt, out.residuals ?? [])
     })
     return { receipt: publicReceipt, residuals: out.residuals }
   } catch (e) {
     tx(db, () => {
-      setEffectState(db, eid, isMahasError(e) ? 'rejected' : 'unknown', { error: describeError(e) })
+      setEffectState(db, eid, asMahasError(e) ? 'rejected' : 'unknown', { error: describeError(e) })
     })
     throw e
+  }
+}
+
+/** Resolve the pinned WorkEnvelope into the actual bytes materialized as
+ * task/initial.txt. The envelope row only stores content-addressed body
+ * bytes, so launch must join the blob instead of forwarding a digest/path. */
+function loadMaterializationEnvelope(
+  db: DatabaseSync,
+  envelopeDigest: string
+): { digest: string; initialText: string; envelopeJson: unknown } {
+  const row = getRow<{
+    digest: string
+    kind: string
+    assignment_id: string
+    assignment_revision: number
+    bindings_json: string
+    body: Uint8Array
+  }>(
+    db,
+    `SELECT e.digest, e.kind, e.assignment_id, e.assignment_revision,
+            e.bindings_json, b.body
+       FROM work_envelopes e
+       JOIN content_blobs b ON b.digest = e.body_digest
+      WHERE e.digest = ?`,
+    envelopeDigest
+  )
+  if (!row) {
+    throw mahasError(
+      'INPUT_NOT_READY',
+      `work envelope ${envelopeDigest} body is not resolvable`,
+      'replan'
+    )
+  }
+  let body: unknown
+  let bindings: unknown
+  try {
+    body = JSON.parse(new TextDecoder().decode(row.body))
+    bindings = JSON.parse(row.bindings_json)
+  } catch {
+    throw mahasError('MODEL_INVALID', `work envelope ${envelopeDigest} is malformed`, 'replan')
+  }
+  const envelopeJson = {
+    digest: row.digest,
+    kind: row.kind,
+    assignmentId: row.assignment_id,
+    assignmentRevision: row.assignment_revision,
+    body,
+    bindings
+  }
+  return {
+    digest: row.digest,
+    // The complete pinned payload is supplied, not merely requirementText:
+    // inputs, peers and report/settlement terms live in bindings.
+    initialText: JSON.stringify(envelopeJson, null, 2),
+    envelopeJson
   }
 }
 
@@ -934,6 +1131,10 @@ async function refillBytes(ctx: StageCtx): Promise<void> {
     executionId: shared.executionId!,
     bundleDigest: pins.bundle.digest,
     checkoutPath: shared.checkoutPath!,
+    memberId: pins.member.id,
+    launchPlanId: ctx.plan.id,
+    operationKey: effectId(ctx.plan.id, 'materialize'),
+    envelope: loadMaterializationEnvelope(ctx.db, pins.envelope.digest),
     wantBytes: textSources(ctx.spec)
   })
   for (const f of out.files) shared.files.set(f.path, f)
@@ -978,14 +1179,32 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
     )
   }
 
+  // F-053: an execution that already left the start window (start_unknown
+  // after a previous ambiguous attempt, awaiting_join after a confirmed-but-
+  // unrecorded spawn, …) must never be transitioned back to 'starting' and
+  // never be respawned. Normalize the retry to START_UNKNOWN (reconcile)
+  // instead of letting transitionExecution throw INVALID_TRANSITION — a
+  // wedged-looking code that hides the ambiguity classification.
+  const execRow = getRow<{ state: string }>(
+    db,
+    'SELECT state FROM executions WHERE id=?',
+    shared.executionId ?? ''
+  )
+  if (execRow && execRow.state !== 'preparing' && execRow.state !== 'starting') {
+    throw mahasError(
+      'START_UNKNOWN',
+      `execution ${shared.executionId} is '${execRow.state}' — prior spawn outcome is ambiguous, reconcile via host.effect.get/host.process.probe, do not respawn`,
+      'reconcile'
+    )
+  }
+
   transitionExecution(ctx, 'starting')
 
   const launchEnv: Record<string, string> = {
     MAHAS_EXECUTION_ID: shared.executionId!,
     MAHAS_MEMBER_ID: pins.member.id,
     MAHAS_GENERATION: String(shared.generation!),
-    MAHAS_CONNECTION_FILE: joinRoot(shared.executionRoot, 'connection/worker'),
-    ...(deps.endpoint ? { MAHAS_ENDPOINT: deps.endpoint } : {})
+    MAHAS_CONNECTION_FILE: joinRoot(shared.executionRoot, 'connection/worker')
   }
   const resolveCtx = {
     executionRoot: shared.executionRoot,
@@ -1002,21 +1221,13 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
     generation: shared.generation,
     spec: built.spec
   }
-  if (built.stdinBytes) {
-    // stdin route — bytes ride the spawn payload because the host cannot
-    // read control-plane content_blobs (payload extension reconciles with
-    // handoff:IMP-18; documented in the IMP-19 handoff)
-    spawnPayload.initialStdin = {
-      digest: stdinDigest(built.stdinBytes),
-      mediaType: 'text/plain',
-      sizeBytes: built.stdinBytes.byteLength,
-      bytesB64: Buffer.from(built.stdinBytes).toString('base64')
-    }
-  }
   shared.spawnNonce = spawnNonce
   shared.attachEvidence = built.evidence
   shared.stdinBytes = built.stdinBytes
 
+  // admission wraps worker.start in one IMMEDIATE tx, so this nested tx
+  // cannot COMMIT the attempting row before the host call. Do not map a
+  // later GRANT_REVOKED onto never-started/rejected — the process may exist.
   tx(db, () => {
     putEffect(db, deps, {
       id: eid,
@@ -1034,17 +1245,19 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
   try {
     const out = (await host.call('host.process.spawn', spawnPayload)) as {
       state?: string
+      spawn?: { state?: string; error?: { code?: string; message?: string } }
       processIdentity?: unknown
       processIncarnation?: unknown
       terminalId?: string
       error?: { code?: string; message?: string }
     }
     const identity = out?.processIdentity ?? out?.processIncarnation
-    if (out && out.state === 'rejected') {
+    const spawnState = out?.spawn?.state ?? out?.state
+    if (out && spawnState === 'rejected') {
       tx(db, () => setEffectState(db, eid, 'rejected', out))
       throw mahasError(
         'MANDATORY_COMPONENT_MISSING',
-        `host rejected spawn: ${out.error?.message ?? 'no detail'}`,
+        `host rejected spawn: ${out.spawn?.error?.message ?? out.error?.message ?? 'no detail'}`,
         'replan'
       )
     }
@@ -1071,19 +1284,15 @@ async function stageProcessAttempting(ctx: StageCtx): Promise<StageOutcome> {
       receipt: { processIdentity: identity, terminalId: out.terminalId, spawnNonce }
     }
   } catch (e) {
-    if (
-      isMahasError(e) &&
-      (e.code === 'START_UNKNOWN' || e.code === 'MANDATORY_COMPONENT_MISSING')
-    ) {
+    // F-046: same wrapper-aware classification as stageFailure.
+    const m = asMahasError(e)
+    if (m && (m.code === 'START_UNKNOWN' || m.code === 'MANDATORY_COMPONENT_MISSING')) {
       throw e // already recorded above with the right verdict
     }
     tx(db, () => {
-      setEffectState(
-        db,
-        eid,
-        isMahasError(e) && SPAWN_NEVER_ADMITTED.has(e.code) ? 'rejected' : 'unknown',
-        { error: describeError(e) }
-      )
+      setEffectState(db, eid, m && SPAWN_NEVER_ADMITTED.has(m.code) ? 'rejected' : 'unknown', {
+        error: describeError(e)
+      })
     })
     throw e
   }
@@ -1274,7 +1483,10 @@ function hydrateShared(ctx: StageCtx): void {
         }
         shared.executionId = r?.executionId ?? shared.executionId
         shared.generation = r?.generation ?? shared.generation
-        shared.principalId = r?.principalId ?? shared.principalId
+        shared.principalId =
+          r?.principalId ??
+          shared.principalId ??
+          (shared.executionId ? `principal-${shared.executionId}` : undefined)
         if (r?.dispatchId) shared.dispatchId = r.dispatchId
         if (r?.deliveryId) shared.deliveryId = r.deliveryId
         break
@@ -1370,7 +1582,10 @@ export async function workerInspect(
     try {
       const host = await deps.host(exec.host_id)
       const processIdentity = JSON.parse(exec.process_identity_json) as unknown
-      probeEvidence = await host.call('host.process.probe', { processIncarnation: processIdentity })
+      probeEvidence = await host.call('host.process.probe', {
+        processIncarnation: processIdentity,
+        expectedProcessIncarnation: processIdentity
+      })
       const pl = (probeEvidence as { liveness?: string })?.liveness
       if (pl === 'live' || pl === 'exited' || pl === 'unverifiable') liveness = pl
     } catch (e) {

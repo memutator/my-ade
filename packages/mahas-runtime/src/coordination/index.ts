@@ -10,12 +10,13 @@
 // root adapts discovery's verified claims into these pins. The token states
 // what was SHOWN; it is never the authorization basis (C-DISCOVERY §14).
 
-import type { OperationRegistry, OperationHandler } from '../api/registry.ts'
-import { mahasError } from '../api/handler-ports.ts'
+import type { OperationHandler, OperationRegistry, TargetRef, TxnContext } from '../api/registry.ts'
 import { runCreate, runGet, runClose } from './run.ts'
 import { planPrepare, planCommit } from './plan.ts'
-import { assignmentPreview, teamAssign, teamRetire, taskDispatch } from './member.ts'
+import { assignmentPreview, assignmentShow, teamAssign, teamRetire, taskDispatch } from './member.ts'
 import { registerDispatchOps } from './dispatch-ops.ts'
+import { asObject, optStr, one } from './internal.ts'
+import { registerSettlementOps } from './settlement-ops.ts'
 
 /* ── selection token port (implemented by the composition root) ───────── */
 
@@ -30,6 +31,8 @@ export interface SelectionTokenPins {
   /** the implementation chosen by the caller (payload may carry it when the
    *  token only pinned the role candidate set) */
   implementationId?: string
+  implementationRevision?: number
+  implementationDigest?: string
   interfaceDigest?: string
   /** digest of the exact implementation candidate shown, when pinned */
   implementationCandidateDigest?: string
@@ -48,6 +51,53 @@ export interface CoordinationDeps {
   now?: () => number
 }
 
+function payloadTargets(txn: TxnContext, payload: unknown): TargetRef[] {
+  const p = asObject(payload ?? {}, 'resolveTargets')
+  const out: TargetRef[] = []
+  const runId = optStr(p, 'runId', 'resolveTargets')
+  const taskId = optStr(p, 'taskId', 'resolveTargets')
+  const memberId = optStr(p, 'memberId', 'resolveTargets')
+  if (runId) out.push({ kind: 'run', id: runId })
+  if (taskId) out.push({ kind: 'task', id: taskId })
+  if (memberId) out.push({ kind: 'member', id: memberId })
+  const candidatePlanId = optStr(p, 'candidatePlanId', 'resolveTargets')
+  if (candidatePlanId) {
+    const row = one(txn.db, 'SELECT run_id FROM plan_candidates WHERE id=?', candidatePlanId)
+    if (row) out.push({ kind: 'run', id: row.run_id as string })
+  }
+  return out
+}
+
+function resolveWorkRevisions(
+  txn: TxnContext,
+  entityIds: readonly string[],
+  axis: 'plan' | 'run'
+): Record<string, number | undefined> {
+  const out: Record<string, number | undefined> = {}
+  for (const id of entityIds) {
+    const run = one(
+      txn.db,
+      'SELECT id, revision, current_plan_revision FROM runs WHERE id=?',
+      id
+    )
+    if (run) {
+      out[id] =
+        axis === 'plan'
+          ? ((run.current_plan_revision as number | null) ?? 0)
+          : (run.revision as number)
+      continue
+    }
+    const member = one(txn.db, 'SELECT revision FROM members WHERE id=?', id)
+    if (member) {
+      out[id] = member.revision as number
+      continue
+    }
+    const task = one(txn.db, 'SELECT current_revision FROM tasks WHERE id=?', id)
+    if (task) out[id] = task.current_revision as number
+  }
+  return out
+}
+
 /**
  * Register run.*, plan.*, team.*, assignment.show and task.dispatch.
  * Visibility follows spec/operations.md: run.create is operator-scope, the
@@ -57,36 +107,61 @@ export function registerCoordinationOps(
   registry: OperationRegistry,
   deps: CoordinationDeps = {}
 ): void {
-  const memberOp = (name: string, mutation: boolean, handler: OperationHandler): void =>
-    registry.register({ name, visibility: 'member', mutation }, handler)
+  const memberOp = (
+    name: string,
+    mutation: boolean,
+    handler: OperationHandler,
+    axis: 'plan' | 'run' = 'run'
+  ): void =>
+    registry.register(
+      {
+        name,
+        visibility: 'member',
+        mutation,
+        resolveTargets: payloadTargets,
+        resolveRevisions: (txn, ids) => resolveWorkRevisions(txn, ids, axis)
+      },
+      handler
+    )
   const operatorOp = (name: string, mutation: boolean, handler: OperationHandler): void =>
-    registry.register({ name, visibility: 'operator', mutation }, handler)
+    registry.register(
+      {
+        name,
+        visibility: 'operator',
+        mutation,
+        resolveTargets: payloadTargets,
+        resolveRevisions: (txn, ids) => resolveWorkRevisions(txn, ids, 'run')
+      },
+      handler
+    )
 
   operatorOp('run.create', true, runCreate)
-  memberOp('run.get', false, runGet)
-  memberOp('run.close', true, runClose)
-  memberOp('plan.prepare', false, planPrepare)
-  memberOp('plan.commit', true, planCommit)
-  memberOp('team.assign', true, (txn, payload) =>
-    teamAssign(txn, payload, { verifySelectionToken: deps.verifySelectionToken })
+  memberOp('run.get', false, runGet, 'run')
+  memberOp('run.close', true, runClose, 'plan')
+  memberOp('plan.prepare', true, planPrepare, 'plan')
+  memberOp('plan.commit', true, planCommit, 'plan')
+  memberOp(
+    'team.assign',
+    true,
+    (txn, payload) => teamAssign(txn, payload, { verifySelectionToken: deps.verifySelectionToken }),
+    'plan'
   )
-  memberOp('team.retire', true, teamRetire)
-  memberOp('assignment.preview', false, (txn, payload) =>
-    assignmentPreview(txn, payload, { verifySelectionToken: deps.verifySelectionToken }))
-  memberOp('assignment.show', false, () => {
-    // assignment.show is bootstrap/self-scoped; the concrete projection lives
-    // with the launch boundary (IMP-20). Until wired, refuse honestly.
-    throw mahasError(
-      'UNAVAILABLE_OPERATION',
-      'assignment.show is not implemented in this composition',
-      'none'
-    )
-  })
-  memberOp('task.dispatch', true, taskDispatch)
+  memberOp('team.retire', true, teamRetire, 'run')
+  memberOp(
+    'assignment.preview',
+    false,
+    (txn, payload) =>
+      assignmentPreview(txn, payload, { verifySelectionToken: deps.verifySelectionToken }),
+    'plan'
+  )
+  memberOp('assignment.show', false, assignmentShow, 'run')
+  memberOp('task.dispatch', true, taskDispatch, 'plan')
+  registerSettlementOps(registry)
 }
 
 // dispatch-authority half of the coordination boundary (IMP-14)
 export { registerDispatchOps }
+export { registerSettlementOps } from './settlement-ops.ts'
 
 /* ── public surface ──────────────────────────────────────────────────── */
 
@@ -115,6 +190,7 @@ export {
   teamAssign,
   teamRetire,
   taskDispatch,
+  assignmentShow,
   decodeAndCheckToken,
   recheckImplementation,
   checkProvisioning,
@@ -175,6 +251,15 @@ export {
 export type { ReserveDispatchInput, AttemptCheck } from './dispatch-authority.ts'
 
 export { ACCEPTING_DECISIONS } from './input-resolver.ts'
+export {
+  insertOutcomeRevision,
+  loadOutcome,
+  policyOf,
+  isOwnerDeclaration,
+  isDesignatedAcceptance
+} from './outcome.ts'
+export { insertSettlement, normalizeDecision, loadSettlement } from './settlement.ts'
+export { recordAcceptedHandoff } from './handoff.ts'
 export type { BindingSpec, PinnedInput, UnresolvedInput } from './input-resolver.ts'
 
 export {

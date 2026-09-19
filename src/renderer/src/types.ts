@@ -7,7 +7,7 @@ export type BlockKind = 'term' | 'web' | 'file' | 'widget'
  *  list into a tab, 'usage' is a per-harness rate-limit dashboard; the
  *  workbench widgets (IMP-31/32) are the 팀장's responsibility/team/plan
  *  views over the control plane's C-DISCOVERY/C-WORK contracts */
-export type WidgetKind = 'agents' | 'usage' | 'responsibility' | 'team' | 'plan'
+export type WidgetKind = 'agents' | 'usage' | 'responsibility' | 'team' | 'plan' | 'inspector'
 
 /** edge of a target pane a drop/insert lands on */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom'

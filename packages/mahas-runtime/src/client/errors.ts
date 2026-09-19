@@ -1,9 +1,12 @@
 // mahas-runtime — C-CLIENT refusal vocabulary.
 //
 // Every domain refusal maps to a canonical ErrorCode from mahas-contracts
-// (spec/common.md). Malformed payloads throw plain TypeError instead: a
-// contract violation by the caller, not a domain state the client can
-// reconcile against.
+// (spec/common.md). Malformed payloads throw plain TypeError: a contract
+// violation by the caller, not a domain state the client can reconcile
+// against. The admission pipeline (api/admission.ts, F-028) translates a
+// handler-escaping TypeError into a rejected MODEL_INVALID receipt, so a
+// client bug never surfaces as an 'unknown' CONTROL_UNAVAILABLE that would
+// force a reconcile.
 
 import type { ErrorCode, ErrorRetry, MahasError } from '../../../mahas-contracts/src/index.ts'
 

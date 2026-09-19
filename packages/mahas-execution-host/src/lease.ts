@@ -265,12 +265,39 @@ export function acquireControllerLease(
     // that pid, so the claimant IS the recorded owner.
     const sameOwner = stored.proof.controllerIdentity.pid === claimant.pid && holderAlive
 
+    // F-017: a fresh control DB restarts its epoch counter at 1, so a
+    // regenerated/recovered controller legitimately arrives with
+    // epoch < stored.epoch. The permanent STALE_EXECUTION below used to brick
+    // that scenario. Same dead-evidence bar as the epoch> takeover path: a
+    // verifiably dead recorded owner may be reclaimed (the grant resets the
+    // stored epoch to the claimant's), a live owner still refuses, and an
+    // unverifiable owner stays honest instead of resolving toward takeover.
     if (epoch < stored.epoch) {
+      if (sameOwner) {
+        return grant(stored.revision + 1, { kind: 'self-epoch-advance' }, stored.proof.handoffToken)
+      }
+      const verdict = probeProcessIdentity(stored.proof.controllerIdentity)
+      if (verdict === 'dead') {
+        return grant(stored.revision + 1, {
+          kind: 'dead-evidence',
+          probedAt: now,
+          note:
+            input.takeoverProof?.note ??
+            `stale-epoch reclaim of epoch ${stored.epoch} by epoch ${epoch}`
+        })
+      }
+      if (verdict === 'alive') {
+        throw new HostOpError(
+          'STALE_EXECUTION',
+          `controllerEpoch ${epoch} is behind current lease epoch ${stored.epoch} held by a live controller (pid ${stored.proof.controllerIdentity.pid})`,
+          'reconcile',
+          { currentEpoch: stored.epoch, holderPid: stored.proof.controllerIdentity.pid }
+        )
+      }
       throw new HostOpError(
-        'STALE_EXECUTION',
-        `controllerEpoch ${epoch} is behind current lease epoch ${stored.epoch}`,
-        'reconcile',
-        { currentEpoch: stored.epoch }
+        'PROCESS_UNVERIFIABLE',
+        `cannot verify that recorded controller pid ${stored.proof.controllerIdentity.pid} (lease epoch ${stored.epoch}) is dead — lease stays`,
+        'reconcile'
       )
     }
     if (input.priorLeaseRevision !== undefined && input.priorLeaseRevision !== stored.revision) {
@@ -352,7 +379,8 @@ export function acquireControllerLease(
 export function requireLeaseProof(
   db: DatabaseSync,
   controllerEpoch: number | undefined,
-  leaseProof: string | undefined
+  leaseProof: string | undefined,
+  now: number = Date.now()
 ): StoredLease {
   const lease = readLease(db)
   if (!lease) {
@@ -372,6 +400,21 @@ export function requireLeaseProof(
   }
   if (!leaseProof || leaseProof !== lease.proof.fenceToken) {
     throw new HostOpError('SCOPE_DENIED', 'leaseProof does not match the held lease', 'none')
+  }
+  // F-035: TTL expiry is enforced on the mutation path — an expired lease
+  // authorizes nothing, even with the right epoch + fence token. A live
+  // controller renews by re-acquiring (same epoch + same owner extends
+  // expires_at); a dead controller's leftover fence therefore stops working
+  // instead of authorizing spawns indefinitely. Expiry alone still never
+  // justifies TAKEOVER (acquireControllerLease still demands dead-evidence
+  // or handoff) — these are two different questions.
+  if (lease.expiresAt <= now) {
+    throw new HostOpError(
+      'SCOPE_DENIED',
+      `controller lease epoch ${lease.epoch} expired — re-acquire to renew`,
+      'reconcile',
+      { leaseEpoch: lease.epoch, expiredAt: lease.expiresAt }
+    )
   }
   return lease
 }

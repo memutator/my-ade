@@ -418,7 +418,7 @@ async function main(): Promise<void> {
   check('makeCaller throws OperationCallError', threw)
 
   // ── 13. OPERATION_NAMES covers the spec table ──
-  check('92 operations indexed', OPERATION_NAMES.length === 92, OPERATION_NAMES.length)
+  check('93 operations indexed', OPERATION_NAMES.length === 93, OPERATION_NAMES.length)
   check('surface.describe indexed', OPERATION_NAMES.includes('surface.describe'))
 
   console.log(`\n${passed} passed, ${failed} failed`)

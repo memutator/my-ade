@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "mahas-contracts": "*"
+    "mahas-contracts": "*",
+    "mahas-harness-config": "*"
   }
 }

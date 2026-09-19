@@ -139,7 +139,11 @@ export async function terminalAttach(
   const p = asRecord(payload)
   const terminalId = reqString(p.terminalId, 'terminalId')
   const viewId = reqString(p.viewId, 'viewId')
-  const outputEpoch = optNumber(p.outputEpoch, 'outputEpoch')
+  // F-039: host epochs are opaque strings — accept the native string form
+  // (numbers coerce losslessly for cursor-mismatch purposes; anything else
+  // is a payload defect → TypeError → MODEL_INVALID via admission, never an
+  // 'unknown' control-plane failure).
+  const outputEpoch = optEpochStr(p.outputEpoch, 'outputEpoch')
   const lastSequence = optNumber(p.lastSequence, 'lastSequence')
   const expectedInputLeaseRevision = optNumber(
     p.expectedInputLeaseRevision,
@@ -234,14 +238,16 @@ export async function terminalAttach(
     )
   }
 
-  const gap = extractGap(hostRes!)
+  const gap = extractGap(hostRes!, lastSequence)
+  const replay = normalizeReplay(hostRes!.replay)
   return {
     attached: true,
     terminalId,
     subscriptionId: subscriptionId!,
-    outputEpoch: asOptNum(hostRes!.outputEpoch),
-    replayFromSequence: asOptNum(hostRes!.replayFromSequence ?? hostRes!.replayFrom) ?? null,
+    outputEpoch: asStr(hostRes!.outputEpoch),
+    replayFromSequence: replay.length > 0 ? replay[0]!.sequence : (gap ? gap.availableFromSequence : null),
     gap,
+    ...(replay.length > 0 ? { replay } : {}),
     snapshot: hostRes!.snapshot ?? hostRes!.screen,
     inputLease: lease,
     bindingRevision: binding.revision ?? 1
@@ -262,11 +268,21 @@ function extractSubscriptionId(res: Record<string, unknown>): string | null {
 }
 
 function extractGap(
-  res: Record<string, unknown>
+  res: Record<string, unknown>,
+  requestedLastSequence?: number
 ): { expectedSequence: number; availableFromSequence: number } | null {
   const gap = res.gap
   if (typeof gap === 'object' && gap !== null) {
     const g = gap as Record<string, unknown>
+    // F-038: the host emits {droppedThrough} + a replay array — translate to
+    // the client contract instead of dropping both. availableFrom is the
+    // first replayed sequence when the host sent one, else droppedThrough+1.
+    const dropped = asOptNum(g.droppedThrough)
+    if (dropped !== undefined) {
+      const replay = normalizeReplay(res.replay)
+      const available = replay.length > 0 ? replay[0]!.sequence : dropped + 1
+      return { expectedSequence: requestedLastSequence ?? dropped, availableFromSequence: available }
+    }
     const expected = asOptNum(g.expectedSequence ?? g.expected)
     const available = asOptNum(g.availableFromSequence ?? g.availableFrom)
     if (expected !== undefined && available !== undefined) {
@@ -274,6 +290,33 @@ function extractGap(
     }
   }
   return null
+}
+
+/** F-038: validate host replay chunks — malformed entries are dropped, never
+ *  fatal (host shape drift must not break attach). */
+function normalizeReplay(v: unknown): Array<{ sequence: number; dataB64: string }> {
+  if (!Array.isArray(v)) return []
+  const out: Array<{ sequence: number; dataB64: string }> = []
+  for (const c of v) {
+    if (c === null || typeof c !== 'object') continue
+    const r = c as Record<string, unknown>
+    if (typeof r.sequence !== 'number' || !Number.isFinite(r.sequence)) continue
+    if (typeof r.d !== 'string') continue
+    out.push({ sequence: r.sequence, dataB64: r.d })
+  }
+  return out
+}
+
+/** F-039: host-epoch input — native string form, numbers coerce. */
+function optEpochStr(v: unknown, field: string): string | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v === 'string' && v.length > 0) return v
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v)
+  throw new TypeError(`${field} must be a non-empty string`)
+}
+
+function asStr(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
 function asOptNum(v: unknown): number | undefined {
@@ -368,7 +411,7 @@ export async function terminalSnapshot(
   const d = resolveDeps(deps)
   const p = asRecord(payload)
   const terminalId = reqString(p.terminalId, 'terminalId')
-  const expectedEpoch = optNumber(p.expectedEpoch ?? p.expectedOutputEpoch, 'expectedEpoch')
+  const expectedEpoch = optEpochStr(p.expectedEpoch ?? p.expectedOutputEpoch, 'expectedEpoch')
 
   const ctx = txn.ctx
   d.authorize(ctx, 'terminal.snapshot', [target('terminal', terminalId)])
@@ -387,7 +430,7 @@ export async function terminalSnapshot(
 
   return {
     terminalId,
-    outputEpoch: asOptNum(res!.outputEpoch),
+    outputEpoch: asStr(res!.outputEpoch),
     lastSequence: asOptNum(res!.lastSequence),
     screen: res!.screen ?? res!.snapshot,
     truncated: res!.truncated === true,

@@ -74,6 +74,13 @@ export interface TxnContext {
   emitEvent(event: DomainEventInput): void
   /** returns the minted effect id (`<operationId>:effect:<n>`) */
   intendEffect(intent: EffectIntentInput): string
+  /**
+   * F-019: a handler that just revoked a grant ITSELF (spec access.md §4
+   * self-revocation) declares it here, so the pre-commit grant re-check does
+   * not fence the operation on its own effect — without this every
+   * self-revocation rolls back. Query facades ignore it.
+   */
+  exemptGrantRecheck?(grantId: string): void
 }
 
 export type OperationHandler = (txn: TxnContext, payload: unknown) => unknown | Promise<unknown>
@@ -82,6 +89,11 @@ export interface OperationSpec {
   name: string
   visibility: OperationVisibility
   mutation: boolean
+  /**
+   * Bounded poll / wait: admission must not hold BEGIN…COMMIT around the
+   * handler (inbox.wait). The handler runs autocommit.
+   */
+  longPoll?: boolean
   /** one-line description used in surface/help projections */
   summary?: string
   /** JSON-schema-ish descriptor echoed through surface.describe / CLI schema */
@@ -131,6 +143,14 @@ export interface AccessBoundary {
  *  BEGIN IMMEDIATE…COMMIT/ROLLBACK semantics (see runInTransaction). */
 export interface StorageBoundary {
   sha256Hex(data: string | Uint8Array): string
+  /**
+   * Mark/clear the shared per-connection transaction depth for a transaction
+   * the pipeline opened itself (admission's async runner issues a raw BEGIN).
+   * Without these, a handler's nested withTx() sees depth 0 and issues a
+   * second BEGIN on the same connection → ERR_SQLITE_ERROR (F-005).
+   */
+  markTxOpen?(db: DatabaseSync): void
+  markTxClose?(db: DatabaseSync): void
   insertReceipt(db: DatabaseSync, receipt: CommandReceipt, principalScope: string): void
   findReceipt(
     db: DatabaseSync,

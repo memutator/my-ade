@@ -252,6 +252,59 @@ function expandOne(db: DatabaseSync, target: TargetRef, relations: string[]): Ta
       return e.member_id != null ? [{ kind: 'member', id: String(e.member_id) }] : []
     }
 
+    case 'assignment': {
+      // An assignment is owned by its member and therefore by that member's
+      // run. worker.prepare protects the assignment itself; without these
+      // ancestors a normal run/member-scoped grant can never cover the call.
+      const assignment = rows(
+        db,
+        `SELECT a.member_id AS member_id, m.run_id AS run_id
+         FROM assignments a
+         JOIN members m ON m.id = a.member_id
+         WHERE a.id = ?`,
+        target.id
+      )[0]
+      if (!assignment) return []
+      const out: TargetRef[] = []
+      if (assignment.member_id != null) {
+        out.push({ kind: 'member', id: String(assignment.member_id) })
+        note(`assignments -> member:${String(assignment.member_id)}`)
+      }
+      if (assignment.run_id != null) {
+        out.push({ kind: 'run', id: String(assignment.run_id) })
+        note(`assignments -> run:${String(assignment.run_id)}`)
+      }
+      return out
+    }
+
+    case 'launchPlan': {
+      // F-055: a launch plan belongs to a member's assignment in a run
+      // (launch_plans → assignments → members). Without this ancestry the
+      // join target set {execution, member, launchPlan} is structurally
+      // uncoverable by any run/member-scoped grant — only '*' passes —
+      // so execution.join can never commit under realistic authority.
+      const lp = rows(
+        db,
+        `SELECT a.member_id AS member_id, m.run_id AS run_id
+         FROM launch_plans lp
+         JOIN assignments a ON a.id = lp.assignment_id AND a.revision = lp.assignment_revision
+         JOIN members m ON m.id = a.member_id
+         WHERE lp.id = ?`,
+        target.id
+      )[0]
+      if (!lp) return []
+      const out: TargetRef[] = []
+      if (lp.member_id != null) {
+        out.push({ kind: 'member', id: String(lp.member_id) })
+        note(`launch_plans -> member:${String(lp.member_id)}`)
+      }
+      if (lp.run_id != null) {
+        out.push({ kind: 'run', id: String(lp.run_id) })
+        note(`launch_plans -> run:${String(lp.run_id)}`)
+      }
+      return out
+    }
+
     case 'dispatch': {
       const d = rows(
         db,

@@ -46,6 +46,8 @@ import { revokeGrantTree } from './revocation.ts'
 export interface AccessOperationContext {
   db: DatabaseSync
   ctx: AuthenticatedContext
+  /** present on the real admission pipeline; absent on direct call paths */
+  exemptGrantRecheck?(grantId: string): void
 }
 
 export const ACCESS_OPERATION_NAMES = [
@@ -338,6 +340,9 @@ export function accessRevokeOp(txn: AccessOperationContext, payload: unknown): R
     expectedRevision: expectedRevision ?? undefined,
     reason
   })
+  // F-019: this operation revoked these grants — the pre-commit re-check must
+  // not fence the transaction on its own effect (spec: subject self-revocation).
+  for (const revokedId of result.revokedGrantIds) txn.exemptGrantRecheck?.(revokedId)
   return {
     revocationRevision: result.revocationRevision,
     affectedExecutions: result.affectedExecutions,

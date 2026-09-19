@@ -3,7 +3,7 @@
 
 **소비 시점:** IMP-03~IMP-05/IMP-27. D-RDD와 S-COMMON의 불변식/receipt 규칙을 적용한다. 모든 모델 관리 mutation은 model-maintainer 또는 operator의 명시 scope를 요구한다. 일반 worker에게 기본 노출하지 않는다.
 
-SQLite snapshot이 유일한 활성 정본이다. 구조 오류와 전문가의 의미 판단을 분리한다. typed edit의 완전한 종류와 필수 payload는 D-RDD §3이며 이 계약에서 임의 JSON patch로 우회하지 않는다.
+SQLite snapshot이 유일한 활성 정본이다. 구조 오류와 전문가의 의미 판단을 분리한다. `edits:TypedModelEdit[]`의 종류·필수 필드·전체치환 vs 델타 별칭은 [D-RDD §3](../domains/rdd.md)이 정본이다. 이 계약에서 임의 JSON patch로 우회하지 않는다. prepare는 별칭을 정본으로 번역한 뒤 저장한다.
 
 
 ## 연산별 계약

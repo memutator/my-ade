@@ -185,6 +185,16 @@ export interface InputBinding {
   contractId?: string
   contractRevision?: Revision
   modelVersion?: string
+  /** aliases used by some clients / PlanPatch dialects */
+  name?: string
+  fromTaskId?: string
+  output?: string
+  identity?: {
+    taskId?: string
+    outputSlot?: string
+    artifactId?: string
+    [key: string]: unknown
+  }
 }
 
 /** outputs_json entry — an output slot the TaskSpec promises */
@@ -194,6 +204,8 @@ export interface OutputSlot {
   /** contract that defines the I/O promise, when one exists */
   contractId?: string
   required?: boolean
+  /** PlanPatch / UI alias for `slot` */
+  name?: string
 }
 
 /** settlement_policy_json — owner-declaration or designated-acceptance */
@@ -201,6 +213,9 @@ export interface SettlementPolicy {
   mode?: 'owner-declaration' | 'designated-acceptance' | (string & {})
   acceptorRoleId?: RoleId
   acceptorMemberId?: MemberId
+  /** aliases */
+  kind?: 'owner-declaration' | 'designated-acceptance' | (string & {})
+  acceptor?: MemberId
   [key: string]: unknown
 }
 

@@ -9,7 +9,7 @@
 // wrapper keeps those handlers OUTSIDE a single enclosing transaction —
 // see deps.ts §tx for the integration note.
 
-import type { OperationRegistry } from '../api/registry.ts'
+import type { OperationRegistry, TargetRef, TxnContext } from '../api/registry.ts'
 import { workerPrepare } from './planner.ts'
 import { workerStart, workerInspect } from './start-coordinator.ts'
 import { resolveDeps, type LaunchDeps, type ResolvedDeps } from './deps.ts'
@@ -20,12 +20,37 @@ export function registerLaunchOps(
 ): ResolvedDeps {
   const d = resolveDeps(deps)
 
+  const launchTargets = (txn: TxnContext, payload: unknown): TargetRef[] => {
+    const p = (payload ?? {}) as { assignmentId?: string; launchPlanId?: string; executionId?: string }
+    const targets: TargetRef[] = []
+    if (typeof p.assignmentId === 'string' && p.assignmentId) {
+      targets.push({ kind: 'assignment', id: p.assignmentId })
+    }
+    if (typeof p.launchPlanId === 'string' && p.launchPlanId) {
+      targets.push({ kind: 'launchPlan', id: p.launchPlanId })
+      const row = txn.db
+        .prepare('SELECT pins_json FROM launch_plans WHERE id=?')
+        .get(p.launchPlanId) as { pins_json?: string } | undefined
+      try {
+        const pins = row?.pins_json ? (JSON.parse(row.pins_json) as { run?: { id?: string }; member?: { id?: string } }) : {}
+        if (pins.run?.id) targets.push({ kind: 'run', id: pins.run.id })
+        if (pins.member?.id) targets.push({ kind: 'member', id: pins.member.id })
+      } catch {
+        /* pins are advisory for auth */
+      }
+    }
+    if (typeof p.executionId === 'string' && p.executionId) {
+      targets.push({ kind: 'execution', id: p.executionId })
+    }
+    return targets
+  }
   registry.register(
     {
       name: 'worker.prepare',
       visibility: 'member',
       mutation: true,
-      summary: 'resolve implementation/bundle/surface/inputs and pin a LaunchPlan (no process yet)'
+      summary: 'resolve implementation/bundle/surface/inputs and pin a LaunchPlan (no process yet)',
+      resolveTargets: launchTargets
     },
     (txn, payload) => workerPrepare(txn, payload, d)
   )
@@ -34,7 +59,9 @@ export function registerLaunchOps(
       name: 'worker.start',
       visibility: 'member',
       mutation: true,
-      summary: 'commit the Dispatch and drive materialize/spawn/attach through stage receipts'
+      longPoll: true,
+      summary: 'commit the Dispatch and drive materialize/spawn/attach through stage receipts',
+      resolveTargets: launchTargets
     },
     (txn, payload) => workerStart(txn, payload, d)
   )

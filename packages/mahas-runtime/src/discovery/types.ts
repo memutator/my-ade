@@ -143,6 +143,8 @@ export interface ImplementationAvailability {
   interfaceDigest: string
   profileId: string
   profileRevision: number
+  /** publication lifecycle — new selection only lists `published` */
+  status: string
   /** harness profile admissionState as stored (draft/documented/verified/disabled) */
   profileState: string
   /** effective support: support_attestations decision else profile state */
@@ -442,6 +444,12 @@ export interface SelectionTokenClaims {
   roleDigest: string
   /** the interface digest an implementation must satisfy (when known) */
   interfaceDigest?: string
+  /** exact implementation shown when the card listed exactly one */
+  implementationId?: string
+  implementationRevision?: number
+  implementationDigest?: string
+  /** digest of the shown implementation, or of the published candidate set */
+  implementationCandidateDigest?: string
   scope?: { scopeBoundaryId?: string; runId?: string }
   issuedAt: number
   keyId?: string

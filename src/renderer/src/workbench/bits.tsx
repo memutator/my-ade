@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react'
 import type { OpErrorKind } from './client.ts'
+import { useWorkbench } from './store.ts'
 import { entryText } from './wire.ts'
 
 /** small status chip — tone is semantic, not decorative */
@@ -123,6 +124,22 @@ export function Field({
         spellCheck={false}
       />
     </label>
+  )
+}
+
+export function ContextBar(): React.JSX.Element {
+  const { projectId, modelVersion, runId, setContext } = useWorkbench()
+  return (
+    <div className="wb-row">
+      <Field label="project" value={projectId} onChange={(v) => setContext({ projectId: v })} mono />
+      <Field
+        label="model"
+        value={modelVersion}
+        onChange={(v) => setContext({ modelVersion: v })}
+        mono
+      />
+      <Field label="run" value={runId} onChange={(v) => setContext({ runId: v })} mono />
+    </div>
   )
 }
 

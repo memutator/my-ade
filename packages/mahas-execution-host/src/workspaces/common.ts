@@ -7,8 +7,10 @@
 // crash window replays the stored receipt instead of inventing a new effect.
 //
 // Lease admission: the host enforces controller_lease itself ("host가 OS
-// mutation admission을 최종 집행") — a mutation with no/expired/stale-epoch
+// mutation admission을 최종 집행") — a mutation with no/stale-epoch/expired
 // lease is refused here even if the transport already vetted the caller.
+// F-035: expiry stops authorization (re-acquire to renew); expiry alone is
+// still not death — takeover needs dead-evidence (match requireLeaseProof).
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync, statSync } from 'node:fs'
@@ -102,26 +104,43 @@ interface LeaseRow {
   epoch: number
   revision: number
   expires_at: number
+  proof_json: string
 }
 
 export function assertLease(db: DatabaseSync, envelope: WorkspaceOpEnvelope, now: number): void {
   const row = db
-    .prepare('SELECT epoch, revision, expires_at FROM host_controller_lease WHERE id=1')
+    .prepare('SELECT epoch, revision, expires_at, proof_json FROM host_controller_lease WHERE id=1')
     .get() as LeaseRow | undefined
   if (!row) {
     fail('CONTROL_UNAVAILABLE', 'no controller lease has been acquired on this host', 'reconcile')
-  }
-  if (row.expires_at <= now) {
-    fail('SCOPE_DENIED', 'controller lease expired — re-acquire before mutating', 'reconcile', {
-      expiredAt: row.expires_at,
-      now
-    })
   }
   if (envelope.controllerEpoch === undefined || envelope.controllerEpoch !== row.epoch) {
     fail('SCOPE_DENIED', 'controller epoch does not match the current lease', 'none', {
       leaseEpoch: row.epoch,
       presentedEpoch: envelope.controllerEpoch ?? null
     })
+  }
+  // F-035: same expiry semantics as requireLeaseProof (lease.ts) — an
+  // expired lease refuses workspace effects too. Expiry alone is still not
+  // death (takeover needs dead-evidence); it just stops authorizing.
+  if (row.expires_at <= now) {
+    fail('SCOPE_DENIED', 'controller lease expired — re-acquire to renew', 'reconcile', {
+      leaseEpoch: row.epoch,
+      expiredAt: row.expires_at
+    })
+  }
+  const presented = typeof envelope.leaseProof === 'string' ? envelope.leaseProof : undefined
+  if (presented !== undefined) {
+    let fence: string | undefined
+    try {
+      const proof = JSON.parse(row.proof_json) as { fenceToken?: string }
+      fence = proof.fenceToken
+    } catch {
+      fence = undefined
+    }
+    if (fence !== undefined && presented !== fence) {
+      fail('SCOPE_DENIED', 'leaseProof does not match the held lease', 'none')
+    }
   }
 }
 

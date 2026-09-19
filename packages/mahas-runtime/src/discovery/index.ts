@@ -115,4 +115,10 @@ export { responsibilitySearch } from './search.ts'
 export { responsibilityInspect } from './inspect.ts'
 export { responsibilityLocate } from './locate.ts'
 export { responsibilityCollaborators } from './collaborators.ts'
-export { roleImplementations, availabilityForRole } from './implementation-availability.ts'
+export {
+  roleImplementations,
+  availabilityForRole,
+  implementationPinDigest,
+  implementationSetDigest,
+  attestationMentionsHost
+} from './implementation-availability.ts'

@@ -133,10 +133,18 @@ function coordinationView(
         !COORDINATION_PERSPECTIVES.has(r.readerPerspective)
       )
         continue
+      const criterionRef =
+        typeof r.criterionRef === 'string'
+          ? r.criterionRef
+          : r.criterionRef !== null &&
+              typeof r.criterionRef === 'object' &&
+              typeof (r.criterionRef as { criterionId?: unknown }).criterionId === 'string'
+            ? (r.criterionRef as { criterionId: string }).criterionId
+            : undefined
       clauses.push({
         clauseId: typeof r.clauseId === 'string' ? r.clauseId : '',
         ...(typeof r.contextId === 'string' ? { contextId: r.contextId } : {}),
-        ...(typeof r.criterionRef === 'string' ? { criterionRef: r.criterionRef } : {}),
+        ...(criterionRef !== undefined ? { criterionRef } : {}),
         requiredMeaning: typeof r.requiredMeaning === 'string' ? r.requiredMeaning : '',
         ...(typeof r.deliveryClass === 'string' ? { deliveryClass: r.deliveryClass } : {})
       })

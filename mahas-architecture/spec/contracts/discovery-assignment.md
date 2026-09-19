@@ -9,9 +9,9 @@ SearchRequest는 `projectId, modelVersion?, query?, paths[], contractIds[], hori
 
 우선 구조 필터와 권한으로 후보집합을 제한하고, 코드 경로 exact/longest-prefix 일치·계약 연결·책임/역할/criterion 텍스트 일치 이유를 반환한다. lexical ordering은 탐색 편의일 뿐 전문성 점수/담당자 자동 선정이 아니다. 한국어 부분검색은 정상화된 부분 문자열 경로를 함께 제공한다. FTS tokenization만으로 한글 의미를 이해한다고 주장하지 않는다. query가 모호하거나 결과가 없으면 `unassigned/ambiguous/no-match`를 반환하고 임의 role을 만들지 않는다.
 
-CandidateCard에는 `boundary{id,name,responsibility,criteria}`, `role{id,name,description,horizontalRole}`, `matchReasons[]`, `relationshipRefs[]`, `implementationAvailability[]`, `memberAvailability[]`, `scopeCoverage`, `selectionToken`이 있다. implementation의 내부 파일 본문은 없다. 팀장은 가치·긴장을 읽고 구현자는 자기 작업의 상세 지침을 받는다. Availability는 관측 시각을 가진 현재 정보이며 미래 실행 성공 보장이 아니다.
+CandidateCard에는 `boundary{id,name,responsibility,criteria}`, `role{id,name,description,horizontalRole}`, `matchReasons[]`, `relationshipRefs[]`, `implementationAvailability[]`, `memberAvailability[]`, `scopeCoverage`, `selectionToken`이 있다. `implementationAvailability`는 `status==='published'`인 revision만 올린다. implementation의 내부 파일 본문은 없다. 팀장은 가치·긴장을 읽고 구현자는 자기 작업의 상세 지침을 받는다. Availability는 관측 시각을 가진 현재 정보이며 미래 실행 성공 보장이 아니다.
 
-selectionToken은 project/modelVersion/roleId/roleRevision/implementation 후보 digest와 scope를 묶는 무결성 보호 opaque 값이다. bearer authorization이 아니다. team.assign에서 현재 권한과 version을 다시 검사한다.
+selectionToken은 project/modelVersion/roleId/roleDigest/interfaceDigest와, 카드가 구현을 보여 주면 implementationId/revision/digest(또는 후보 집합 digest)와 scope를 묶는 무결성 보호 opaque 값이다. bearer authorization이 아니다. team.assign에서 현재 권한과 version을 다시 검사한다.
 
 
 ## 연산별 계약
@@ -22,7 +22,7 @@ selectionToken은 project/modelVersion/roleId/roleRevision/implementation 후보
 
 **입력:** SearchRequest
 
-**반환:** CandidateCard[], unmatchedPaths[], ambiguityGroups[], nextCursor, modelVersion
+**반환:** `{ items: CandidateCard[], status: no-match|unassigned|ambiguous|ok, unmatchedPaths[], ambiguityGroups[], nextCursor, modelVersion }`. 배열 정본 키는 `items`다 (`candidates`는 클라이언트 별칭).
 
 **전제·인가:** server-side visibility 필터; 숨겨진 count/snippet 제외
 
@@ -36,7 +36,7 @@ selectionToken은 project/modelVersion/roleId/roleRevision/implementation 후보
 
 **입력:** projectId, modelVersion, boundaryId, perspective: coordination|owner
 
-**반환:** 해당 책임/기준, 직접 자식 책임, contract 긴장, non-goals, role 목록
+**반환:** `{ boundary, coordinationView:{ status: present|missing, clauses? }, criteria, children, contracts, nonGoals, roles }`. `coordinationView`는 객체이며 문자열 칸이 아니다.
 
 **전제·인가:** coordination은 caller가 조율하는 scope만; 모든 자식 context 본문 제외
 
@@ -78,7 +78,7 @@ selectionToken은 project/modelVersion/roleId/roleRevision/implementation 후보
 
 **입력:** modelVersion, roleId, hostId?, componentNeeds?
 
-**반환:** implementationRevision/interfaceDigest/profile/support/blockers 목록
+**반환:** `{ implementations: [{ implementationId, revision, interfaceDigest, profile, support, status:'published', blockers[] }] }`. `candidate`/`retired`는 목록에 없다.
 
 **전제·인가:** 공개된 해당 interface 구현만, secret launch data 제외
 

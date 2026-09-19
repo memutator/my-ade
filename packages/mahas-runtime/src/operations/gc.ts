@@ -20,7 +20,7 @@
 //   - planGc/runGc — explicit, dry-run-able, residue-recording collection.
 
 import type { DatabaseSync } from 'node:sqlite'
-import { existsSync, readdirSync, rmSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RetentionPin } from '../../../mahas-contracts/src/resource.ts'
 import { nowMs, tryCount, type StorageOpsDeps } from './support.ts'
@@ -389,9 +389,14 @@ function planOrphanBlobFiles(
   skipped: { pinned: number; referenced: number; unreadable: number }
 ): GcCandidate[] {
   const out: GcCandidate[] = []
-  let files: string[] = []
+  // F-004: shard-aware recursive walk — the store layout is
+  // <root>/<digest[0:2]>/<digest> (see putExternalContentBlob), so a
+  // top-level readdir only sees shard directories. Enumerate real files
+  // with their store-relative path and never list a directory as a
+  // deletion candidate.
+  let relFiles: string[] = []
   try {
-    files = readdirSync(externalBlobDir).filter((f) => !f.startsWith('.') && !f.endsWith('.tmp'))
+    relFiles = listBlobFilesRecursive(externalBlobDir)
   } catch {
     skipped.unreadable++
     return out
@@ -409,9 +414,12 @@ function planOrphanBlobFiles(
     skipped.unreadable++
     return out // cannot prove orphanhood — collect nothing
   }
-  for (const f of files) {
-    if (known.has(f)) continue // a row references it — not an orphan
-    if (isTargetPinned(db, 'external_blob', f)) {
+  for (const f of relFiles) {
+    // known holds digests; relFiles holds store-relative paths
+    // (<shard>/<digest> or legacy flat <digest>).
+    const digest = f.includes('/') ? (f.split('/').pop() as string) : f
+    if (known.has(digest)) continue // a row references it — not an orphan
+    if (isTargetPinned(db, 'external_blob', f) || isTargetPinned(db, 'external_blob', digest)) {
       skipped.pinned++
       continue
     }
@@ -421,6 +429,33 @@ function planOrphanBlobFiles(
       detail: `external blob file ${f} with no content_blobs row`
     })
   }
+  return out
+}
+
+/**
+ * Recursively list blob files under the external store as store-relative
+ * paths. Directories (incl. shard dirs) are never returned — only regular
+ * files — so the planner cannot emit an EISDIR unlink candidate. Dot/tmp
+ * files are skipped.
+ */
+function listBlobFilesRecursive(root: string): string[] {
+  const out: string[] = []
+  const walk = (dir: string, rel: string): void => {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('.') || name.endsWith('.tmp')) continue
+      const abs = join(dir, name)
+      const relPath = rel.length > 0 ? `${rel}/${name}` : name
+      let isDir = false
+      try {
+        isDir = statSync(abs).isDirectory()
+      } catch {
+        continue // raced away — not provably an orphan
+      }
+      if (isDir) walk(abs, relPath)
+      else out.push(relPath)
+    }
+  }
+  walk(root, '')
   return out
 }
 

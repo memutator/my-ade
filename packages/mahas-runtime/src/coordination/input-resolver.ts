@@ -27,7 +27,7 @@ import type { ArtifactRef } from '../../../mahas-contracts/src/common.ts'
  * IMP-21 (outcome.decide) writes the same literal — align in integration if
  * the settlement owner picks a different canonical string.
  */
-export const ACCEPTING_DECISIONS: readonly string[] = ['accepted']
+export const ACCEPTING_DECISIONS: readonly string[] = ['accepted', 'accept']
 
 // ── binding wire shape ──────────────────────────────────────────────────────
 //
@@ -84,6 +84,10 @@ export function parseBinding(raw: unknown): BindingSpec {
   if (typeof raw !== 'object' || raw === null)
     fail('MODEL_INVALID', 'input binding is not an object', 'none', { raw })
   const b = raw as Record<string, unknown>
+  const identity =
+    b.identity !== null && typeof b.identity === 'object' && !Array.isArray(b.identity)
+      ? (b.identity as Record<string, unknown>)
+      : {}
   const slot =
     typeof b.slot === 'string' && b.slot
       ? b.slot
@@ -99,14 +103,31 @@ export function parseBinding(raw: unknown): BindingSpec {
     slot,
     kind,
     required: b.required === false ? false : true,
-    artifactId: str(b.artifactId),
-    artifactRevision: num(b.artifactRevision),
-    taskId: str(b.taskId),
-    taskRevision: num(b.taskRevision),
-    outputSlot: str(b.outputSlot),
-    contractId: str(b.contractId),
-    contractRevision: num(b.contractRevision ?? b.revision),
-    modelVersion: str(b.modelVersion)
+    artifactId: str(b.artifactId) ?? str(identity.artifactId),
+    artifactRevision: num(b.artifactRevision) ?? num(identity.revision) ?? num(identity.artifactRevision),
+    taskId: str(b.taskId) ?? str(identity.taskId) ?? str(identity.fromTaskId) ?? str(identity.task),
+    taskRevision: num(b.taskRevision) ?? num(identity.taskRevision),
+    outputSlot: str(b.outputSlot) ?? str(identity.outputSlot) ?? str(identity.output),
+    contractId: str(b.contractId) ?? str(identity.contractId) ?? str(identity.id),
+    contractRevision: num(b.contractRevision ?? b.revision ?? identity.revision),
+    modelVersion: str(b.modelVersion) ?? str(identity.modelVersion)
+  }
+}
+
+/** persist as the contract's top-level InputBinding (no nested identity) */
+export function encodeBinding(b: BindingSpec): Record<string, unknown> {
+  return {
+    slot: b.slot,
+    kind: b.kind,
+    required: b.required,
+    ...(b.artifactId !== undefined ? { artifactId: b.artifactId } : {}),
+    ...(b.artifactRevision !== undefined ? { artifactRevision: b.artifactRevision } : {}),
+    ...(b.taskId !== undefined ? { taskId: b.taskId } : {}),
+    ...(b.taskRevision !== undefined ? { taskRevision: b.taskRevision } : {}),
+    ...(b.outputSlot !== undefined ? { outputSlot: b.outputSlot } : {}),
+    ...(b.contractId !== undefined ? { contractId: b.contractId } : {}),
+    ...(b.contractRevision !== undefined ? { contractRevision: b.contractRevision } : {}),
+    ...(b.modelVersion !== undefined ? { modelVersion: b.modelVersion } : {})
   }
 }
 
@@ -116,6 +137,7 @@ interface ArtifactRow {
   id: string
   revision: number
   digest: string
+  run_id?: string
 }
 
 function loadArtifact(db: DatabaseSync, artifactId: string, revision?: number): ArtifactRow | null {
@@ -123,11 +145,13 @@ function loadArtifact(db: DatabaseSync, artifactId: string, revision?: number): 
     revision === undefined
       ? (db
           .prepare(
-            'SELECT id, revision, digest FROM artifacts WHERE id = ? ORDER BY revision DESC LIMIT 1'
+            'SELECT id, revision, digest, run_id FROM artifacts WHERE id = ? ORDER BY revision DESC LIMIT 1'
           )
           .get(artifactId) as ArtifactRow | undefined)
       : (db
-          .prepare('SELECT id, revision, digest FROM artifacts WHERE id = ? AND revision = ?')
+          .prepare(
+            'SELECT id, revision, digest, run_id FROM artifacts WHERE id = ? AND revision = ?'
+          )
           .get(artifactId, revision) as ArtifactRow | undefined)
   return row ?? null
 }
@@ -140,7 +164,8 @@ function loadArtifact(db: DatabaseSync, artifactId: string, revision?: number): 
  */
 function resolveTaskOutput(
   db: DatabaseSync,
-  b: BindingSpec
+  b: BindingSpec,
+  consumerRunId?: string
 ): {
   artifact: ArtifactRow
   outcomeId: string
@@ -149,8 +174,12 @@ function resolveTaskOutput(
 } | null {
   const decisions = ACCEPTING_DECISIONS.map(() => '?').join(',')
   const revFilter = b.taskRevision === undefined ? '' : ' AND o.task_revision = ?'
+  const runFilter = consumerRunId === undefined ? '' : ' AND t.run_id = ? AND a.run_id = ?'
   const params: (string | number)[] = [b.taskId!, b.outputSlot!, ...ACCEPTING_DECISIONS]
   if (b.taskRevision !== undefined) params.push(b.taskRevision)
+  if (consumerRunId !== undefined) {
+    params.push(consumerRunId, consumerRunId)
+  }
   const row = db
     .prepare(
       'SELECT a.id AS a_id, a.revision AS a_rev, a.digest AS a_digest,' +
@@ -159,7 +188,8 @@ function resolveTaskOutput(
         ' JOIN outcomes o ON o.id = oo.outcome_id AND o.revision = oo.outcome_revision' +
         ' JOIN settlements s ON s.outcome_id = o.id AND s.outcome_revision = o.revision' +
         ' JOIN artifacts a ON a.id = oo.artifact_id AND a.revision = oo.artifact_revision' +
-        ` WHERE o.task_id = ? AND oo.slot = ? AND s.decision IN (${decisions})${revFilter}` +
+        ' JOIN tasks t ON t.id = o.task_id' +
+        ` WHERE o.task_id = ? AND oo.slot = ? AND s.decision IN (${decisions})${revFilter}${runFilter}` +
         ' ORDER BY o.revision DESC, oo.outcome_revision DESC LIMIT 1'
     )
     .get(...params) as
@@ -181,10 +211,55 @@ function resolveTaskOutput(
   }
 }
 
+/**
+ * F-031: is this override artifact genuinely the declared producer's output?
+ * A caller pin for a task-output slot must name an artifact that the declared
+ * producer task bound to the declared slot in an outcome carrying an
+ * ACCEPTING settlement (same bar as resolveTaskOutput — otherwise the
+ * override door reopens F-029's rejected-output consumption), in the
+ * consumer's run when known. A foreign producer's artifact — even a real one
+ * from the same run — is not provenance for this slot.
+ */
+function overrideProvenanceOk(
+  db: DatabaseSync,
+  b: BindingSpec,
+  artifactId: string,
+  revision: number,
+  consumerRunId?: string
+): { outcomeId: string; outcomeRevision: number; taskRevision: number } | null {
+  if (!b.taskId || !b.outputSlot) return null
+  const decisions = ACCEPTING_DECISIONS.map(() => '?').join(',')
+  const revFilter = b.taskRevision === undefined ? '' : ' AND o.task_revision = ?'
+  const runFilter = consumerRunId === undefined ? '' : ' AND t.run_id = ?'
+  const params: (string | number)[] = [
+    b.taskId,
+    b.outputSlot,
+    artifactId,
+    revision,
+    ...ACCEPTING_DECISIONS
+  ]
+  if (b.taskRevision !== undefined) params.push(b.taskRevision)
+  if (consumerRunId !== undefined) params.push(consumerRunId)
+  const row = db
+    .prepare(
+      'SELECT o.id AS o_id, o.revision AS o_rev, o.task_revision AS o_task_rev FROM outcome_outputs oo' +
+        ' JOIN outcomes o ON o.id = oo.outcome_id AND o.revision = oo.outcome_revision' +
+        ' JOIN settlements s ON s.outcome_id = o.id AND s.outcome_revision = o.revision' +
+        ' JOIN tasks t ON t.id = o.task_id' +
+        ` WHERE o.task_id = ? AND oo.slot = ? AND oo.artifact_id = ? AND oo.artifact_revision = ? AND s.decision IN (${decisions})${revFilter}${runFilter}` +
+        ' ORDER BY o.revision DESC LIMIT 1'
+    )
+    .get(...params) as { o_id: string; o_rev: number; o_task_rev: number } | undefined
+  return row
+    ? { outcomeId: row.o_id, outcomeRevision: row.o_rev, taskRevision: row.o_task_rev }
+    : null
+}
+
 function resolveOne(
   db: DatabaseSync,
   b: BindingSpec,
-  overrides: Readonly<Record<string, ArtifactRef>> | undefined
+  overrides: Readonly<Record<string, ArtifactRef>> | undefined,
+  consumerRunId?: string
 ): ResolvedInput {
   const base = { slot: b.slot, kind: b.kind, required: b.required }
 
@@ -195,17 +270,59 @@ function resolveOne(
       overridden.artifactId as unknown as string,
       overridden.revision as unknown as number
     )
-    return a
-      ? {
-          ...base,
-          status: 'pinned',
-          artifactRef: { artifactId: a.id, revision: a.revision, digest: a.digest } as ArtifactRef
-        }
-      : {
+    if (!a) {
+      return {
+        ...base,
+        status: 'unresolved',
+        reason: `override artifact ${overridden.artifactId}@${overridden.revision} does not exist`
+      }
+    }
+    // F-031: the member.ts pre-check covers existence/run/digest on the
+    // dispatch path, but pinInputs is also reached directly (prepare path) —
+    // enforce run scope and digest here so no caller can smuggle a cross-run
+    // or forged artifact through an override.
+    if (consumerRunId !== undefined && a.run_id !== undefined && a.run_id !== consumerRunId) {
+      return {
+        ...base,
+        status: 'unresolved',
+        reason: `override artifact ${a.id} belongs to run ${a.run_id}, not ${consumerRunId}`
+      }
+    }
+    const wantDigest = (overridden as { digest?: unknown }).digest
+    if (wantDigest !== undefined && wantDigest !== a.digest) {
+      fail('ARTIFACT_MISMATCH', `override artifact digest mismatch for ${a.id}`, 'none', {
+        slot: b.slot
+      })
+    }
+    if (b.kind === 'task-output') {
+      const provenance = overrideProvenanceOk(db, b, a.id, a.revision, consumerRunId)
+      if (!provenance) {
+        return {
           ...base,
           status: 'unresolved',
-          reason: `override artifact ${overridden.artifactId}@${overridden.revision} does not exist`
+          reason:
+            `override artifact ${a.id}@${a.revision} is not an accepted output of ` +
+            `task ${b.taskId ?? '?'} slot '${b.outputSlot ?? '?'}'` +
+            (consumerRunId !== undefined ? ` in run ${consumerRunId}` : '')
         }
+      }
+      return {
+        ...base,
+        status: 'pinned',
+        artifactRef: { artifactId: a.id, revision: a.revision, digest: a.digest } as ArtifactRef,
+        source: {
+          taskId: b.taskId!,
+          taskRevision: provenance.taskRevision,
+          outcomeId: provenance.outcomeId,
+          outcomeRevision: provenance.outcomeRevision
+        }
+      }
+    }
+    return {
+      ...base,
+      status: 'pinned',
+      artifactRef: { artifactId: a.id, revision: a.revision, digest: a.digest } as ArtifactRef
+    }
   }
 
   switch (b.kind) {
@@ -213,17 +330,25 @@ function resolveOne(
       if (!b.artifactId)
         return { ...base, status: 'unresolved', reason: 'artifact binding missing artifactId' }
       const a = loadArtifact(db, b.artifactId, b.artifactRevision)
-      return a
-        ? {
-            ...base,
-            status: 'pinned',
-            artifactRef: { artifactId: a.id, revision: a.revision, digest: a.digest } as ArtifactRef
-          }
-        : {
-            ...base,
-            status: 'unresolved',
-            reason: `artifact ${b.artifactId}@${b.artifactRevision ?? 'latest'} not found`
-          }
+      if (!a) {
+        return {
+          ...base,
+          status: 'unresolved',
+          reason: `artifact ${b.artifactId}@${b.artifactRevision ?? 'latest'} not found`
+        }
+      }
+      if (consumerRunId !== undefined && a.run_id !== undefined && a.run_id !== consumerRunId) {
+        return {
+          ...base,
+          status: 'unresolved',
+          reason: `artifact ${b.artifactId} belongs to run ${a.run_id}, not ${consumerRunId}`
+        }
+      }
+      return {
+        ...base,
+        status: 'pinned',
+        artifactRef: { artifactId: a.id, revision: a.revision, digest: a.digest } as ArtifactRef
+      }
     }
     case 'task-output': {
       if (!b.taskId || !b.outputSlot) {
@@ -233,7 +358,7 @@ function resolveOne(
           reason: 'task-output binding missing taskId/outputSlot'
         }
       }
-      const hit = resolveTaskOutput(db, b)
+      const hit = resolveTaskOutput(db, b, consumerRunId)
       return hit
         ? {
             ...base,
@@ -294,9 +419,11 @@ function resolveOne(
 export function resolveInputs(
   db: DatabaseSync,
   bindings: readonly unknown[],
-  opts?: { overrides?: Readonly<Record<string, ArtifactRef>> }
+  opts?: { overrides?: Readonly<Record<string, ArtifactRef>>; consumerRunId?: string }
 ): { inputs: ResolvedInput[]; unresolvedRequired: UnresolvedInput[] } {
-  const inputs = bindings.map((raw) => resolveOne(db, parseBinding(raw), opts?.overrides))
+  const inputs = bindings.map((raw) =>
+    resolveOne(db, parseBinding(raw), opts?.overrides, opts?.consumerRunId)
+  )
   const unresolvedRequired = inputs.filter(
     (i): i is UnresolvedInput => i.status === 'unresolved' && i.required
   )
@@ -311,7 +438,7 @@ export function resolveInputs(
 export function pinInputs(
   db: DatabaseSync,
   bindings: readonly unknown[],
-  opts?: { overrides?: Readonly<Record<string, ArtifactRef>> }
+  opts?: { overrides?: Readonly<Record<string, ArtifactRef>>; consumerRunId?: string }
 ): ResolvedInput[] {
   const { inputs, unresolvedRequired } = resolveInputs(db, bindings, opts)
   if (unresolvedRequired.length > 0) {

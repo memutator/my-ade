@@ -10,6 +10,7 @@ import {
   Plus,
   Puzzle,
   RotateCw,
+  ScanSearch,
   Search,
   TerminalSquare,
   Users,
@@ -48,6 +49,7 @@ function BlockIcon({ tab }: { tab: PaneTab }): React.JSX.Element {
     if (tab.widget === 'responsibility') return <Search className="tab-kico" />
     if (tab.widget === 'team') return <Users className="tab-kico" />
     if (tab.widget === 'plan') return <Workflow className="tab-kico" />
+    if (tab.widget === 'inspector') return <ScanSearch className="tab-kico" />
     return <Bot className="tab-kico" />
   }
   return <TerminalSquare className="tab-kico" />
@@ -204,7 +206,24 @@ export default function LeafPane({
     const keep = want && next.some((x) => x.id === want) ? want : next.at(-1)!.id
     updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
   }
-  const closeTab = (tabId: string): void => applyTabs(tabs.filter((x) => x.id !== tabId))
+  const closeTab = (tabId: string): void => {
+    const tab = tabs.find((x) => x.id === tabId)
+    if (tab?.kind === 'term' && tab.binding) {
+      const viewId = `${wsId}:${pane.id}:${tabId}`
+      void window.mahas.exec.unbindView({
+        operationId: crypto.randomUUID(),
+        viewId,
+        expectedRevision: tab.binding.revision
+      })
+      if (tab.binding.terminalId) {
+        void window.mahas.exec.op({
+          operation: 'terminal.detach',
+          payload: { terminalId: tab.binding.terminalId, viewId }
+        })
+      }
+    }
+    applyTabs(tabs.filter((x) => x.id !== tabId))
+  }
   const reorderTabs = (from: number, to: number): void => {
     const next = [...tabs]
     const [m] = next.splice(from, 1)
@@ -230,7 +249,17 @@ export default function LeafPane({
   // fresh shell, not attach back to the session being "restarted" (unmount
   // cleanup won't kill it: the tab record still exists)
   const restartTab = (tabId: string): void => {
-    const old = tabs.find((x): x is TerminalTab => x.id === tabId && x.kind === 'term')?.pty
+    const tab = tabs.find((x): x is TerminalTab => x.id === tabId && x.kind === 'term')
+    if (tab?.binding) {
+      const viewId = `${wsId}:${pane.id}:${tabId}`
+      void window.mahas.exec.unbindView({
+        operationId: crypto.randomUUID(),
+        viewId,
+        expectedRevision: tab.binding.revision
+      })
+      return
+    }
+    const old = tab?.pty
     if (old) window.mahas.pty.kill(old)
     patchTerminalTab(wsId, pane.id, tabId, { pty: undefined })
     setEpochs((m) => ({ ...m, [tabId]: (m[tabId] ?? 0) + 1 }))
@@ -479,6 +508,10 @@ export default function LeafPane({
                     <button className="pact-item" onClick={() => addTab('widget', 'plan')}>
                       <Workflow />
                       {t('widgetPlan')}
+                    </button>
+                    <button className="pact-item" onClick={() => addTab('widget', 'inspector')}>
+                      <ScanSearch />
+                      {t('widgetInspector')}
                     </button>
                   </Submenu>
                 </Dropdown>

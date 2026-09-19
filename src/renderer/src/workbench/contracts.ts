@@ -145,11 +145,16 @@ export interface AmbiguityGroup {
 }
 
 export interface SearchResponse {
+  /** server C-DISCOVERY field */
+  items?: CandidateCard[]
+  /** alias kept for views — ops maps items → candidates */
   candidates: CandidateCard[]
   unmatchedPaths: string[]
   ambiguityGroups: AmbiguityGroup[]
   nextCursor?: string
   modelVersion: string
+  status?: string
+  staleModel?: boolean
 }
 
 // ── C-DISCOVERY · responsibility.inspect ────────────────────────
@@ -167,6 +172,18 @@ export interface InspectRequest {
  //  non-goals·role 목록. An authored upper view may be absent — the server
  //  says so explicitly; the UI must not paper it over with a fresh summary
  //  (REQ-06, C-DISCOVERY inspect). */
+export interface InspectCoordinationView {
+  status?: 'authored' | 'missing' | 'not-requested' | string
+  clauses?: {
+    clauseId?: string
+    requiredMeaning?: string
+    deliveryClass?: string
+    contextId?: string
+    criterionRef?: string
+  }[]
+  sourceInterfaces?: string[]
+}
+
 export interface InspectResult {
   responsibility: string
   criteria: Criterion[]
@@ -174,9 +191,10 @@ export interface InspectResult {
   contractTensions: RelationshipRef[]
   nonGoals: NonGoal[]
   roles: Role[]
-  /** authored coordination view text; absent/null = missing-view */
-  coordinationView?: string | null
-  viewStatus?: 'present' | 'missing'
+  boundary?: CardBoundary
+  /** authored coordination view — object from the server, string legacy */
+  coordinationView?: InspectCoordinationView | string | null
+  viewStatus?: 'present' | 'missing' | 'authored' | string
 }
 
 // ── C-DISCOVERY · responsibility.locate ─────────────────────────
@@ -187,7 +205,7 @@ export interface LocateRequest {
   paths: string[]
 }
 
-export type LocateStatus = 'assigned' | 'ambiguous' | 'unassigned'
+export type LocateStatus = 'assigned' | 'ambiguous' | 'unassigned' | 'resolved' | 'invalid'
 
 export interface LocateResult {
   path: string
@@ -195,11 +213,13 @@ export interface LocateResult {
   boundaryId?: string
   boundaryName?: string
   roles?: CardRole[]
+  claimants?: unknown[]
   /** competing territories when ambiguous — never silently tie-broken */
   candidates?: CardBoundary[]
 }
 
 export interface LocateResponse {
+  items?: LocateResult[]
   results: LocateResult[]
   modelVersion?: string
 }
@@ -229,6 +249,7 @@ export interface Collaborator {
 }
 
 export interface CollaboratorsResponse {
+  items?: unknown[]
   collaborators: Collaborator[]
 }
 
@@ -247,10 +268,12 @@ export interface ImplementationsRequest {
 export interface ImplementationOffer {
   implementationId: string
   implementationRevision: number
+  revision?: number
   interfaceDigest?: string
   profile?: string
+  profileId?: string
   support?: string
-  blockers?: string[]
+  blockers?: string[] | { kind?: string; detail?: string }[]
 }
 
 export interface ImplementationsResponse {
@@ -307,8 +330,10 @@ export interface PlanTaskDraft {
   requirementText: string
   ownerRoleId?: string
   assignedMemberId?: string
-  inputBindings: InputBinding[]
-  outputSlots: OutputSlot[]
+  inputBindings?: InputBinding[]
+  outputSlots?: OutputSlot[]
+  inputs?: InputBinding[]
+  outputs?: OutputSlot[]
   settlementPolicy?: unknown
 }
 
@@ -327,7 +352,8 @@ export interface PlanEdgeDraft {
 export interface AttemptDisposition {
   taskId: string
   dispatchId?: string
-  disposition: 'keep' | 'stop' | string
+  action: 'keep' | 'revoke' | 'replace' | string
+  disposition?: 'keep' | 'stop' | string
 }
 
 /** work.md: PlanPatch = {basePlanRevision, tasks, edges, retireTaskIds,
@@ -374,6 +400,8 @@ export interface RunGetRequest {
 export interface RunProjection {
   run?: Run
   planRevision?: number
+  planTasks?: TaskSpec[]
+  planEdges?: TaskEdge[]
   tasks?: TaskSpec[]
   edges?: TaskEdge[]
   members?: Member[]

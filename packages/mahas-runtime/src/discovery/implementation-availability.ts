@@ -25,7 +25,8 @@ import {
   implementationsForDigests,
   interfaceDigestsForRole,
   latestAttestation,
-  resolveModelVersion
+  resolveModelVersion,
+  sha256Hex
 } from './model-read.ts'
 import { discoveryError, target } from './types.ts'
 import type {
@@ -52,23 +53,71 @@ function profileSupportedComponents(capabilitiesJson: string): string[] {
   return []
 }
 
-function attestationMentionsHost(installationJson: string, hostId: string): boolean {
+/**
+ * Host identity in installation evidence — exact field match, never a
+ * substring (empty hostId must not vacuously pass).
+ */
+export function attestationMentionsHost(installationJson: string, hostId: string): boolean {
+  if (typeof hostId !== 'string' || hostId.length === 0) return false
   try {
-    const text = installationJson
-    // installation evidence is a JSON record — a substring match on the
-    // host id is a loose but honest "documented on this host" signal; the
-    // strict check belongs to IMP-07's attestation shape which is not yet
-    // landed. Flagged in the handoff as a provisional interpretation.
-    return text.includes(hostId)
+    const parsed = JSON.parse(installationJson) as unknown
+    return jsonMentionsHost(parsed, hostId)
   } catch {
     return false
   }
 }
 
+function jsonMentionsHost(v: unknown, hostId: string): boolean {
+  if (v === hostId) return true
+  if (Array.isArray(v)) return v.some((x) => jsonMentionsHost(x, hostId))
+  if (v !== null && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    for (const key of ['hostId', 'host_id', 'host']) {
+      if (o[key] === hostId) return true
+    }
+    if (Array.isArray(o.hostIds) && o.hostIds.includes(hostId)) return true
+    return Object.values(o).some((x) => jsonMentionsHost(x, hostId))
+  }
+  return false
+}
+
+/** digest of one shown implementation — assign re-checks this pin */
+export function implementationPinDigest(impl: {
+  id: string
+  revision: number
+  interfaceDigest?: string
+  interface_digest?: string
+  profileId?: string
+  profile_id?: string
+  profileRevision?: number
+  profile_revision?: number
+  status?: string
+}): string {
+  const body = JSON.stringify({
+    id: impl.id,
+    interfaceDigest: impl.interfaceDigest ?? impl.interface_digest ?? '',
+    profileId: impl.profileId ?? impl.profile_id ?? '',
+    profileRevision: impl.profileRevision ?? impl.profile_revision ?? 0,
+    revision: impl.revision,
+    status: impl.status ?? 'published'
+  })
+  return sha256Hex(body)
+}
+
+/** digest of the published candidate set shown on a card (sorted id@rev) */
+export function implementationSetDigest(
+  items: readonly { implementationId: string; revision: number }[]
+): string {
+  const rows = items
+    .map((i) => ({ id: i.implementationId, revision: i.revision }))
+    .sort((a, b) => a.id.localeCompare(b.id) || a.revision - b.revision)
+  return sha256Hex(JSON.stringify(rows))
+}
+
 /**
- * All non-retired implementations satisfying a role's stored interface
- * digests, each with support state + blockers. Retired revisions are
- * excluded from new selection per implementation.retire semantics.
+ * Published implementations satisfying a role's stored interface digests,
+ * each with support state + blockers. Candidate/draft/retired revisions
+ * are excluded from new selection.
  */
 export function availabilityForRole(
   db: DatabaseSync,
@@ -78,7 +127,7 @@ export function availabilityForRole(
 ): { interfaceDigests: string[]; items: ImplementationAvailability[] } {
   const interfaceDigests = interfaceDigestsForRole(db, modelVersion, roleId)
   const impls = implementationsForDigests(db, interfaceDigests).filter(
-    (i) => i.status !== 'retired'
+    (i) => i.status === 'published'
   )
   const items: ImplementationAvailability[] = []
   for (const impl of impls) {
@@ -147,6 +196,7 @@ export function availabilityForRole(
       interfaceDigest: impl.interface_digest,
       profileId: impl.profile_id,
       profileRevision: impl.profile_revision,
+      status: impl.status,
       profileState,
       support,
       blockers,

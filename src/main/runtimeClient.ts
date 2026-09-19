@@ -92,12 +92,17 @@ function receiptToControl(receipt: CommandReceipt): ControlResult<unknown> {
   if (receipt.status === 'committed') return { ok: true, value: receipt.result }
   const code = (receipt.error?.code ?? 'UNKNOWN') as ControlError['code']
   const retry = receipt.error?.retry
+  const pendingOrUnknown = receipt.status === 'pending' || receipt.status === 'unknown'
   return {
     ok: false,
     error: {
       code,
-      message: receipt.error?.message ?? `operation ended with status ${receipt.status}`,
-      retryable: retry === 'same-operation' || retry === 'reconcile'
+      message:
+        receipt.error?.message ??
+        (pendingOrUnknown
+          ? `${receipt.status}: outcome not yet known`
+          : `operation ended with status ${receipt.status}`),
+      retryable: pendingOrUnknown || retry === 'same-operation' || retry === 'reconcile'
     }
   }
 }

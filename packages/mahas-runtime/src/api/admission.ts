@@ -108,12 +108,21 @@ export type TxMode = 'IMMEDIATE' | 'DEFERRED'
  * the handler await safe — nested dispatches join via ambientTxn instead of
  * re-entering BEGIN.
  */
+/** transaction-depth hooks the pipeline forwards to the storage boundary so a
+ *  handler's nested withTx() degrades to SAVEPOINT (see StorageBoundary). */
+export interface TxDepthHooks {
+  markTxOpen?: (db: DatabaseSync) => void
+  markTxClose?: (db: DatabaseSync) => void
+}
+
 export async function runInTransaction<T>(
   db: DatabaseSync,
   mode: TxMode,
-  fn: (db: DatabaseSync) => T | Promise<T>
+  fn: (db: DatabaseSync) => T | Promise<T>,
+  hooks?: TxDepthHooks
 ): Promise<T> {
   db.exec(`BEGIN ${mode}`)
+  hooks?.markTxOpen?.(db)
   try {
     const value = await fn(db)
     db.exec('COMMIT')
@@ -125,6 +134,8 @@ export async function runInTransaction<T>(
       // connection may already have rolled back (e.g. SQLITE error on COMMIT)
     }
     throw err
+  } finally {
+    hooks?.markTxClose?.(db)
   }
 }
 
@@ -244,18 +255,36 @@ export async function runAdmission(
   }
 
   // 6–7. execute inside the transaction (or join the ambient one).
+  // long-poll queries (inbox.wait) must not hold BEGIN across sleep —
+  // they run autocommit so the single writer is not fenced for maxWaitMs.
   const ambient = ambientTxn.getStore()
+  const longPoll = entry.spec.longPoll === true || entry.spec.name === 'inbox.wait'
+  // F-005: the raw BEGIN below must register in the shared transaction depth,
+  // otherwise a handler's nested withTx()/inTransaction() sees depth 0 and
+  // issues a second BEGIN on the same connection (ERR_SQLITE_ERROR).
+  const txHooks: TxDepthHooks = {
+    markTxOpen: deps.storage.markTxOpen,
+    markTxClose: deps.storage.markTxClose
+  }
   try {
     const receipt =
       ambient !== undefined && ambient.db === deps.db
         ? await ambientTxn.run(nestedTxn(deps, ctx, req, entry.spec.mutation), () =>
             executeInTxn(deps, entry, ctx, req, scope, fingerprint, trace)
           )
-        : await runInTransaction(deps.db, entry.spec.mutation ? 'IMMEDIATE' : 'DEFERRED', (db) =>
-            ambientTxn.run(txnFor(deps, db, ctx, req, entry.spec.mutation), () =>
+        : longPoll
+          ? await ambientTxn.run(txnFor(deps, deps.db, ctx, req, entry.spec.mutation), () =>
               executeInTxn(deps, entry, ctx, req, scope, fingerprint, trace)
             )
-          )
+          : await runInTransaction(
+              deps.db,
+              entry.spec.mutation ? 'IMMEDIATE' : 'DEFERRED',
+              (db) =>
+                ambientTxn.run(txnFor(deps, db, ctx, req, entry.spec.mutation), () =>
+                  executeInTxn(deps, entry, ctx, req, scope, fingerprint, trace)
+                ),
+              txHooks
+            )
     trace('committed')
     return receipt
   } catch (err) {
@@ -263,6 +292,24 @@ export async function runAdmission(
       // business rejection — framed as a receipt, never persisted, so a
       // 'same-operation' retry with the same operationId can still re-execute.
       return reject(err, 'handler-error')
+    }
+    // F-028: a bare TypeError is a caller payload-shape bug (every payload
+    // guard throws it), never an ambiguous outcome — frame it as a rejected
+    // MODEL_INVALID receipt. Without this the client sees status:'unknown' +
+    // CONTROL_UNAVAILABLE with no receipt, indistinguishable from a genuine
+    // ambiguous dispatch failure that requires reconcile. The transaction
+    // above already rolled back, so "nothing applied, fix your payload" is
+    // the honest answer; retry 'none' because resending the same bytes can
+    // never succeed.
+    if (err instanceof TypeError) {
+      return reject(
+        mahasError(
+          'MODEL_INVALID',
+          `malformed payload for ${req.operation}: ${err.message}`,
+          'none'
+        ),
+        'handler-error'
+      )
     }
     throw err
   }
@@ -309,9 +356,12 @@ async function executeInTxn(
   const result = await entry.handler!(txn, req.payload)
 
   // commit-직전 re-check: grant revocation or revision drift raced by the
-  // handler's own writes is caught before COMMIT (instruction §4.4).
+  // handler's own writes is caught before COMMIT (instruction §4.4), EXCEPT
+  // grants this operation itself revoked (F-019 — a self-revocation must not
+  // fence its own transaction).
+  const exempt = txnInternals.get(txn)?.exemptedGrants ?? new Set<string>()
   const finalTargets = await resolveTargets(entry, txn, req.payload)
-  deps.access.authorize(ctx, req.operation, finalTargets)
+  deps.access.authorize(withGrantExemptions(ctx, exempt), req.operation, finalTargets)
   await checkExpectedRevisions(entry, txn, req)
 
   const effects = flushEffectIntents(deps, txn, req, scope)
@@ -365,14 +415,107 @@ async function checkExpectedRevisions(
 
 // ── target resolution ───────────────────────────────────────────────────────
 
+/**
+ * payload id field → actual-target kind. The migration default resolver for
+ * operations that have not yet declared their own `resolveTargets`: it lifts
+ * the ids the payload names into TargetRefs so coverage is still evaluated
+ * against real rows (never against request intent as authority). Field names
+ * are canonical wire names — a payload that names nothing concrete falls back
+ * to the caller's own principal anchor, which only the caller's own grant (or
+ * a wildcard operator grant) can cover.
+ */
+const PAYLOAD_TARGET_KINDS: Readonly<Record<string, string>> = {
+  projectId: 'project',
+  modelVersion: 'modelVersion',
+  boundaryId: 'boundary',
+  roleId: 'role',
+  runId: 'run',
+  memberId: 'member',
+  taskId: 'task',
+  planId: 'plan',
+  dispatchId: 'dispatch',
+  deliveryId: 'delivery',
+  messageId: 'message',
+  artifactId: 'artifact',
+  executionId: 'execution',
+  executionCredentialId: 'executionCredential',
+  grantId: 'grant',
+  policyId: 'policy',
+  resourceId: 'resource',
+  checkoutId: 'checkout',
+  transferId: 'resourceTransfer',
+  claimId: 'resourceClaim',
+  terminalId: 'terminal',
+  workspaceId: 'workspace',
+  hostId: 'host',
+  wakeRequestId: 'wakeRequest',
+  outcomeId: 'outcome',
+  settlementId: 'settlement',
+  observationId: 'observation',
+  notificationId: 'notification'
+}
+
+function collectPayloadTargets(value: unknown, out: TargetRef[], depth = 0): void {
+  if (depth > 3 || value === null || typeof value !== 'object') return
+  if (Array.isArray(value)) {
+    for (const item of value) collectPayloadTargets(item, out, depth + 1)
+    return
+  }
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const kind = PAYLOAD_TARGET_KINDS[key]
+    if (kind && typeof raw === 'string' && raw.length > 0) {
+      out.push({ kind, id: raw })
+    } else if (kind && Array.isArray(raw)) {
+      for (const id of raw) if (typeof id === 'string' && id.length > 0) out.push({ kind, id })
+    } else if (typeof raw === 'object' && raw !== null) {
+      collectPayloadTargets(raw, out, depth + 1)
+    }
+  }
+}
+
+/** deterministic dedupe of resolved payload targets */
+export function defaultTargetsFromPayload(ctx: AuthenticatedContext, payload: unknown): TargetRef[] {
+  const out: TargetRef[] = []
+  collectPayloadTargets(payload, out)
+  const seen = new Set<string>()
+  const deduped = out.filter((t) => {
+    const key = `${t.kind}:${t.id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  if (deduped.length > 0) return deduped
+  // no concrete entity named → the caller's own principal is the only object
+  // this call may be authorized against. Fail-closed for everything wider.
+  return [{ kind: 'principal', id: String(ctx.principalId) }]
+}
+
+/**
+ * Mutation ops SHOULD declare `resolveTargets` (D-ACCESS §2). Operations not
+ * yet migrated fall back to `defaultTargetsFromPayload` so the pipeline still
+ * evaluates coverage against concrete rows instead of refusing outright
+ * (fix-progress mid-migration blocker); the fallback never widens coverage
+ * beyond the caller's own principal when the payload names nothing.
+ */
 async function resolveTargets(
   entry: RegisteredOperation,
   txn: TxnContext,
   payload: unknown
 ): Promise<TargetRef[]> {
-  if (!entry.spec.resolveTargets) return []
-  const targets = await entry.spec.resolveTargets(txn, payload)
-  return targets ?? []
+  const resolver = entry.spec.resolveTargets
+  const targets = resolver
+    ? ((await resolver(txn, payload)) ?? [])
+    : defaultTargetsFromPayload(txn.ctx, payload)
+  // mutations: empty actual-target set is SCOPE_DENIED, never trivial cover.
+  // queries may still resolve to [].
+  if (entry.spec.mutation && targets.length === 0) {
+    throw mahasError(
+      'SCOPE_DENIED',
+      `mutation ${entry.spec.name} resolved no actual targets`,
+      'none'
+    )
+  }
+  return targets
 }
 
 // ── txn context construction ────────────────────────────────────────────────
@@ -383,9 +526,21 @@ interface PendingEffect extends EffectIntentInput {}
 interface TxnInternals {
   emitted: EmittedEvent[]
   pendingEffects: PendingEffect[]
+  /** grant ids this operation revoked itself — exempt from the pre-commit fence */
+  exemptedGrants: Set<string>
 }
 
 const txnInternals = new WeakMap<TxnContext, TxnInternals>()
+
+/** ctx with the given attested grants removed (F-019 self-revocation exempt) */
+function withGrantExemptions(ctx: AuthenticatedContext, exempt: ReadonlySet<string>): AuthenticatedContext {
+  if (exempt.size === 0) return ctx
+  const grantRevisions: Record<string, number> = {}
+  for (const [id, rev] of Object.entries(ctx.grantRevisions ?? {})) {
+    if (!exempt.has(id)) grantRevisions[id] = rev
+  }
+  return { ...ctx, grantRevisions }
+}
 
 function txnFor(
   deps: OperationRegistryDeps,
@@ -394,7 +549,7 @@ function txnFor(
   req: CommandRequest,
   mutation: boolean
 ): TxnContext {
-  const internals: TxnInternals = { emitted: [], pendingEffects: [] }
+  const internals: TxnInternals = { emitted: [], pendingEffects: [], exemptedGrants: new Set() }
   const txn: TxnContext = {
     db,
     ctx,
@@ -429,7 +584,10 @@ function txnFor(
             `query operation ${req.operation} must not declare effect intents`,
             'none'
           )
-        }
+        },
+    exemptGrantRecheck: (grantId: string): void => {
+      internals.exemptedGrants.add(grantId)
+    }
   }
   txnInternals.set(txn, internals)
   return txn
@@ -458,7 +616,7 @@ function readFacadeTxn(deps: OperationRegistryDeps, ctx: AuthenticatedContext): 
       throw mahasError('INVALID_TRANSITION', 'intendEffect outside a write transaction', 'none')
     }
   }
-  txnInternals.set(txn, { emitted: [], pendingEffects: [] })
+  txnInternals.set(txn, { emitted: [], pendingEffects: [], exemptedGrants: new Set() })
   return txn
 }
 

@@ -227,6 +227,7 @@ export async function probeProcess(
   }
   const lease = controllerLeaseFor(db, host.id)
   const payload = {
+    processIncarnation: exec.processIdentity,
     expectedProcessIncarnation: exec.processIdentity,
     expectedHostIncarnation: expectedHostIncarnationFor(db, exec),
     executionId: exec.id,
@@ -254,12 +255,6 @@ export async function probeProcess(
       liveness: 'unverifiable',
       unverifiableReason: `probe failed: ${isMahasError(e) ? `${e.code} ${e.message}` : e instanceof Error ? e.message : String(e)}`,
       evidence: isMahasError(e) ? e.details : undefined
-    }
-  } finally {
-    try {
-      client.close()
-    } catch {
-      /* a refused close does not change the verdict */
     }
   }
 }

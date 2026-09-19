@@ -60,6 +60,14 @@ export interface MaterializeRequest {
   /** relative paths whose bytes must come back for argv-text/stdin routes */
   wantBytes?: string[]
   secretFiles?: MaterializeSecretFile[]
+  memberId?: string
+  launchPlanId?: string
+  operationKey?: string
+  envelope?: {
+    digest: string
+    initialText: string
+    envelopeJson: unknown
+  }
 }
 
 export interface MaterializedFile {
@@ -170,9 +178,26 @@ export function isMahasError(e: unknown): e is MahasError {
 
 /** best-effort error → {code,message} for stage/journal recording */
 export function describeError(e: unknown): { code: string; message: string; retry?: string } {
-  if (isMahasError(e)) return { code: e.code, message: e.message, retry: e.retry }
+  const m = asMahasError(e)
+  if (m) return { code: m.code, message: m.message, retry: m.retry }
   if (e instanceof Error) return { code: 'INTERNAL', message: e.message }
   return { code: 'INTERNAL', message: String(e) }
+}
+
+/**
+ * F-046: classification-grade error view. Plain `isMahasError` misses the
+ * makeCaller wrapper (OperationCallError), so every cross-domain refusal
+ * classified as unknown. Returns the inner receipt error when present —
+ * callers that branch on `m.code` must use this instead of `isMahasError`.
+ */
+export function asMahasError(e: unknown): MahasError | null {
+  if (isMahasError(e)) return e
+  // Duck-typed wrapper check (see describeError — no cross-boundary import).
+  if (e instanceof Error) {
+    const inner = (e as { mahasError?: unknown }).mahasError
+    if (isMahasError(inner)) return inner
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------

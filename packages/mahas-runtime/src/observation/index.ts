@@ -16,7 +16,7 @@ import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.t
 import { SubscriptionHub } from './subscriptions.ts'
 import { makeInterventionRaiseHandler, makeInterventionResolveHandler } from './intervention.ts'
 import { makeRuntimeSnapshotHandler } from './projection.ts'
-import { makeRuntimeSubscribeHandler } from './subscriptions.ts'
+import { makeRuntimeSubscribeHandler, makeRuntimeUnsubscribeHandler } from './subscriptions.ts'
 
 /* ── injected kernel surface ─────────────────────────────────────────── */
 
@@ -83,6 +83,10 @@ export function registerObservationOps(
   register('intervention.resolve', true, makeInterventionResolveHandler(d) as OperationHandler)
   register('runtime.snapshot', false, makeRuntimeSnapshotHandler(d) as OperationHandler)
   register('runtime.subscribe', false, makeRuntimeSubscribeHandler(d) as OperationHandler)
+  // F-025: the subscribe handle is consumable — poll by re-presenting
+  // subscriptionId to runtime.subscribe, drop via runtime.unsubscribe.
+  // Ephemeral hub state only (REQ-23); mutation:false, no receipt.
+  register('runtime.unsubscribe', false, makeRuntimeUnsubscribeHandler(d) as OperationHandler)
 
   return d
 }
@@ -158,12 +162,14 @@ export {
   SubscriptionHub,
   DOMAIN_EVENT_STREAM_ID,
   SUBSCRIBE_BATCH_LIMIT,
+  SUBSCRIPTION_HUB_LIMIT,
   readEventsSince,
   eventVisible,
   executionOwnerResolver,
   cursorStaleness,
   snapshotRequired,
   makeRuntimeSubscribeHandler,
+  makeRuntimeUnsubscribeHandler,
   pollSubscription
 } from './subscriptions.ts'
 export type {

@@ -4,5 +4,5 @@ out
 .DS_Store
 .eslintcache
 *.log*
-codex
+/codex
 *.tsbuildinfo

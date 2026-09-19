@@ -5,7 +5,51 @@
 
 ## Plan 문법
 
-`PlanPatch={basePlanRevision,tasks:[TaskSpecRevision],edges:[{fromTask,toTask,requiredOutputs,settlementRequirement}],retireTaskIds,activeAttemptDisposition[]}`. 모든 endpoint는 같은 Run에 속한다. edge는 실행 순서이며 '서로 대화함'을 cycle edge로 표현하지 않는다. pending task-output은 후행 Dispatch 준비 시 resolve한다. active TaskSpec의 변경은 새 revision과 기존 attempt disposition을 명시해야 한다.
+모든 endpoint는 같은 Run에 속한다. edge는 실행 순서이며 '서로 대화함'을 cycle edge로 표현하지 않는다. pending task-output은 후행 Dispatch 준비 시 resolve한다. active TaskSpec의 변경은 새 revision과 기존 attempt disposition을 명시해야 한다.
+
+```text
+PlanPatch = {
+  basePlanRevision: number,
+  tasks: TaskSpecPatch[],
+  edges: EdgePatch[],
+  retireTaskIds?: Id[],
+  activeAttemptDisposition?: AttemptDisposition[]
+}
+TaskSpecPatch = {
+  taskId: Id,
+  action: 'keep' | 'revoke' | 'replace',   // 정본
+  title?, requirementText?, ownerRoleId?, assignedMemberId?,
+  inputs?: InputBinding[],                 // 정본 (D-WORK)
+  outputs?: OutputSlot[],
+  settlementPolicy?: SettlementPolicy
+}
+EdgePatch = { fromTask: Id, toTask: Id, requiredOutputs?: string[], settlementRequirement?: string }
+AttemptDisposition = { taskId: Id, dispatchId?, disposition: 'keep' | 'stop' | 'supersede' }
+InputBinding = {
+  slot: string,
+  kind: 'artifact' | 'task-output' | 'contract',
+  required?: boolean,                      // default true
+  artifactId?, artifactRevision?,          // kind=artifact
+  taskId?, taskRevision?, outputSlot?,     // kind=task-output — top-level
+  contractId?, contractRevision?, modelVersion?
+}
+OutputSlot = { slot: string, description?, contractId?, required? }
+SettlementPolicy = { mode: 'owner-declaration' | 'designated-acceptance', acceptorRoleId?, acceptorMemberId? }
+```
+
+서버가 번역하는 별칭(미나열 키는 `MODEL_INVALID`):
+
+| 별칭 | 정본 |
+| --- | --- |
+| `disposition: keep\|stop\|replace` | `action: keep\|revoke\|replace` (`stop`→`revoke`) |
+| `inputBindings` | `inputs` |
+| `outputSlots` | `outputs` |
+| `OutputSlot.name` | `OutputSlot.slot` |
+| `InputBinding.identity.{taskId,outputSlot,artifactId}` | 같은 이름의 top-level 필드 |
+| `fromTaskId` / `output` | `taskId` / `outputSlot` |
+| `SettlementPolicy.kind` / `acceptor` | `mode` / `acceptorMemberId` |
+
+`plan.commit`/`team.assign`의 plan CAS는 payload `expectedPlanRevision`이 정본이다. envelope `expectedRevisions`의 run/plan id는 서버 `resolveRevisions`가 현재 PlanRevision으로 비교한다.
 
 
 ## 연산별 계약
@@ -84,7 +128,7 @@
 
 **주체/범위:** 제한된 provisioning 권한을 가진 팀장
 
-**입력:** runId, selectionToken, implementationRevision, assignmentKind, mandateText, taskId/revision?, placementIntent, expectedPlanRevision
+**입력:** runId, selectionToken, implementationRevision, assignmentKind, mandateText, taskId/revision?, placementIntent, expectedPlanRevision (payload 정본; envelope `expectedRevisions.plan`은 같은 값의 별칭)
 
 **반환:** memberId, assignmentId, effectiveGrantBinding, state
 
@@ -154,7 +198,7 @@
 
 **주체/범위:** TaskSpec에 지정된 수용 주체
 
-**입력:** outcomeId, outcomeRevision, decision, reason, expectedTaskRevision
+**입력:** outcomeId, outcomeRevision, decision: accepted\|rejected\|revision-requested, reason, expectedTaskRevision
 
 **반환:** Settlement, eligibility changes
 
@@ -168,7 +212,7 @@
 
 **주체/범위:** 현재 Task와 Member에 대한 배정 권한을 가진 팀장.
 
-**입력:** taskId, taskRevision, memberId, expectedExecutionId, expectedExecutionGeneration, expectedPlanRevision, inputBindings.
+**입력:** taskId, taskRevision, memberId, expectedExecutionId, expectedExecutionGeneration, expectedPlanRevision, inputs: InputBinding[] (`inputBindings` 별칭).
 
 **반환:** 새 Dispatch id, WorkEnvelope digest, assignment Message/Delivery id, accepted=false.
 

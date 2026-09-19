@@ -248,7 +248,7 @@ function staticHelp(): string {
     'usage: mahas <verb…> [flags]',
     '',
     'built-in verbs (no session needed):',
-    '  status              probe the mahasd endpoint; report the VERIFIED verdict',
+    '  status              probe mahasd via runtime.status (hello is not readiness)',
     '  help [op…]          list your allowed operations (surface.describe), or one op schema',
     '  completion          print allowed verb words for shell completion',
     '  --version, -v       print version',
@@ -264,7 +264,9 @@ function staticHelp(): string {
     '  --expect id=rev         expectedRevisions (repeatable)',
     '  --operation-id <id>     reuse an idempotency id (reconcile a prior call)',
     '  --timeout <ms>          bound the wait; on timeout the operationId is printed',
-    '  --as worker|operator    choose the credential side (default: inferred)',
+    '  --as worker|operator    credential side (default: inferred from env).',
+    '                          --as operator is refused when MAHAS_ROLE=worker',
+    '                          or MAHAS_CONNECTION_FILE is set (no fallback-admin)',
     '  --connection-file <p>   credential file override',
     '  --json                  structured output (stdout is always JSON)',
     '',
@@ -287,20 +289,44 @@ async function cmdStatus(parsed: ParsedArgs): Promise<number> {
     })
     endpoint = conn.endpoint
     const client = await connectRpc(conn.endpoint, conn.credential)
-    const status = {
-      service: 'mahasd',
-      readiness: 'ready',
-      endpoint: conn.endpoint,
-      role: conn.role,
-      principalId: client.principalId,
-      transportSessionId: client.transportSessionId,
-      protocolVersion: client.protocolVersion,
-      source: conn.source,
-      checkedAt: Date.now()
+    try {
+      const receipt = await client.call('runtime.status', {})
+      const report =
+        receipt.status === 'committed' && receipt.result && typeof receipt.result === 'object'
+          ? (receipt.result as {
+              service?: string
+              state?: string
+              writableReady?: boolean
+            })
+          : null
+      const readiness = report
+        ? report.writableReady
+          ? 'ready'
+          : (report.state ?? 'degraded')
+        : 'degraded'
+      out({
+        service: report?.service ?? 'mahasd',
+        readiness,
+        endpoint: conn.endpoint,
+        role: conn.role,
+        principalId: client.principalId,
+        transportSessionId: client.transportSessionId,
+        protocolVersion: client.protocolVersion,
+        source: conn.source,
+        checkedAt: Date.now(),
+        ...(report ? { runtime: receipt.result } : {}),
+        ...(report
+          ? {}
+          : {
+              detail: receipt.error
+                ? `${receipt.error.code}: ${receipt.error.message}`
+                : 'runtime.status not committed'
+            })
+      })
+      return EXIT.OK
+    } finally {
+      client.close()
     }
-    client.close()
-    out(status)
-    return EXIT.OK
   } catch (e) {
     const err = isMahasError(e)
       ? e

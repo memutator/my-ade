@@ -48,10 +48,14 @@ export interface ContinuationScope {
   budget?: number
 }
 
-/** grants.scope_json shape — kind fields nest under `provisioning`/`continuation`. */
+/** grants.scope_json shape — kind fields nest under `provisioning`/`continuation`.
+ *  Assignment grants also persist role/boundary/task shorthands (team.assign). */
 export interface GrantScope {
   runId?: string
   memberId?: string
+  roleId?: string
+  boundaryId?: string
+  taskIds?: string[]
   targets?: TargetRef[]
   provisioning?: ProvisioningScope
   continuation?: ContinuationScope
@@ -162,6 +166,19 @@ export function activeGrantRecordsForPrincipal(
   return rows.map(recordFromSql)
 }
 
+/** id→revision map of currently usable grants — what AuthenticatedContext.grantRevisions holds. */
+export function currentGrantRevisions(
+  db: DatabaseSync,
+  principalId: string,
+  at: number = nowMs()
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const g of activeGrantRecordsForPrincipal(db, principalId, at)) {
+    out[g.id] = g.revision
+  }
+  return out
+}
+
 export function grantRecordsForPrincipal(db: DatabaseSync, principalId: string): GrantRecord[] {
   const rows = db
     .prepare('SELECT * FROM grants WHERE principal_id = ? ORDER BY id')
@@ -211,13 +228,29 @@ export function dedupeTargets(targets: TargetRef[]): TargetRef[] {
 
 /**
  * Normalized coverage entries of a scope: explicit targets plus the run /
- * member / placement / task-scope shorthands, flattened to TargetRefs.
+ * member / role / boundary / task / placement / task-scope shorthands,
+ * flattened to TargetRefs. Extra keys are read defensively from stored
+ * scope_json so older rows still flatten.
  */
 export function scopeEntries(scope: GrantScope | undefined): TargetRef[] {
-  const s = scope ?? {}
+  const s = (scope ?? {}) as GrantScope & Record<string, unknown>
   const out: TargetRef[] = [...(s.targets ?? [])]
-  if (s.runId) out.push({ kind: 'run', id: s.runId })
-  if (s.memberId) out.push({ kind: 'member', id: s.memberId })
+  if (typeof s.runId === 'string' && s.runId.length > 0) out.push({ kind: 'run', id: s.runId })
+  if (typeof s.memberId === 'string' && s.memberId.length > 0) {
+    out.push({ kind: 'member', id: s.memberId })
+  }
+  const roleId = s.roleId ?? s['roleId']
+  if (typeof roleId === 'string' && roleId.length > 0) out.push({ kind: 'role', id: roleId })
+  const boundaryId = s.boundaryId ?? s['boundaryId']
+  if (typeof boundaryId === 'string' && boundaryId.length > 0) {
+    out.push({ kind: 'boundary', id: boundaryId })
+  }
+  const taskIds = s.taskIds ?? s['taskIds']
+  if (Array.isArray(taskIds)) {
+    for (const id of taskIds) {
+      if (typeof id === 'string' && id.length > 0) out.push({ kind: 'task', id })
+    }
+  }
   if (s.provisioning?.placementScope) out.push(...s.provisioning.placementScope)
   if (s.continuation?.taskScope) out.push(...s.continuation.taskScope)
   return dedupeTargets(out)
@@ -232,7 +265,8 @@ export interface CoverageResult {
  * Does `scope` cover every target in `targets`? A scope entry covers a
  * required target iff it equals the target or appears among its resolved
  * ancestors (actual-targets.ts). `{kind:'*'}` covers all. Empty target list
- * is trivially covered; an empty scope covers nothing non-trivial.
+ * is trivially covered (queries — admission denies empty mutation targets).
+ * An empty scope covers nothing non-trivial.
  */
 export function scopeCoversTargets(
   db: DatabaseSync,

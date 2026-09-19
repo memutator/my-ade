@@ -16,7 +16,13 @@ export { StorageError } from './errors.ts'
 export { openControlDb } from './database.ts'
 export type { OpenControlDbOptions } from './database.ts'
 
-export { withTx, inTransaction, commitUnitOfWork } from './transaction.ts'
+export {
+  withTx,
+  inTransaction,
+  commitUnitOfWork,
+  markTransactionOpen as markTxOpen,
+  markTransactionClosed as markTxClose
+} from './transaction.ts'
 export type { DomainEventWrite, ReceiptWrite, UnitOfWork, UnitWrites } from './transaction.ts'
 
 export {

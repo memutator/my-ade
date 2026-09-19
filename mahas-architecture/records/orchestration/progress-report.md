@@ -129,3 +129,38 @@ spec → IMP-01..32 (구현) → REV-01..08 (정적 리뷰) → VER-01..12 (실�
 - **리스크**: fix 세션이 spec/contracts 파일도 함께 수정 중 — spec revision이
   움직이면 모든 REV/VER의 revision 정합성이 무너짐. 커밋 시점에 spec diff를
   리뷰 영향에 반영해야 함.
+
+## 6. 후속 진행 — 2026-09-19
+
+- F-062 **fixed-in-wip / reverified**: `assignment → member/run` 실제 타겟 조상을
+  추가하고 launch 내부 cross-domain 호출을 좁은 `service:mahasd` grant로 분리했다.
+  기존 member credential과 수정하지 않은 member grant로 `worker.prepare`가 blockers
+  없이 커밋됐다.
+- F-063 **fixed-in-wip / reverified**: pinned WorkEnvelope의 content blob과 bindings를
+  읽어 materializer에 전달한다. 실제 실행 루트에 `task/initial.txt` 1,390 bytes와
+  `task/envelope.json`이 생겼고 host spawn 호출까지 도달했다.
+- F-064 **fixed-in-wip / reverified**: 확정적인 pre-spawn 실패만 dispatch/credential을
+  fence하고 execution을 `exited`로, member `current_execution_id`를 `NULL`로 되돌린다.
+  claim은 숨겨서 지우지 않고 receipt residual 및 `worker.release` 후속 동작으로 남긴다.
+  모호한 spawn 결과에는 이 회수를 적용하지 않는다.
+- 표적 실행의 다음 실패는 fixture host의 `spawn <absolute-node> ENOENT`였다. 이는
+  F-063의 materialization 단절과 별개이며, full spawn→join→accept 재검증 전에 host
+  실행환경/fixture를 정리해야 한다.
+
+### 커밋 전 증거 한계 정정
+
+- F-062 재실행은 앞선 검증에서 assignment scope 및 service action 우회가 추가된
+  기존 fixture를 사용했다. 이번 호출 성공만으로 우회 없는 member 인가까지 검증했다고
+  판정할 수 없다. 수정은 존재하지만 깨끗한 fixture로 재검증해야 한다.
+- spawn 대상 Node 실행 파일은 존재한다. 반면 cwd인
+  `/tmp/mahas-ver-11/worktrees/w5`는 존재하지 않는다. ENOENT의 원인을 실행 파일로
+  단정하지 않으며 workspace.prepare의 물리 디렉터리 준비/완료 판정을 우선 조사한다.
+- F-064는 확정 spawn 거부의 member 해제를 관측했다. 같은-operation retry가 허용되는
+  실패에서도 admission을 해제하는 현재 로직과 receipt 재실행의 정합성, 기존 실패 실행
+  회수, task dispatch fence 및 ambiguous spawn 보존은 추가 검증이 필요하다.
+- 루트 `npm run typecheck`는 Electron 진입점 기준이다. 독립 runtime/host 패키지
+  타입체크와 전체 spawn→join→accept 성공을 대신하지 않는다. 커밋 전 추가 실행한
+  `tsc --noEmit -p packages/mahas-runtime/tsconfig.json` 및 execution-host의 동일
+  패키지 타입체크는 모두 통과했다.
+- 따라서 위 fixed/reverified 표기는 해당 관측 범위로 한정하며, F-062/F-064 전체
+  수락이나 RELEASE 완료를 뜻하지 않는다.

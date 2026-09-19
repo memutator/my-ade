@@ -50,6 +50,24 @@ export const EXECUTION_HOST_PROTOCOL_VERSION = 0
 const SUPPORTED_VERSIONS: readonly number[] = [EXECUTION_HOST_PROTOCOL_VERSION]
 const MAX_LINE_BYTES = 8 * 1024 * 1024
 
+/**
+ * F-045 backpressure: per-connection queued-output ceiling. A consumer that
+ * stops draining (or a dead peer whose FIN we haven't processed yet) must not
+ * let the daemon buffer unboundedly or spin on writes — past this mark the
+ * connection is destroyed (close owns cleanup: conns.delete + the F-041 sub
+ * drop) and the producer sees pushEvent() === false. 2MiB sits inside the
+ * 1–4MiB tuning band; it is a transport constant, not a protocol shape.
+ */
+const PUSH_BUFFER_HIGH_WATER_BYTES = 2 * 1024 * 1024
+
+/**
+ * F-041 seam — TerminalRegistry.dropConnection threaded in from IMP-18.
+ * IMP-18 owns the registry (ProcessManager.terminals); it hands
+ * `(id) => manager.terminals.dropConnection(id)` to the bootstrap opts or to
+ * service.setDropConnection(). Scoped: only that connection's subs drop.
+ */
+export type ConnectionDropHandler = (connectionId: string) => unknown
+
 /** process/endpoint identity evidence (spec/execution-lifecycle.md §5) */
 export interface HostProcessIdentity {
   pid: number
@@ -165,6 +183,13 @@ export interface HostService {
    * is gone — a dead subscriber, never a reason to fail the producer.
    */
   pushEvent(event: { connectionId?: string }): boolean
+  /**
+   * F-041 seam — register TerminalRegistry.dropConnection (or equivalent) so
+   * a socket close drops that connection's subscriptions. Until wired, close
+   * only forgets the socket (orphan subs persist — see the close handler's
+   * residual note). Replaces any previous handler; pass undefined to clear.
+   */
+  setDropConnection(handler: ConnectionDropHandler | undefined): void
   /** IMP-18's deps.assertMutationAllowed hook — epoch+proof+incarnation */
   assertMutationAllowed(op: string, ctx: HostOpContext): void
   close(): Promise<void>
@@ -177,6 +202,12 @@ export interface BootstrapOptions {
   endpointFile?: string
   /** authentication token published in the 0600 endpoint file; generated if absent */
   authToken?: string
+  /**
+   * F-041 seam — same as service.setDropConnection(); when provided, the
+   * socket-close path calls it with the dead connectionId. IMP-18 passes
+   * `(id) => processManager.terminals.dropConnection(id)`.
+   */
+  dropConnection?: ConnectionDropHandler
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +254,13 @@ function probeLiveEndpoint(path: string, timeoutMs: number): Promise<'alive' | '
       done('stale') // ECONNREFUSED/ENOENT — nobody listening: stale file
     })
     sock.once('connect', () => {
-      sock.write(JSON.stringify({ t: 'hello' }) + '\n')
+      try {
+        sock.write(JSON.stringify({ t: 'hello' }) + '\n', () => {
+          /* probe is best-effort — the error listener owns the verdict */
+        })
+      } catch {
+        /* sync write failure — the error/close path settles the probe */
+      }
     })
     sock.once('data', () => {
       clearTimeout(timer)
@@ -407,6 +444,50 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
     void op
   }
 
+  // --- per-connection write guards (F-052 daemon crash, F-045 wedge) ---------
+  // safeWrite is the ONLY response-path writer: it never throws, never emits
+  // an unhandled socket error, and never feeds a flooded consumer. Failures
+  // are per-connection (false) — other connections and the daemon are
+  // unaffected. Wire shapes are untouched: same {t:'result'|'push'|...} lines.
+  function isSocketDead(conn: Socket): boolean {
+    const closed = (conn as Socket & { closed?: unknown }).closed === true
+    return conn.destroyed || closed || conn.writableEnded || conn.writable !== true
+  }
+
+  function safeWrite(conn: Socket, msg: object): boolean {
+    // (1) never write toward a destroyed/closed socket (F-045.1, F-052)
+    if (isSocketDead(conn)) return false
+    // (2) high-water mark: a consumer this far behind is flooded or dead —
+    // destroy it (close owns cleanup: conns.delete + the F-041 sub drop)
+    // instead of buffering unboundedly / spinning on writes (F-045.2). Any
+    // terminal byte loss is already accounted honestly by
+    // TerminalBuffer.droppedThrough in terminal-stream.ts — the next attach
+    // replays from the retention floor with an explicit gap; host.ts only
+    // stops the spin and drops the consumer.
+    if (conn.writableLength > PUSH_BUFFER_HIGH_WATER_BYTES) {
+      try {
+        conn.destroy()
+      } catch {
+        /* already gone — close will settle it */
+      }
+      return false
+    }
+    let line: string
+    try {
+      line = JSON.stringify(msg) + '\n'
+    } catch {
+      return false // unserializable frame — per-connection failure, never fatal
+    }
+    try {
+      // the write callback captures EPIPE/ECONNRESET here (F-052: no 'error'
+      // emission, no throw) — the conn 'error' listener below is the second net.
+      conn.write(line, () => {})
+      return true
+    } catch {
+      return false
+    }
+  }
+
   function makeCtx(
     envelope: HostEnvelope,
     session: Session,
@@ -427,11 +508,8 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
         requireLeaseProof(db, envelope.controllerEpoch, envelope.leaseProof)
       },
       push(event: unknown) {
-        try {
-          conn.write(JSON.stringify({ t: 'push', connectionId, event }) + '\n')
-        } catch {
-          /* dead peer — a push is best-effort, never fatal */
-        }
+        // best-effort by contract — safeWrite isolates dead/flooded peers (F-052/F-045)
+        safeWrite(conn, { t: 'push', connectionId, event })
       }
     }
   }
@@ -693,6 +771,9 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
 
   const conns = new Map<string, Socket>()
   let nextConnId = 1
+  // F-041: TerminalRegistry.dropConnection threaded in via the opts/service
+  // seam (IMP-18 owns the registry) — invoked with the dead id on close.
+  let dropConnectionHandler: ConnectionDropHandler | undefined = opts.dropConnection
 
   function publicIdentity(): object {
     // what the unauthenticated liveness probe may see — identity only
@@ -714,13 +795,7 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
     connectionId: string,
     line: string
   ): Promise<void> {
-    const write = (msg: object): void => {
-      try {
-        conn.write(JSON.stringify(msg) + '\n')
-      } catch {
-        /* dead peer */
-      }
-    }
+    const write = (msg: object): boolean => safeWrite(conn, msg)
     if (line.length > MAX_LINE_BYTES) {
       write({ t: 'error', code: 'INVALID_ARGUMENT', message: 'frame too large' })
       conn.destroy()
@@ -773,13 +848,25 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
     const connectionId = `conn-${nextConnId++}`
     const session: Session = { authenticated: false, protocolMismatch: false }
     conns.set(connectionId, conn)
-    conn.on('close', () => conns.delete(connectionId))
+    conn.on('close', () => {
+      conns.delete(connectionId)
+      // F-041: subscriptions owned by this connection die with it — scoped to
+      // this id only. Until IMP-18 threads TerminalRegistry.dropConnection
+      // through the seam above, close only forgets the socket (residual gap).
+      try {
+        dropConnectionHandler?.(connectionId)
+      } catch {
+        /* cleanup never fails a close — the socket is already forgotten */
+      }
+    })
     conn.on('error', () => {
-      /* peer went away — connection-scoped, never fatal to the daemon */
+      /* F-052: peer went away — connection-scoped, never fatal; close owns cleanup */
     })
     const rl = createInterface({ input: conn, terminal: false })
     rl.on('line', (line) => {
-      void onLine(conn, session, connectionId, line)
+      // onLine never rejects by construction; the catch is dead-peer insurance
+      // (a floating rejection on Node 24 would take the daemon down).
+      void onLine(conn, session, connectionId, line).catch(() => {})
     })
   })
 
@@ -822,12 +909,12 @@ export async function bootstrapHost(opts: BootstrapOptions): Promise<HostService
     pushEvent(event) {
       const conn = event.connectionId ? conns.get(event.connectionId) : undefined
       if (!conn) return false
-      try {
-        conn.write(JSON.stringify({ t: 'push', connectionId: event.connectionId, event }) + '\n')
-        return true
-      } catch {
-        return false
-      }
+      // false = dead/flooded subscriber (flooded conns are destroyed by
+      // safeWrite, so the producer stops feeding them) — never a producer failure
+      return safeWrite(conn, { t: 'push', connectionId: event.connectionId, event })
+    },
+    setDropConnection(handler) {
+      dropConnectionHandler = handler
     },
     assertMutationAllowed,
     close() {

@@ -105,6 +105,13 @@ interface ManifestComponent {
   kind?: string
   activation?: string
   path?: string
+  /** F-051 alias: compiler-shape manifests carry installPath instead of path */
+  installPath?: string
+}
+
+/** canonical materialized path — alias-aware (F-051 follow-up). */
+function componentPath(c: ManifestComponent): string | undefined {
+  return c.path ?? c.installPath ?? c.id
 }
 
 /**
@@ -145,7 +152,7 @@ export function planRoutes(
   // required skills need inline/preload delivery; optional may be catalog
   for (const c of components) {
     if (c.kind === 'skill' && (c.activation === 'required' || c.activation === 'mandatory')) {
-      const bound = routes.some((r) => r.source === (c.path ?? c.id))
+      const bound = routes.some((r) => r.source === (componentPath(c) ?? c.id))
       if (!bound) {
         blockers.push({
           code: 'MANDATORY_COMPONENT_MISSING',
@@ -158,15 +165,16 @@ export function planRoutes(
   // path collisions — materialization must fail rather than overwrite
   const seen = new Map<string, string>()
   for (const c of components) {
-    if (!c.path) continue
-    const prev = seen.get(c.path)
+    const at = componentPath(c)
+    if (!at) continue
+    const prev = seen.get(at)
     if (prev) {
       blockers.push({
         code: 'MANDATORY_COMPONENT_MISSING',
-        detail: `components '${prev}' and '${c.id ?? '?'}' collide on path '${c.path}'`
+        detail: `components '${prev}' and '${c.id ?? '?'}' collide on path '${at}'`
       })
     } else {
-      seen.set(c.path, c.id ?? '?')
+      seen.set(at, c.id ?? '?')
     }
   }
 
@@ -350,14 +358,19 @@ export function buildSpawnSpec(
   spec: PlannedProcessSpec,
   ctx: ResolveContext,
   launchEnv: Record<string, string>
-): { spec: SpawnSpec; evidence: AttachEvidence[]; stdinBytes?: Uint8Array } {
-  const { argv, evidence } = resolveArgv(spec, ctx)
+): { spec: SpawnSpec & { initialStdin?: string }; evidence: AttachEvidence[]; stdinBytes?: Uint8Array } {
+  const resolved = resolveArgv(spec, ctx)
+  const argv =
+    spec.executable.startsWith('/') && resolved.argv[0] !== spec.executable
+      ? [spec.executable, ...resolved.argv]
+      : resolved.argv
+  const evidence = resolved.evidence
   const env: Record<string, string> = { ...(spec.env ?? {}), ...launchEnv }
   for (const key of spec.envAllowlist ?? []) {
     const v = process.env[key]
     if (v !== undefined) env[key] = v
   }
-  const spawn: SpawnSpec = {
+  const spawn: SpawnSpec & { initialStdin?: string } = {
     argv,
     cwd: ctx.checkoutPath,
     env,
@@ -366,6 +379,7 @@ export function buildSpawnSpec(
   let stdinBytes: Uint8Array | undefined
   if (spec.stdin) {
     stdinBytes = fileBytes(ctx, spec.stdin.source)
+    spawn.initialStdin = new TextDecoder('utf-8').decode(stdinBytes)
     evidence.push({
       source: spec.stdin.source,
       kind: 'stdin',

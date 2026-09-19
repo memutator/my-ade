@@ -58,6 +58,8 @@ import {
   type SourceSnapshotPin
 } from './source-snapshots.ts'
 import {
+  normalizeActivation,
+  normalizeLoadPhase,
   validateCoverage,
   type BindingNode,
   type ComponentNode,
@@ -205,23 +207,22 @@ function parseBuildInput(raw: unknown): ContextBuildInput {
   }
   let pins: SourceSnapshotPin[] | undefined
   if (o.sourceSnapshotPins !== undefined) {
-    if (!Array.isArray(o.sourceSnapshotPins))
-      fail('MODEL_INVALID', 'sourceSnapshotPins must be an array')
-    pins = o.sourceSnapshotPins.map((p, i) => {
-      const pin = asRecord(p, `sourceSnapshotPins[${i}]`)
-      const out: SourceSnapshotPin = { path: '', digest: '' }
-      if (typeof pin.path !== 'string' || typeof pin.digest !== 'string') {
-        fail('MODEL_INVALID', `sourceSnapshotPins[${i}] needs string path and digest`)
+    if (Array.isArray(o.sourceSnapshotPins)) {
+      pins = []
+      for (let i = 0; i < o.sourceSnapshotPins.length; i++) {
+        const p = o.sourceSnapshotPins[i]
+        if (!isRecord(p)) continue
+        if (typeof p.path !== 'string' || typeof p.digest !== 'string') continue
+        const out: SourceSnapshotPin = { path: p.path, digest: p.digest }
+        if (typeof p.mediaType === 'string') out.mediaType = p.mediaType
+        pins.push(out)
       }
-      out.path = pin.path
-      out.digest = pin.digest
-      if (pin.mediaType !== undefined) {
-        if (typeof pin.mediaType !== 'string')
-          fail('MODEL_INVALID', `sourceSnapshotPins[${i}].mediaType must be a string`)
-        out.mediaType = pin.mediaType
-      }
-      return out
-    })
+    } else if (isRecord(o.sourceSnapshotPins)) {
+      // planner may pass {assignmentId, assignmentRevision} — not a pin list
+      pins = undefined
+    } else {
+      fail('MODEL_INVALID', 'sourceSnapshotPins must be an array of {path,digest} or omitted')
+    }
   }
   const sourceRoot = optString(o.sourceRoot)
   return {
@@ -304,12 +305,12 @@ function sectionNode(raw: unknown, componentId: string): SectionNode {
   return node
 }
 
-function bindingNode(raw: unknown, componentId: string): BindingNode {
+function bindingNode(raw: unknown, componentId: string, kind: string): BindingNode {
   const o = asRecord(raw, `coverage binding of component ${componentId}`)
   const clauseId = optString(o.clauseId)
   const realization = optString(o.realization)
-  const requiredLoadPhase = optString(o.requiredLoadPhase) ?? optString(o.loadPhase)
-  if (!clauseId || !realization || !requiredLoadPhase) {
+  const rawPhase = optString(o.requiredLoadPhase) ?? optString(o.loadPhase)
+  if (!clauseId || !realization || !rawPhase) {
     fail(
       'MODEL_INVALID',
       `component ${componentId} has a coverage binding missing clauseId/realization/requiredLoadPhase`,
@@ -319,33 +320,97 @@ function bindingNode(raw: unknown, componentId: string): BindingNode {
       }
     )
   }
-  return { clauseId, sectionKey: optString(o.sectionKey) ?? '', realization, requiredLoadPhase }
+  return {
+    clauseId,
+    sectionKey: optString(o.sectionKey) ?? '',
+    realization,
+    requiredLoadPhase: normalizeLoadPhase(rawPhase, kind)
+  }
+}
+
+function parseActivationColumn(raw: unknown, id: string): string {
+  if (typeof raw === 'string' && raw.length > 0) {
+    const phase = normalizeActivation(raw)
+    if (phase === 'initial' || phase === 'conditional') return phase
+    fail('MODEL_INVALID', `component ${id} has unknown activation ${JSON.stringify(raw)}`)
+  }
+  if (isRecord(raw)) {
+    const phase = optString(raw.phase)
+    if (phase === 'initial' || phase === 'conditional') return phase
+  }
+  fail('MODEL_INVALID', `component ${id} has unknown activation ${JSON.stringify(raw)}`)
+}
+
+function sectionsFromBinding(
+  binding: Record<string, unknown>,
+  componentId: string,
+  kind: string
+): SectionNode[] {
+  const fromList = (raw: unknown): SectionNode[] | undefined => {
+    if (raw === undefined || raw === null) return undefined
+    if (!Array.isArray(raw)) fail('MODEL_INVALID', `component ${componentId} sections is not an array`)
+    return raw.map((s) => sectionNode(s, componentId))
+  }
+  const direct = fromList(binding.sections)
+  if (direct && direct.length > 0) return direct
+
+  const liftText = (src: unknown, fallbackKey: string): SectionNode[] | undefined => {
+    if (typeof src === 'string' && src.length > 0) return [{ key: fallbackKey, text: src }]
+    if (!isRecord(src)) return undefined
+    const nested = fromList(src.sections)
+    if (nested && nested.length > 0) return nested
+    const text = optString(src.text) ?? optString(src.body) ?? optString(src.content)
+    const key = optString(src.key) ?? fallbackKey
+    const heading = optString(src.heading) ?? optString(src.title)
+    if (src.source !== undefined) {
+      return [sectionNode({ key, heading, source: src.source }, componentId)]
+    }
+    if (text !== undefined) {
+      const node: SectionNode = { key, text }
+      if (heading) node.heading = heading
+      return [node]
+    }
+    return undefined
+  }
+
+  const fromContent = liftText(binding.contentBinding, 'body')
+  if (fromContent) return fromContent
+  const fromConfig = liftText(binding.config, 'body')
+  if (fromConfig) return fromConfig
+  const fromSelf = liftText(binding, 'body')
+  if (fromSelf) return fromSelf
+  if (direct) return direct
+  if (kind === 'tool-config' || kind === 'launch-config') return []
+  return []
+}
+
+function flattenBinding(stored: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (isRecord(stored.contentBinding)) Object.assign(out, stored.contentBinding)
+  if (isRecord(stored.config)) Object.assign(out, stored.config)
+  Object.assign(out, stored)
+  return out
 }
 
 function componentNode(row: Record<string, unknown>): ComponentNode {
   const id = optString(row.id)
   const kind = optString(row.kind)
-  const activation = optString(row.activation)
-  if (!id || !kind || !activation) {
+  if (!id || !kind) {
     fail(
       'MODEL_INVALID',
       `implementation_components row missing id/kind/activation: ${canonicalJson(row)}`
     )
   }
-  if (activation !== 'initial' && activation !== 'conditional') {
-    fail('MODEL_INVALID', `component ${id} has unknown activation ${JSON.stringify(activation)}`)
-  }
+  const activation = parseActivationColumn(row.activation, id)
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
     fail('MODEL_INVALID', `component id ${JSON.stringify(id)} is not path-safe`)
   }
-  const binding = asRecord(
+  const stored = asRecord(
     parseJsonColumn(row.binding_json, `binding_json of component ${id}`),
     `binding of component ${id}`
   )
-  const rawSections = binding.sections ?? []
-  if (!Array.isArray(rawSections))
-    fail('MODEL_INVALID', `component ${id} binding.sections is not an array`)
-  const sections = rawSections.map((s) => sectionNode(s, id))
+  const binding = flattenBinding(stored)
+  const sections = sectionsFromBinding(binding, id, kind)
   const seenKeys = new Set<string>()
   for (const s of sections) {
     if (seenKeys.has(s.key))
@@ -359,7 +424,11 @@ function componentNode(row: Record<string, unknown>): ComponentNode {
   const rawCoverage = parseJsonColumn(row.coverage_json, `coverage_json of component ${id}`) ?? []
   if (!Array.isArray(rawCoverage))
     fail('MODEL_INVALID', `component ${id} coverage_json is not an array`)
-  const coverage = rawCoverage.map((b) => bindingNode(b, id))
+  const coverage = rawCoverage.map((b) => {
+    const node = bindingNode(b, id, kind)
+    if (!node.sectionKey) node.sectionKey = sections[0]?.key ?? 'body'
+    return node
+  })
   return { id, kind, activation, sections, binding, consumes, coverage }
 }
 
@@ -886,21 +955,15 @@ export function compileContextBundle(input: CompileInput): CompiledBundle {
     ].join('\n')
   )
   const injected = new Set<string>()
-  for (const component of ordered) {
-    if (component.kind !== 'instruction' || component.activation !== 'initial') continue
-    const text = component.sections
-      .map((s) => resolveSectionText(s, component.id, input.sources))
-      .join('\n\n')
-    for (const s of component.sections) injected.add(`${component.id}/${s.key}`)
-    if (text !== '') blocks.push(text)
-  }
+  // only coverage-bound inline sections — not every initial instruction dump
   for (const record of coverage) {
     if (record.delivery !== 'mandatory-text') continue
     const key = `${record.componentId}/${record.sectionKey}`
     if (injected.has(key)) continue
     injected.add(key)
-    const component = ordered.find((c) => c.id === record.componentId)!
-    const section = component.sections.find((s) => s.key === record.sectionKey)!
+    const component = ordered.find((c) => c.id === record.componentId)
+    const section = component?.sections.find((s) => s.key === record.sectionKey)
+    if (!component || !section) continue
     blocks.push(resolveSectionText(section, component.id, input.sources))
   }
   blocks.push(renderCommandsSection(surfaceActions))
@@ -915,15 +978,24 @@ export function compileContextBundle(input: CompileInput): CompiledBundle {
 
   const components: ComponentManifestEntry[] = ordered.map((component) => {
     const artifact = artifacts.find((a) => a.componentId === component.id)!
+    const loadRoutes = loadRoutesByComponent.get(component.id) ?? []
+    const loadPhase = loadRoutes.includes('mandatory-text')
+      ? 'inline'
+      : loadRoutes.includes('confirmed-preload')
+        ? 'preload'
+        : 'catalog'
     const entry: ComponentManifestEntry = {
       componentId: component.id,
       kind: component.kind,
       activation: component.activation,
       installPath: artifact.installPath,
       blobDigest: artifact.digest,
+      path: artifact.installPath,
+      digest: artifact.digest,
+      loadPhase,
       byteLength: artifact.bytes.byteLength,
       mediaType: artifact.mediaType,
-      loadRoutes: loadRoutesByComponent.get(component.id) ?? [],
+      loadRoutes,
       consumes: [...component.consumes],
       covers: coversByComponent.get(component.id) ?? []
     }

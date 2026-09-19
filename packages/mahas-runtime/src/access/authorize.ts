@@ -162,6 +162,71 @@ function isJoined(db: DatabaseSync, executionId: string, generation: number): bo
 }
 
 // ---------------------------------------------------------------------------
+// F-018 — member ↔ principal binding (the identity claim must be one person)
+// ---------------------------------------------------------------------------
+
+/**
+ * A member is its own principal (`members.id = principals.id` — the convention
+ * team.assign uses when it issues the assignment grant to the memberId), or the
+ * worker principal launch minted for that member's execution
+ * (`principal-<executionId>`, launch/start-coordinator.ts). Anything else is a
+ * forged pairing: `principalId=worker` + `memberId=reviewer` would otherwise let
+ * one principal borrow another member's grants and member-scoped ops (VER-03
+ * s3-bypass). This is checked at the kernel edge so every in-process and
+ * socket ctx assembly path is covered.
+ */
+export function memberPrincipalBound(
+  db: DatabaseSync,
+  principalId: string,
+  memberId: string
+): boolean {
+  if (principalId === memberId) return true
+  const execution = db
+    .prepare("SELECT 1 AS ok FROM executions WHERE member_id = ? AND ? = ('principal-' || id)")
+    .get(memberId, principalId)
+  return execution != null
+}
+
+/** fail closed when the ctx pairs a member with a principal that is not its own */
+function requireMemberPrincipalBinding(
+  db: DatabaseSync,
+  ctx: AuthenticatedContext
+): ErrorCode | null {
+  if (ctx.memberId == null) return null
+  return memberPrincipalBound(db, String(ctx.principalId), String(ctx.memberId))
+    ? null
+    : 'UNAUTHENTICATED'
+}
+
+/**
+ * Every grant the caller may act with — the principal's active grants, the
+ * active grants of the principal's bound member (team.assign issues the
+ * assignment grant to the memberId, while the worker authenticates as the
+ * member's principal), and any attested grant id whose owning principal is the
+ * caller's principal or its bound member. Attested ids never widen the set
+ * beyond owned rows (F-022).
+ */
+function callerGrantRecords(db: DatabaseSync, ctx: AuthenticatedContext, at: number): GrantRecord[] {
+  const out = new Map<string, GrantRecord>()
+  const principalId = String(ctx.principalId)
+  for (const g of activeGrantRecordsForPrincipal(db, principalId, at)) out.set(g.id, g)
+  const memberId = ctx.memberId != null ? String(ctx.memberId) : null
+  if (memberId != null && memberId !== principalId) {
+    for (const g of activeGrantRecordsForPrincipal(db, memberId, at)) out.set(g.id, g)
+  }
+  const owners = new Set<string>([principalId])
+  if (memberId != null) owners.add(memberId)
+  for (const [id, attestedRevision] of Object.entries(ctx.grantRevisions ?? {})) {
+    const g = getGrantRecord(db, id)
+    if (!g || !owners.has(String(g.principalId))) continue
+    if (g.revokedAt != null) continue
+    if (attestedRevision != null && g.revision !== attestedRevision) continue
+    out.set(g.id, g)
+  }
+  return [...out.values()]
+}
+
+// ---------------------------------------------------------------------------
 // decide — the formula + the durable AuthorizationDecision record
 // ---------------------------------------------------------------------------
 
@@ -234,6 +299,18 @@ export function decideOn(
     )
   }
 
+  // 1b. F-018 — the member this ctx claims must belong to that principal.
+  //     Without this, an arbitrary memberId pairs with an arbitrary
+  //     principal's authority (VER-03 s3 forged binding).
+  const bindingError = requireMemberPrincipalBinding(db, ctx)
+  if (bindingError) {
+    return finish(
+      false,
+      bindingError,
+      `member '${ctx.memberId}' is not bound to principal '${ctx.principalId}'`
+    )
+  }
+
   // 2. current execution generation — past generations change nothing
   if (ctx.executionId != null) {
     const execution = getExecutionRow(db, ctx.executionId)
@@ -268,12 +345,40 @@ export function decideOn(
     }
   }
 
-  // 3. every grant the credential attested must still be standing
-  for (const grantId of Object.keys(ctx.grantRevisions ?? {})) {
+  // 3. every grant the credential attested must still be standing — and it
+  //    must belong to this principal (or its bound member) at the revision
+  //    that was attested.
+  //    F-022: an id alone is not proof of ownership (grant-id borrowing).
+  //    F-024: a stale revision must fence reads too, not only the mutation
+  //    boundary re-check (recheckCallerGrants).
+  const owners = new Set<string>([String(ctx.principalId)])
+  if (ctx.memberId != null) owners.add(String(ctx.memberId))
+  for (const [grantId, attestedRevision] of Object.entries(ctx.grantRevisions ?? {})) {
     const grant = getGrantRecord(db, grantId)
     if (!grant || grant.revokedAt != null) {
       return finish(false, 'GRANT_REVOKED', `grant '${grantId}' is revoked`)
     }
+    if (!owners.has(String(grant.principalId))) {
+      return finish(
+        false,
+        'UNAUTHENTICATED',
+        `grant '${grantId}' belongs to principal '${grant.principalId}', not '${ctx.principalId}'`
+      )
+    }
+    if (attestedRevision != null && grant.revision !== attestedRevision) {
+      return finish(
+        false,
+        'GRANT_REVOKED',
+        `grant '${grantId}' moved to revision ${grant.revision} (attested ${attestedRevision})`
+      )
+    }
+  }
+
+  // 3b. F-002 — self-describing operations are listed on EVERY surface
+  //     (ALWAYS_SURFACE_OPERATIONS) and must therefore be invocable without a
+  //     grant: listed-but-denied would make the surface a name oracle.
+  if (ALWAYS_SURFACE_OPERATIONS.includes(operation)) {
+    return finish(true, null, 'always-surface operation')
   }
 
   // 4. bootstrap scope — the pre-join credential has its own narrow surface
@@ -302,8 +407,11 @@ export function decideOn(
     }
   }
 
-  // 6. real grants — missing grant denies
-  const grants = activeGrantRecordsForPrincipal(db, ctx.principalId, at)
+  // 6. real grants — missing grant denies. The candidate set is the principal's
+  //    active grants plus the grants of its bound member (team.assign keys the
+  //    assignment grant to the memberId) and the attested ones (already verified
+  //    principal/member-owned in step 3).
+  const grants = callerGrantRecords(db, ctx, at)
   for (const grant of grants) {
     evidence.checkedGrantIds.push(grant.id)
     if (!grant.actions.includes(operation)) continue
@@ -426,7 +534,9 @@ export function authorizeTargets(
       outcome.evidence.reasonCode ?? 'SCOPE_DENIED',
       outcome.evidence.reason ?? `authorization denied for '${operation}'`,
       {
-        details: { operation, targets, decisionId: outcome.decision }
+        // worker-facing: operation + opaque decision id only (D-ACCESS §1).
+        // actualTargets / grantRevisions stay on the authorization_decisions row.
+        details: { operation, decisionId: String(outcome.decision.id) }
       }
     )
   }
@@ -457,15 +567,10 @@ export interface GrantSnapshot {
 export function grantSnapshot(db: DatabaseSync, ctx: AuthenticatedContext): GrantSnapshot {
   const at = nowMs()
   const grants: Record<string, GrantSnapshotEntry> = {}
-  for (const g of activeGrantRecordsForPrincipal(db, ctx.principalId, at)) {
+  // F-022: only grants owned by this principal (or its bound member) may enter
+  // the snapshot — a snapshot is a proof set, and a foreign grant id is not.
+  for (const g of callerGrantRecords(db, ctx, at)) {
     grants[g.id] = { revision: g.revision, expiresAt: g.expiresAt, revokedAt: g.revokedAt }
-  }
-  for (const grantId of Object.keys(ctx.grantRevisions ?? {})) {
-    if (!(grantId in grants)) {
-      const g = getGrantRecord(db, grantId)
-      if (g)
-        grants[grantId] = { revision: g.revision, expiresAt: g.expiresAt, revokedAt: g.revokedAt }
-    }
   }
   let policy: GrantSnapshot['policy'] = null
   if (ctx.memberId != null) {
@@ -497,9 +602,25 @@ export function recheckGrantSnapshot(
   if (ctx.principalId !== snapshot.principalId) {
     fail('UNAUTHENTICATED', 'snapshot belongs to a different principal')
   }
+  // F-018 — a member/principal pair that drifted apart cannot keep acting on
+  // the snapshot's authority.
+  const bindingError = requireMemberPrincipalBinding(db, ctx)
+  if (bindingError) {
+    fail(bindingError, `member '${ctx.memberId}' is not bound to principal '${ctx.principalId}'`)
+  }
+  const owners = new Set<string>([String(ctx.principalId)])
+  if (ctx.memberId != null) owners.add(String(ctx.memberId))
   for (const [grantId, prev] of Object.entries(snapshot.grants)) {
     const grant = getGrantRecord(db, grantId)
     if (!grant) fail('GRANT_REVOKED', `grant '${grantId}' no longer exists`)
+    // F-022 — foreign grant ids never authorized anything (defensive: a
+    // snapshot could have been minted before this check existed).
+    if (!owners.has(String(grant.principalId))) {
+      fail(
+        'UNAUTHENTICATED',
+        `grant '${grantId}' belongs to principal '${grant.principalId}', not '${ctx.principalId}'`
+      )
+    }
     if (grant.revokedAt != null) fail('GRANT_REVOKED', `grant '${grantId}' was revoked`)
     if (grant.revision !== prev.revision) {
       fail(
@@ -553,14 +674,23 @@ export function effectiveActionsFor(
   if (!principal || principal.status !== PRINCIPAL_STATUS_ACTIVE) {
     return { actions: [], policyId: null, policyRevision: null }
   }
+  // F-018 — surface projection must not honour a forged member↔principal pair
+  // either (it is the same identity claim the decision path rejects).
+  if (requireMemberPrincipalBinding(db, ctx)) {
+    return { actions: [], policyId: null, policyRevision: null }
+  }
   if (
     ctx.executionId != null &&
     ctx.executionGeneration != null &&
     !isJoined(db, ctx.executionId, ctx.executionGeneration)
   ) {
-    return { actions: [...BOOTSTRAP_OPERATIONS], policyId: null, policyRevision: null }
+    return {
+      actions: [...new Set([...BOOTSTRAP_OPERATIONS, ...ALWAYS_SURFACE_OPERATIONS])].sort(),
+      policyId: null,
+      policyRevision: null
+    }
   }
-  const grants = activeGrantRecordsForPrincipal(db, ctx.principalId, at)
+  const grants = callerGrantRecords(db, ctx, at)
   const set = new Set<string>()
   for (const g of grants) for (const a of g.actions) set.add(a)
   let policyId: string | null = null

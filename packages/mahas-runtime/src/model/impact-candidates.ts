@@ -61,6 +61,13 @@ export interface ImpactReason {
   kind: ImpactReasonKind
   /** reason-specific evidence refs (before/after ids, contract, context…) */
   details: Record<string, unknown>[]
+  /**
+   * F-059: denormalized read scope for the list surface
+   * (maintenance/impact-service.ts filters on `scope.projectId`).
+   * Absent on legacy rows — the reader falls back to the candidate's own
+   * columns instead of dropping them.
+   */
+  scope?: { projectId: string }
 }
 
 export type ImpactCandidateState = 'open' | 'confirmed' | 'dismissed' | 'resolved'
@@ -159,6 +166,15 @@ export interface ModelImpactInput {
    * mandate scope). Absent = whole model.
    */
   scopeBoundaryIds?: BoundaryId[]
+  /**
+   * F-059: owning project for the `scope:{projectId}` reason envelope.
+   * Optional for backward compat — when absent it is resolved inside the
+   * transaction from `newVersion` (model_versions.project_id) then
+   * `changeRef` (model_changes.project_id). Unresolvable → legacy shape
+   * (no scope); the list reader includes scopeless rows rather than
+   * dropping them.
+   */
+  projectId?: string
 }
 
 export interface ModelImpactResult {
@@ -240,6 +256,32 @@ const setEq = (a: Set<string>, b: Set<string>): boolean =>
   a.size === b.size && [...a].every((x) => b.has(x))
 
 /**
+ * F-059: resolve the owning project for the reason scope envelope.
+ * Never throws — scope resolution must not fail candidate computation;
+ * unresolvable → undefined → legacy scopeless shape (the list reader
+ * includes scopeless rows rather than dropping them).
+ */
+function projectOfModelVersion(db: DatabaseSync, version: string): string | undefined {
+  try {
+    const row = db.prepare('SELECT project_id FROM model_versions WHERE id = ?').get(version) as
+      { project_id: string } | undefined
+    return row?.project_id
+  } catch {
+    return undefined
+  }
+}
+
+function projectOfChangeRef(db: DatabaseSync, changeRef: string): string | undefined {
+  try {
+    const row = db.prepare('SELECT project_id FROM model_changes WHERE id = ?').get(changeRef) as
+      { project_id: string } | undefined
+    return row?.project_id
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Compute and store the stale-review candidates for publishing `newVersion`
  * over `baseVersion`. Returns the batch identity (impactBatchId) and the
  * candidate ids written. Pure candidate generation — semantic judgement
@@ -247,6 +289,13 @@ const setEq = (a: Set<string>, b: Set<string>): boolean =>
  */
 export function computeModelImpact(db: DatabaseSync, input: ModelImpactInput): ModelImpactResult {
   const { baseVersion, newVersion, changeRef } = input
+
+  // F-059: scope envelope for the list reader (impact-service.ts filters on
+  // reason_json.scope.projectId). Explicit input wins, then the published
+  // version's project, then the change row's project.
+  const scopeProjectId =
+    input.projectId ?? projectOfModelVersion(db, mv(newVersion)) ?? projectOfChangeRef(db, changeRef)
+  const reasonScope = scopeProjectId === undefined ? undefined : { projectId: scopeProjectId }
 
   const baseStmts = loadBoundaryStatements(db, baseVersion)
   const newStmts = loadBoundaryStatements(db, newVersion)
@@ -419,7 +468,10 @@ export function computeModelImpact(db: DatabaseSync, input: ModelImpactInput): M
         changeRef,
         targetKind: t.kind,
         targetId: t.id,
-        reason: { kind: g.reasonKind, details: g.details }
+        reason:
+          reasonScope === undefined
+            ? { kind: g.reasonKind, details: g.details }
+            : { kind: g.reasonKind, details: g.details, scope: reasonScope }
       })
       candidateIds.push(id)
       counts[g.reasonKind] += 1

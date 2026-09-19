@@ -40,12 +40,14 @@ import {
   readEndpointFile,
   recordBootMarker,
   removeEndpointFile,
+  singleWriterLockPath,
   verdictForProcess,
   type CrashLoopPolicy,
   type ServiceLock
 } from './lifecycle/service-bootstrap.ts'
 import { MahasdLifecycle } from './lifecycle/lifecycle.ts'
 import { registerRuntimeOps } from './lifecycle/operations.ts'
+import { reconcileExecutions } from './recovery/index.ts'
 import type { ReadinessSnapshot } from './lifecycle/readiness.ts'
 import type {
   ConnectHostFn,
@@ -58,13 +60,21 @@ import type {
   WithTxFn
 } from './lifecycle/types.ts'
 import type { ReconcileScope } from './lifecycle/reconcile.ts'
+import { mahasError } from './api/handler-ports.ts'
 import {
   OPERATION_NAMES,
+  makeCaller,
   type OperationHandler,
   type OperationSpec,
   type TxnContext
 } from './api/registry.ts'
 import type { ComposedRuntime } from './composition.ts'
+import { currentGrantRevisions } from './access/grant.ts'
+import {
+  authenticateWorkerCredential,
+  bindingToContextFields
+} from './launch/bootstrap-credential.ts'
+import { mahasdWorkerEndpoint } from './rpc/endpoints.ts'
 
 // ---------------------------------------------------------------------------
 // injectable dependency surface — IMP-30 wires the real implementations
@@ -156,6 +166,19 @@ function defaultLog(line: Record<string, unknown>): void {
   }
 }
 
+function credentialFields(credential: unknown): {
+  kind?: string
+  credentialId?: string
+  secret?: string
+} {
+  if (typeof credential !== 'object' || credential === null) return {}
+  return credential as { kind?: string; credentialId?: string; secret?: string }
+}
+
+function unauthenticated(message: string): never {
+  throw mahasError('UNAUTHENTICATED', message)
+}
+
 async function lazyDefault<T>(label: string, importer: () => Promise<T>): Promise<T> {
   try {
     return await importer()
@@ -195,12 +218,29 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
   }
   await recordBootMarker(paths.bootJournal, 'boot', launchNonce)
 
-  // 2. single-writer lock — refuses live duplicates and protocol mismatches
+  // F-008: a REFUSED start is not a crash. Every refusal from here until
+  // readiness settles the boot marker ('refused'), so the crash-loop window
+  // counts only real failures (a process that died before publishing ready).
+  const refuseBoot = async (): Promise<void> => {
+    await recordBootMarker(paths.bootJournal, 'refused', launchNonce).catch(() => {})
+  }
+
+  // 2. single-writer lock — refuses live duplicates and protocol mismatches.
+  //    F-015: the lock belongs to the DB FILE (see singleWriterLockPath), so
+  //    two config dirs aiming at one DB still exclude each other.
   const identity = collectProcessIdentity()
-  const lock: ServiceLock = await acquireServiceLock(paths.lock, protocolVersion, identity)
+  const lockPath = singleWriterLockPath(dbPath)
+  let lock: ServiceLock
+  try {
+    lock = await acquireServiceLock(lockPath, protocolVersion, identity)
+  } catch (err) {
+    await refuseBoot()
+    throw err
+  }
 
   const fail = async (err: unknown): Promise<never> => {
     await lock.release().catch(() => {})
+    await refuseBoot()
     throw err
   }
 
@@ -238,6 +278,65 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
     } catch {
       /* already closed */
     }
+  }
+
+  // 3.5 in-DB liveness fence (F-015 part 2) — belt & braces for different
+  // path spellings of the same DB file (e.g. symlink): the file lock above
+  // keys on a path string and can miss when two spellings resolve to one
+  // inode. Any runtime_instances row in 'starting'/'ready' whose recorded
+  // process is live or unverifiable means a writer may still be serving —
+  // refuse instead of split-brain. Dead rows are stale history;
+  // acquireControllerEpoch/markPriors below fences them.
+  try {
+    const actives = db
+      .prepare(
+        `SELECT id, controller_epoch, process_identity_json FROM runtime_instances WHERE state IN ('starting','ready')`
+      )
+      .all() as Array<{ id: string; controller_epoch: number; process_identity_json: string }>
+    for (const row of actives) {
+      let recorded: { pid: number; birthEvidence?: string; bootId?: string } | undefined
+      try {
+        recorded = JSON.parse(row.process_identity_json) as {
+          pid: number
+          birthEvidence?: string
+          bootId?: string
+        }
+      } catch {
+        recorded = undefined
+      }
+      if (!recorded || typeof recorded.pid !== 'number') {
+        await fail(
+          new BootstrapError(
+            'LOCK_UNVERIFIABLE',
+            `runtime instance ${row.id} (epoch ${row.controller_epoch}) has an unreadable process identity — refusing to start`,
+            { instanceId: row.id }
+          )
+        )
+        throw new Error('unreachable: fail() never returns')
+      }
+      const v = verdictForProcess(recorded as ProcessIdentity)
+      if (v === 'alive') {
+        await fail(
+          new BootstrapError(
+            'ALREADY_RUNNING',
+            `runtime instance ${row.id} (epoch ${row.controller_epoch}) is live (pid ${recorded.pid}) — refusing to start a second writer on ${dbPath}`,
+            { instanceId: row.id }
+          )
+        )
+      }
+      if (v === 'unverifiable') {
+        await fail(
+          new BootstrapError(
+            'LOCK_UNVERIFIABLE',
+            `runtime instance ${row.id} (epoch ${row.controller_epoch}) is unverifiable (pid ${recorded.pid} answers but birth evidence is inconclusive) — refusing to start`,
+            { instanceId: row.id }
+          )
+        )
+      }
+    }
+  } catch (err) {
+    if (err instanceof BootstrapError) throw err
+    // e.g. fresh DB without the table yet — not a fence signal; proceed.
   }
 
   // 4. endpoint assessment — a live same-service endpoint is never hijacked
@@ -297,7 +396,7 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
   } else {
     try {
       const { composeRuntime } = await import('./composition.ts')
-      composed = await composeRuntime({
+      const runtime = await composeRuntime({
         db,
         configDir,
         endpoint: socketPath,
@@ -305,8 +404,16 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
         controllerIdentity: identity,
         log
       })
-      registry = composed.registry as unknown as RegistryLike
-      hostConnector = (endpoint) => composed!.hostClientByEndpoint(endpoint)
+      composed = runtime
+      registry = runtime.registry as unknown as RegistryLike
+      hostConnector = (endpoint) => runtime.hostClientByEndpoint(endpoint)
+      lifecycle.deps.caller = (operation, payload, expectedRevisions) =>
+        makeCaller(runtime.registry, {
+          principalId: 'operator-local' as AuthenticatedContext['principalId'],
+          controllerEpoch: lifecycle.epoch as AuthenticatedContext['controllerEpoch'],
+          grantRevisions: currentGrantRevisions(db, 'operator-local'),
+          transportSessionId: `mahasd-drain:${process.pid}`
+        })(operation, payload, expectedRevisions)
       log({
         t: 'mahasd.composed',
         operations: [...OPERATION_NAMES].filter((name) => name !== 'host.hello').length,
@@ -336,6 +443,7 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
     describe: registry.describe?.bind(registry)
   }
   const postCommitQueue: Array<() => void> = []
+  const recoveryDeps = composed?.recoveryDeps
   registerRuntimeOps(gated, {
     lifecycle,
     enqueueAfterCommit: (fn) => {
@@ -344,27 +452,47 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
         const job = postCommitQueue.shift()
         job?.()
       })
-    }
+    },
+    reconcileExecutions: recoveryDeps
+      ? (db, ctx, scope) => reconcileExecutions(recoveryDeps, db, ctx, scope)
+      : undefined
   })
   opts.registerDomainOps?.(gated)
   lifecycle.readiness.allowPreReady(opts.preReadyAllowedExtra ?? [])
 
   // 7. serve + publish endpoint file — mutation gate stays closed until reconcile
-  const authenticate: AuthenticateFn =
-    opts.authenticate ??
-    ((credential: unknown): AuthenticatedContext => {
-      // v1 local trust model: the unix socket's filesystem permissions are the
-      // operator credential boundary (spec §6). Real grant resolution is the
-      // access boundary's (IMP-10); here we stamp the CURRENT epoch so stale-
-      // epoch calls are fenced by the operations themselves.
-      const c = (credential ?? {}) as { principalId?: string }
-      return {
-        principalId: (c.principalId ?? 'operator-local') as AuthenticatedContext['principalId'],
-        controllerEpoch: lifecycle.epoch as AuthenticatedContext['controllerEpoch'],
-        grantRevisions: {},
-        transportSessionId: randomUUID()
-      }
-    })
+  // Two sockets, two authenticators (C-ACCESS). Client principalId/memberId/
+  // executionId are never copied into context.
+  const authenticateOperator: AuthenticateFn = (credential) => {
+    const c = credentialFields(credential)
+    if (c.kind !== 'operator') {
+      unauthenticated('operator endpoint requires an operator credential')
+    }
+    return {
+      principalId: 'operator-local' as AuthenticatedContext['principalId'],
+      controllerEpoch: lifecycle.epoch as AuthenticatedContext['controllerEpoch'],
+      grantRevisions: currentGrantRevisions(db, 'operator-local'),
+      transportSessionId: randomUUID()
+    }
+  }
+  const authenticateWorker: AuthenticateFn = (credential) => {
+    const c = credentialFields(credential)
+    if (c.kind !== 'worker') {
+      unauthenticated('worker endpoint requires a worker credential')
+    }
+    if (typeof c.credentialId !== 'string' || typeof c.secret !== 'string') {
+      unauthenticated('worker credential requires credentialId and secret')
+    }
+    const binding = authenticateWorkerCredential(db, c.credentialId, c.secret)
+    if (!binding) unauthenticated('credential refused')
+    return {
+      ...bindingToContextFields(binding),
+      controllerEpoch: lifecycle.epoch as AuthenticatedContext['controllerEpoch'],
+      transportSessionId: randomUUID()
+    }
+  }
+  const operatorAuth = opts.authenticate ?? authenticateOperator
+  const workerAuth = opts.authenticate ?? authenticateWorker
   const serveRpc =
     opts.serveRpc ??
     (await lazyDefault('mahas-runtime rpc transport', async () => {
@@ -375,25 +503,41 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
     closeDb()
     return fail(serveRpc)
   }
-  const server = serveRpc(gated, socketPath, authenticate)
-  if (server.ready) {
-    try {
-      await server.ready
-    } catch (err) {
-      closeDb()
-      return fail(
-        new BootstrapError(
+  const workerSocket = mahasdWorkerEndpoint(configDir)
+  let operatorServer: RpcServerLike | null = null
+  let workerServer: RpcServerLike | null = null
+  const bind = async (endpoint: string, auth: AuthenticateFn): Promise<RpcServerLike> => {
+    const server = serveRpc(gated, endpoint, auth)
+    if (server.ready) {
+      try {
+        await server.ready
+      } catch (err) {
+        await server.close().catch(() => {})
+        throw new BootstrapError(
           'IO',
-          `cannot bind mahasd endpoint ${socketPath}: ${err instanceof Error ? err.message : String(err)}`
+          `cannot bind mahasd endpoint ${endpoint}: ${err instanceof Error ? err.message : String(err)}`
         )
-      )
+      }
     }
+    return server
+  }
+  try {
+    operatorServer = await bind(socketPath, operatorAuth)
+    if (workerSocket !== socketPath) {
+      workerServer = await bind(workerSocket, workerAuth)
+    }
+  } catch (err) {
+    await operatorServer?.close().catch(() => {})
+    await workerServer?.close().catch(() => {})
+    closeDb()
+    return fail(err)
   }
   await publishEndpointFile(paths.endpointFile, endpointFile)
   lifecycle.readiness.mark('endpoint-published')
   log({
     t: 'mahasd.endpoint-published',
     endpoint: socketPath,
+    workerEndpoint: workerServer?.endpoint ?? null,
     pid: identity.pid,
     epoch: lifecycle.epoch,
     incarnation: endpointFile.endpointIncarnation
@@ -418,7 +562,8 @@ export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandl
     } catch {
       /* instance row best-effort */
     }
-    await server.close().catch(() => {})
+    await operatorServer?.close().catch(() => {})
+    await workerServer?.close().catch(() => {})
     // let the last response flush to the client before we vanish
     await new Promise((r) => setTimeout(r, 150))
     closeDb()

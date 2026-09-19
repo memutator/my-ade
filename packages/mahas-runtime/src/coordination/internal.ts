@@ -493,8 +493,26 @@ export function activeDispatchForExecution(db: DatabaseSync, executionId: string
  */
 export function recheckCallerGrants(db: DatabaseSync, ctx: AuthenticatedContext, at: number): void {
   for (const [grantId, rev] of Object.entries(ctx.grantRevisions ?? {})) {
-    const r = one(db, 'SELECT revision, revoked_at, expires_at FROM grants WHERE id=?', grantId)
+    const r = one(
+      db,
+      'SELECT revision, revoked_at, expires_at, principal_id FROM grants WHERE id=?',
+      grantId
+    )
     if (!r) fail('GRANT_REVOKED', `grant ${grantId} no longer exists`, 'reconcile')
+    // F-022: an attested grant id is only proof when the row belongs to this
+    // principal (or the member it is bound to — team.assign keys the
+    // assignment grant to the memberId). A foreign grant id is not an
+    // attestation, it is a borrowed authority.
+    const owner = String(r!.principal_id)
+    const owned =
+      owner === String(ctx.principalId) || (ctx.memberId != null && owner === String(ctx.memberId))
+    if (!owned) {
+      fail(
+        'UNAUTHENTICATED',
+        `grant ${grantId} belongs to principal ${owner}, not ${String(ctx.principalId)}`,
+        'none'
+      )
+    }
     if (num(r!.revision) !== rev) {
       fail(
         'GRANT_REVOKED',
@@ -516,7 +534,30 @@ export function callerGrantsOfKind(
   kind: string,
   at: number
 ): Grant[] {
-  const out: Grant[] = []
+  // F-061: union semantics — the SAME candidate model as decide()'s
+  // callerGrantRecords (principal + bound-member active grants, plus owned
+  // attested ids). The old either/or (empty revisions → owner scan, else
+  // attested-only) hid legitimately-owned provisioning grants from
+  // checkProvisioning whenever the credential binding attested a different
+  // grant — a member owning a provisioning grant could not provision unless
+  // the assignment binding happened to attest it. Ownership-scoping (F-022)
+  // is preserved on both halves: no foreign row is ever coverage.
+  const owners = [String(ctx.principalId)]
+  if (ctx.memberId != null && String(ctx.memberId) !== String(ctx.principalId)) {
+    owners.push(String(ctx.memberId))
+  }
+  const ownerSet = new Set<string>(owners)
+  const out = new Map<string, Grant>()
+  for (const g of all(
+    db,
+    `SELECT * FROM grants WHERE principal_id IN (${owners.map(() => '?').join(',')}) ` +
+      'AND kind=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)',
+    ...owners,
+    kind,
+    at
+  ).map(toGrant)) {
+    out.set(g.id as string, g)
+  }
   for (const grantId of Object.keys(ctx.grantRevisions ?? {})) {
     const r = one(
       db,
@@ -525,9 +566,11 @@ export function callerGrantsOfKind(
       kind,
       at
     )
-    if (r) out.push(toGrant(r))
+    // F-022: same ownership rule as the decision path — a foreign grant row is
+    // never coverage for this caller's provisioning claim.
+    if (r && ownerSet.has(String(r.principal_id))) out.set(grantId, toGrant(r))
   }
-  return out
+  return [...out.values()]
 }
 
 /* ------------------------------------------------------------------ */
@@ -542,6 +585,29 @@ export function requireOpenRun(run: Run, op: string): void {
 }
 
 /** draft→active on the first real work mutation (assign / plan commit). */
+/** declared coordinator role for a Run — persisted on create via domain event
+ *  (runs v1 has no coordinator_role_id column). */
+export function coordinatorRoleIdOf(db: DatabaseSync, runId: string): string | undefined {
+  const col = one(db, "SELECT name FROM pragma_table_info('runs') WHERE name='coordinator_role_id'")
+  if (col) {
+    const r = one(db, 'SELECT coordinator_role_id FROM runs WHERE id=?', runId)
+    const v = r?.coordinator_role_id
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  const ev = one(
+    db,
+    "SELECT payload_json FROM domain_events WHERE aggregate_id=? AND event_type='run.created' ORDER BY sequence ASC LIMIT 1",
+    runId
+  )
+  if (!ev) return undefined
+  try {
+    const payload = JSON.parse(ev.payload_json as string) as { coordinatorRoleId?: unknown }
+    return typeof payload.coordinatorRoleId === 'string' ? payload.coordinatorRoleId : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function activateRunIfDraft(db: DatabaseSync, runRow: Run): void {
   if (runRow.state === 'draft') {
     run(

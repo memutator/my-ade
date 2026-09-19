@@ -143,6 +143,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+function loadPhaseFromRoutes(routes: unknown[]): string | undefined {
+  const names = routes.filter((r): r is string => typeof r === 'string')
+  if (names.includes('mandatory-text') || names.includes('inline')) return 'inline'
+  if (names.includes('confirmed-preload') || names.includes('preload')) return 'preload'
+  if (names.includes('catalog')) return 'catalog'
+  return undefined
+}
+
+/** execution-root role/manifest.json must not carry maintenanceBasis */
+export function executionFacingManifestJson(raw: string): string {
+  try {
+    const value = JSON.parse(raw) as unknown
+    if (!isRecord(value) || value.maintenanceBasis === undefined) return raw
+    const { maintenanceBasis: _drop, ...rest } = value
+    void _drop
+    return canonicalJson(rest)
+  } catch {
+    return raw
+  }
+}
+
 export function parseBundleManifest(raw: unknown): BundleManifest {
   const value = typeof raw === 'string' ? JSON.parse(raw) : raw
   if (!isRecord(value)) {
@@ -156,7 +177,25 @@ export function parseBundleManifest(raw: unknown): BundleManifest {
     if (!isRecord(c)) {
       fail('MODEL_INVALID', `manifest component[${i}] is not an object`)
     }
-    const { componentId, kind, digest, path, scope, mode, activation, loadPhase, route } = c
+    const { componentId, kind, scope, mode, activation, route } = c
+    const digest =
+      typeof c.digest === 'string' && c.digest.length > 0
+        ? c.digest
+        : typeof c.blobDigest === 'string'
+          ? c.blobDigest
+          : undefined
+    const path =
+      typeof c.path === 'string' && c.path.length > 0
+        ? c.path
+        : typeof c.installPath === 'string'
+          ? c.installPath
+          : undefined
+    const loadPhase =
+      typeof c.loadPhase === 'string'
+        ? c.loadPhase
+        : Array.isArray(c.loadRoutes)
+          ? loadPhaseFromRoutes(c.loadRoutes)
+          : undefined
     if (typeof componentId !== 'string' || componentId.length === 0) {
       fail('MODEL_INVALID', `manifest component[${i}] missing componentId`)
     }
@@ -390,8 +429,10 @@ export function planExecutionFiles(args: PlanExecutionFilesArgs): PlannedFile[] 
     })
   }
 
-  // role/manifest.json — the bundle manifest, verbatim
-  push('role/manifest.json', enc.encode(args.manifestRaw), { label: 'manifest' })
+  // role/manifest.json — execution-facing: strip maintenanceBasis (inspector-only)
+  push('role/manifest.json', enc.encode(executionFacingManifestJson(args.manifestRaw)), {
+    label: 'manifest'
+  })
 
   // declared components
   for (const c of args.manifest.components) {

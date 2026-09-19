@@ -16,10 +16,10 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { authorize, issueGrant } from '../access/authorize.ts'
-import { appendDomainEvent, putContentBlob, sha256Hex } from '../storage/db.ts'
+import { appendDomainEvent, sha256Hex } from '../storage/db.ts'
 import type { TxnContext } from '../api/registry.ts'
 import type { Id, ArtifactRef } from '../../../mahas-contracts/src/common.ts'
-import type { InputBinding, Member } from '../../../mahas-contracts/src/work.ts'
+import type { Member } from '../../../mahas-contracts/src/work.ts'
 import type { Grant } from '../../../mahas-contracts/src/access.ts'
 import {
   asObject,
@@ -38,6 +38,7 @@ import {
   toAssignment,
   toRole,
   toRoleImplementation,
+  toTaskEdge,
   toRoleInterface,
   toExecutionRecord,
   toWorkerJoin,
@@ -51,11 +52,20 @@ import {
   callerGrantsOfKind,
   requireOpenRun,
   activateRunIfDraft,
+  coordinatorRoleIdOf,
   canonicalJson,
   parseJson
 } from './internal.ts'
-import { resolveInputBindings, type ResolvedInput } from './eligibility.ts'
+import { edgeSettlementSatisfied } from './eligibility.ts'
+import { createDispatch } from './dispatch-ops.ts'
+import { advanceDispatchPhase } from './dispatch-authority.ts'
 import type { VerifySelectionToken, SelectionTokenPins } from './index.ts'
+import type { TargetRef } from '../access/authorize.ts'
+import {
+  implementationPinDigest,
+  implementationSetDigest,
+  availabilityForRole
+} from '../discovery/implementation-availability.ts'
 
 /* ------------------------------------------------------------------ */
 /* payloads                                                            */
@@ -142,6 +152,10 @@ export function requiredActionsFor(kind: AssignmentKind): string[] {
     'surface.describe',
     'operation.get',
     'assignment.show',
+    // F-020: the contract makes access.inspect the subject's own-binding view
+    // (spec/contracts/access-cli.md). Without it in the action set the op is
+    // registered but unreachable for every member, self or admin.
+    'access.inspect',
     'inbox.check',
     'inbox.wait',
     'delivery.ack',
@@ -273,30 +287,38 @@ export function recheckImplementation(
     )
   }
   const status = (impl.status as string) ?? ''
-  if (status === 'retired' || status === 'withdrawn' || status === 'disabled') {
+  if (status !== 'published') {
     fail(
       'IMPLEMENTATION_MISSING',
-      `${op}: implementation ${pins.implementationId}@${implementationRevision} is ${status}`,
+      `${op}: implementation ${pins.implementationId}@${implementationRevision} is ${status || 'unpublished'}`,
+      'replan'
+    )
+  }
+  if (pins.implementationId !== undefined && pins.implementationId !== impl.id) {
+    fail(
+      'STALE_REVISION',
+      `${op}: payload implementation ${impl.id} is not the token pin ${pins.implementationId}`,
       'replan'
     )
   }
   if (pins.implementationCandidateDigest !== undefined) {
-    const currentDigest = sha256Hex(
-      canonicalJson({
-        id: impl.id,
-        revision: impl.revision,
-        interfaceDigest: impl.interfaceDigest,
-        profileId: impl.profileId,
-        profileRevision: impl.profileRevision,
-        status: impl.status
-      })
-    )
-    // the token pins the candidate digest seen at search time; a changed
-    // implementation invalidates the selection (검색→배정 동일 version)
+    const currentDigest = implementationPinDigest({
+      id: impl.id as string,
+      revision: impl.revision as number,
+      interfaceDigest: impl.interfaceDigest as string,
+      profileId: impl.profileId as string,
+      profileRevision: impl.profileRevision as number,
+      status: impl.status as string
+    })
+    const shortDigest = sha256Hex(canonicalJson({ id: impl.id, revision: impl.revision }))
+    const { items: published } = availabilityForRole(db, run.modelVersion as string, pins.roleId, {
+      observedAt: nowMs()
+    })
+    const setDigest = implementationSetDigest(published)
     if (
       pins.implementationCandidateDigest !== currentDigest &&
-      pins.implementationCandidateDigest !==
-        sha256Hex(canonicalJson({ id: impl.id, revision: impl.revision }))
+      pins.implementationCandidateDigest !== shortDigest &&
+      pins.implementationCandidateDigest !== setDigest
     ) {
       fail('STALE_REVISION', `${op}: implementation candidate digest moved since search`, 'replan')
     }
@@ -327,14 +349,34 @@ export function recheckImplementation(
 }
 
 /* provisioning grant scope_json shape (D-ACCESS §1 ProvisioningGrant).
-   IMP-10 owns the authoritative JSON — fields follow the domain spec. */
+   IMP-10 stores placementScope as TargetRef[]; older rows used {hostIds}. */
 export interface ProvisioningScope {
   allowedRoleIds?: string[]
-  placementScope?: { hostIds?: string[]; labels?: string[]; checkoutIds?: string[] }
+  placementScope?:
+    | TargetRef[]
+    | { hostIds?: string[]; labels?: string[]; checkoutIds?: string[] }
   maxMembers?: number
   allowedPolicyRevision?: { policyId?: string; id?: string; revision?: number } | string
   profileAdmission?: 'verified-only' | 'documented-in-verification-run'
   [k: string]: unknown
+}
+
+function placementAllows(
+  ps: NonNullable<ProvisioningScope['placementScope']>,
+  intent: Record<string, unknown>
+): boolean {
+  const host = typeof intent.hostId === 'string' ? intent.hostId : undefined
+  const checkout = typeof intent.checkoutId === 'string' ? intent.checkoutId : undefined
+  if (Array.isArray(ps)) {
+    const hostIds = ps.filter((t) => t && t.kind === 'host').map((t) => t.id)
+    const checkoutIds = ps.filter((t) => t && (t.kind === 'checkout' || t.kind === 'workspace')).map((t) => t.id)
+    if (host && hostIds.length > 0 && !hostIds.includes(host)) return false
+    if (checkout && checkoutIds.length > 0 && !checkoutIds.includes(checkout)) return false
+    return true
+  }
+  if (host && Array.isArray(ps.hostIds) && !ps.hostIds.includes(host)) return false
+  if (checkout && Array.isArray(ps.checkoutIds) && !ps.checkoutIds.includes(checkout)) return false
+  return true
 }
 
 export interface ProvisioningCheck {
@@ -360,7 +402,11 @@ export function checkProvisioning(
   let coveringScope: ProvisioningScope | null = null
 
   for (const g of grants) {
-    const scope = (g.scope ?? {}) as ProvisioningScope
+    const raw = (g.scope ?? {}) as Record<string, unknown>
+    const nested = raw.provisioning
+    const scope = (
+      nested !== null && typeof nested === 'object' ? nested : raw
+    ) as ProvisioningScope
     const allowed = scope.allowedRoleIds
     if (Array.isArray(allowed) && !allowed.includes(roleId)) continue
     if (scope.maxMembers !== undefined) {
@@ -372,11 +418,7 @@ export function checkProvisioning(
       if (((used?.n as number) ?? 0) >= scope.maxMembers) continue
     }
     if (scope.placementScope && placementIntent) {
-      const ps = scope.placementScope
-      const host = placementIntent.hostId as string | undefined
-      if (host && Array.isArray(ps.hostIds) && !ps.hostIds.includes(host)) continue
-      const checkout = placementIntent.checkoutId as string | undefined
-      if (checkout && Array.isArray(ps.checkoutIds) && !ps.checkoutIds.includes(checkout)) continue
+      if (!placementAllows(scope.placementScope, placementIntent)) continue
     }
     covering = g
     coveringScope = scope
@@ -550,13 +592,23 @@ export function teamAssign(
     }
   }
 
-  // 4) single coordination owner per run
-  if (input.assignmentKind === 'coordination' && runRow.coordinatorMemberId !== undefined) {
-    fail(
-      'INVALID_TRANSITION',
-      `${op}: run ${input.runId} already has coordinator member ${runRow.coordinatorMemberId}`,
-      'replan'
-    )
+  // 4) single coordination owner per run, pinned to the role declared at create
+  if (input.assignmentKind === 'coordination') {
+    if (runRow.coordinatorMemberId !== undefined) {
+      fail(
+        'INVALID_TRANSITION',
+        `${op}: run ${input.runId} already has coordinator member ${runRow.coordinatorMemberId}`,
+        'replan'
+      )
+    }
+    const declared = coordinatorRoleIdOf(txn.db, input.runId)
+    if (declared !== undefined && declared !== pins.roleId) {
+      fail(
+        'SCOPE_DENIED',
+        `${op}: coordination assign requires coordinator role ${declared}, token has ${pins.roleId}`,
+        'replan'
+      )
+    }
   }
 
   const memberId = newId('mem')
@@ -571,25 +623,13 @@ export function teamAssign(
   // never payload-chosen)
   exec(txn.db, "INSERT INTO principals(id,kind,status) VALUES(?,'member','active')", memberId)
 
-  const scope = {
-    runId: input.runId,
-    roleId: pins.roleId,
-    boundaryId: role.boundaryId,
-    taskIds: input.taskId ? [input.taskId] : [],
-    placement: input.placementIntent ?? {},
-    parentProvisioningGrant: prov.coveringGrant!.id
-  }
-  const grant = issueGrant(txn.db, {
-    kind: 'assignment',
-    principalId: memberId,
-    parentGrantId: prov.coveringGrant!.id,
-    policyId: prov.policyPin.policyId,
-    policyRevision: prov.policyPin.policyRevision,
-    scope,
-    actions: grantedActions
-  } as Parameters<typeof issueGrant>[1])
-  const grantId = ((grant as Grant).id ?? (grant as { grantId?: string }).grantId) as Id
-
+  // F-058: the member row must exist BEFORE issueGrant. The issued grant's
+  // scope carries this memberId, and assertChildWithinParent resolves it
+  // through expandOne('member') — with no row the target is unresolvable,
+  // uncovered by every non-'*' parent, and team.assign is structurally
+  // uncommittable (SCOPE_DENIED). The members row has no grant FK, so
+  // inserting it first is constraint-safe; the assignments row (which needs
+  // the grant id) still follows the grant.
   exec(
     txn.db,
     "INSERT INTO members(id,run_id,model_version,role_id,implementation_id,implementation_revision,generation,current_execution_id,state,revision) VALUES(?,?,?,?,?,?,1,NULL,'assigned',1)",
@@ -600,6 +640,34 @@ export function teamAssign(
     implementationId,
     input.implementationRevision
   )
+
+  const targets: TargetRef[] = [
+    { kind: 'run', id: input.runId },
+    { kind: 'role', id: pins.roleId },
+    { kind: 'boundary', id: role.boundaryId as string },
+    ...(input.taskId ? [{ kind: 'task', id: input.taskId }] : [])
+  ]
+  const scope = {
+    runId: input.runId,
+    memberId,
+    roleId: pins.roleId,
+    boundaryId: role.boundaryId,
+    taskIds: input.taskId ? [input.taskId] : [],
+    targets,
+    placement: input.placementIntent ?? {},
+    parentProvisioningGrant: prov.coveringGrant!.id
+  }
+  const grant = issueGrant(txn.db, {
+    kind: 'assignment',
+    principalId: memberId,
+    parentGrantId: prov.coveringGrant!.id,
+    policyId: prov.policyPin.policyId,
+    policyRevision: prov.policyPin.policyRevision,
+    scope: { runId: input.runId, memberId, targets },
+    actions: grantedActions
+  } as Parameters<typeof issueGrant>[1])
+  const grantId = ((grant as Grant).id ?? (grant as { grantId?: string }).grantId) as Id
+
   exec(
     txn.db,
     'INSERT INTO assignments(id,revision,member_id,kind,mandate_text,grant_id,task_id,task_revision,scope_json) VALUES(?,1,?,?,?,?,?,?,?)',
@@ -738,20 +806,17 @@ export function teamRetire(txn: TxnContext, payload: unknown): TeamRetireResult 
   }
   if (input.activeExecutionDisposition === 'request-stop') {
     for (const e of liveExecs) {
-      const intentId = newId('eff')
-      exec(
-        txn.db,
-        "INSERT INTO effect_intents(id,operation_key,kind,fingerprint,host_id,state,payload_json,receipt_json,residuals_json) VALUES(?,?,'worker.stop',?,?,'prepared',?,'{}','{}')",
-        intentId,
-        `${op}:${input.memberId}:${e.id}`,
-        e.host_id as string | null,
-        canonicalJson({
-          executionId: e.id,
-          generation: e.generation,
-          reason: 'team.retire disposition'
+      effectIntentIds.push(
+        txn.intendEffect({
+          kind: 'worker.stop',
+          hostId: (e.host_id as string | undefined) ?? undefined,
+          payload: {
+            executionId: e.id,
+            generation: e.generation,
+            reason: 'team.retire disposition'
+          }
         })
       )
-      effectIntentIds.push(intentId)
     }
   }
 
@@ -948,13 +1013,20 @@ export function taskDispatch(txn: TxnContext, payload: unknown): TaskDispatchRes
     )
   }
 
-  // member's assignment grant must still be live
+  // covering task assignment (kind+task pin) — not merely the latest row
   const asgRow = one(
     txn.db,
-    'SELECT * FROM assignments WHERE member_id=? ORDER BY revision DESC LIMIT 1',
-    input.memberId
+    "SELECT * FROM assignments WHERE member_id=? AND kind='task' AND task_id=? AND task_revision=? ORDER BY revision DESC LIMIT 1",
+    input.memberId,
+    input.taskId,
+    input.taskRevision
   )
-  if (!asgRow) fail('SCOPE_DENIED', `${op}: member ${input.memberId} has no assignment`)
+  if (!asgRow) {
+    fail(
+      'SCOPE_DENIED',
+      `${op}: member ${input.memberId} has no task assignment covering ${input.taskId}@${input.taskRevision}`
+    )
+  }
   const asg = toAssignment(asgRow!)
   const grant = one(txn.db, 'SELECT * FROM grants WHERE id=?', asg.grantId as string)
   if (
@@ -965,110 +1037,88 @@ export function taskDispatch(txn: TxnContext, payload: unknown): TaskDispatchRes
     fail('GRANT_REVOKED', `${op}: member assignment grant ${asg.grantId} is not live`, 'replan')
   }
 
-  // input bindings: resolved NOW to immutable artifact pins
-  const specInputs = (spec!.inputs as InputBinding[] | null | undefined) ?? []
-  const { resolved, pending } = resolveInputBindings(
+  const inbound = all(
     txn.db,
+    'SELECT * FROM task_edges WHERE run_id=? AND plan_revision=? AND to_task=?',
     runRow.id as string,
-    runRow.modelVersion as string,
-    specInputs
-  )
-  const pinsBySlot = new Map<string, ResolvedInput>()
-  for (const r of resolved) pinsBySlot.set(r.slot, r)
+    current,
+    input.taskId
+  ).map(toTaskEdge)
+  for (const edge of inbound) {
+    const pred = one(
+      txn.db,
+      'SELECT task_revision FROM plan_tasks WHERE run_id=? AND plan_revision=? AND task_id=?',
+      runRow.id as string,
+      current,
+      edge.predecessorTaskId as string
+    )
+    const sat = edgeSettlementSatisfied(
+      txn.db,
+      edge,
+      pred?.task_revision as number | undefined
+    )
+    if (!sat.ok) {
+      fail(
+        'INPUT_NOT_READY',
+        `${op}: ${sat.reason ?? `edge ${edge.predecessorTaskId}→${input.taskId} unmet`}`,
+        'same-operation'
+      )
+    }
+  }
+
+  const inputOverrides: Record<string, ArtifactRef> = {}
   if (input.inputBindings) {
     for (const b of input.inputBindings) {
-      if (b.artifactId !== undefined) {
-        const art = one(
-          txn.db,
-          'SELECT id, revision, digest FROM artifacts WHERE id=? AND revision=?',
-          b.artifactId,
-          b.artifactRevision ?? -1
+      if (b.artifactId === undefined) continue
+      const art = one(
+        txn.db,
+        'SELECT id, revision, digest, run_id FROM artifacts WHERE id=? AND revision=?',
+        b.artifactId,
+        b.artifactRevision ?? -1
+      )
+      if (!art)
+        fail(
+          'ARTIFACT_MISMATCH',
+          `${op}: supplied binding ${b.artifactId}@${b.artifactRevision} not found`
         )
-        if (!art)
-          fail(
-            'ARTIFACT_MISMATCH',
-            `${op}: supplied binding ${b.artifactId}@${b.artifactRevision} not found`
-          )
-        if (b.digest !== undefined && (art!.digest as string) !== b.digest) {
-          fail('ARTIFACT_MISMATCH', `${op}: supplied binding digest mismatch for ${b.artifactId}`)
-        }
-        pinsBySlot.set(b.slot, {
-          slot: b.slot,
-          kind: 'artifact',
-          artifact: {
-            artifactId: art!.id as Id,
-            revision: art!.revision as ArtifactRef['revision'],
-            digest: art!.digest as string
-          }
-        })
+      if ((art!.run_id as string) !== (runRow.id as string)) {
+        fail(
+          'ARTIFACT_MISMATCH',
+          `${op}: supplied binding ${b.artifactId} belongs to run ${art!.run_id}, not ${runRow.id}`
+        )
+      }
+      if (b.digest !== undefined && (art!.digest as string) !== b.digest) {
+        fail('ARTIFACT_MISMATCH', `${op}: supplied binding digest mismatch for ${b.artifactId}`)
+      }
+      inputOverrides[b.slot] = {
+        artifactId: art!.id as Id,
+        revision: art!.revision as ArtifactRef['revision'],
+        digest: art!.digest as string
       }
     }
   }
-  const specSlots = new Set(specInputs.map((b) => b.slot))
-  for (const s of pinsBySlot.keys()) {
-    if (!specSlots.has(s)) pinsBySlot.delete(s)
-  }
-  const stillPending = pending.filter((pi) => !pinsBySlot.has(pi.slot))
-  const requiredPending = stillPending.filter((pi) => {
-    const b = specInputs.find((x) => x.slot === pi.slot)
-    return (b?.required ?? true) === true
-  })
-  if (requiredPending.length > 0) {
-    fail('INPUT_NOT_READY', `${op}: required inputs unresolved`, 'same-operation', requiredPending)
-  }
 
-  const assignmentId = asg.id as Id
-  const assignmentRevision = asg.revision as number
-
-  // WorkEnvelope — immutable work-order body pinned by digest
-  const envelopeBody = {
+  const messageId = newId('msg')
+  const deliveryId = newId('dlv')
+  const created = createDispatch(txn.db, {
     taskId: input.taskId,
     taskRevision: input.taskRevision,
     memberId: input.memberId,
-    runId: runRow.id,
-    title: spec!.title,
-    requirementText: spec!.requirementText,
-    mandateText: asg.mandateText,
-    inputs: [...pinsBySlot.values()],
-    issuedAt: at
-  }
-  const bodyRef = putContentBlob(
-    txn.db,
-    new TextEncoder().encode(canonicalJson(envelopeBody)),
-    'application/json'
-  )
-  const bindings = {
-    taskId: input.taskId,
-    taskRevision: input.taskRevision,
-    inputs: [...pinsBySlot.values()],
-    assignmentId,
-    assignmentRevision,
     executionId: input.expectedExecutionId,
-    executionGeneration: input.expectedExecutionGeneration
-  }
-  const envelopeDigest = sha256Hex(
-    canonicalJson({
-      assignmentId,
-      assignmentRevision,
-      kind: 'task',
-      bodyDigest: bodyRef.digest,
-      bindings
-    })
-  )
-  exec(
-    txn.db,
-    'INSERT INTO work_envelopes(digest,assignment_id,assignment_revision,kind,body_digest,bindings_json) VALUES(?,?,?,?,?,?)',
-    envelopeDigest,
-    assignmentId,
-    assignmentRevision,
-    'task',
-    bodyRef.digest,
-    canonicalJson(bindings)
-  )
+    generation: input.expectedExecutionGeneration,
+    envelope: {
+      assignmentId: asg.id as string,
+      assignmentRevision: asg.revision as number,
+      inputOverrides
+    },
+    assignmentDeliveryId: deliveryId
+  })
+  const dispatchId = created.dispatch.id as Id
+  const envelopeDigest = created.envelope.digest
 
-  const dispatchId = newId('dsp')
-  const messageId = newId('msg')
-  const deliveryId = newId('dlv')
+  // reuse path: execution is already joined — reserved → awaiting_accept
+  advanceDispatchPhase(txn.db, dispatchId as string, 'awaiting_join')
+  advanceDispatchPhase(txn.db, dispatchId as string, 'awaiting_accept')
 
   exec(
     txn.db,
@@ -1102,19 +1152,6 @@ export function taskDispatch(txn: TxnContext, payload: unknown): TaskDispatchRes
       taskRevision: input.taskRevision
     })
   )
-  exec(
-    txn.db,
-    "INSERT INTO dispatches(id,task_id,task_revision,member_id,execution_id,generation,envelope_digest,phase,authority_state,assignment_delivery_id,revision) VALUES(?,?,?,?,?,?,?,'awaiting_accept','active',?,1)",
-    dispatchId,
-    input.taskId,
-    input.taskRevision,
-    input.memberId,
-    input.expectedExecutionId,
-    input.expectedExecutionGeneration,
-    envelopeDigest,
-    deliveryId
-  )
-  exec(txn.db, 'UPDATE tasks SET current_dispatch_id=? WHERE id=?', dispatchId, input.taskId)
 
   appendDomainEvent(
     txn.db,
@@ -1134,8 +1171,6 @@ export function taskDispatch(txn: TxnContext, payload: unknown): TaskDispatchRes
     }
   )
 
-  // NOTE: enqueue success is NOT task acceptance — the member reads the
-  // envelope from its inbox and declares task.accept against this digest.
   return { dispatchId, envelopeDigest, messageId, deliveryId, accepted: false }
 }
 
@@ -1286,5 +1321,60 @@ export function assignmentPreview(
     },
     contextBlockers,
     resourceConditions
+  }
+}
+
+/** C-WORK assignment.show — current mandate for ctx.memberId (or payload). */
+export function assignmentShow(txn: TxnContext, payload: unknown): unknown {
+  const op = 'assignment.show'
+  const p = asObject(payload ?? {}, op)
+  const memberId = optStr(p, 'memberId', op) ?? (txn.ctx.memberId as string | undefined)
+  if (!memberId) fail('SCOPE_DENIED', `${op}: member credential required`)
+  if (txn.ctx.memberId !== undefined && txn.ctx.memberId !== memberId) {
+    fail('SCOPE_DENIED', `${op}: cannot show another member's assignment`)
+  }
+  const member = loadMember(txn.db, memberId)
+  authorize(txn.ctx, op, [
+    { kind: 'member', id: memberId },
+    { kind: 'run', id: member.runId as string }
+  ])
+  const assignments = all(
+    txn.db,
+    'SELECT * FROM assignments WHERE member_id=? ORDER BY revision DESC',
+    memberId
+  ).map(toAssignment)
+  const latest = assignments[0]
+  const roleRow = one(
+    txn.db,
+    'SELECT * FROM rdd_roles WHERE model_version=? AND id=?',
+    member.modelVersion as string,
+    member.roleId as string
+  )
+  const spec =
+    latest?.taskId !== undefined && latest.taskRevision !== undefined
+      ? loadTaskSpec(txn.db, latest.taskId as string, latest.taskRevision as number)
+      : null
+  const peers = all(
+    txn.db,
+    'SELECT id, role_id, state FROM members WHERE run_id=? AND id<>? AND state<>?',
+    member.runId as string,
+    memberId,
+    'retired'
+  ).map((r) => ({
+    memberId: r.id as string,
+    roleId: r.role_id as string,
+    state: r.state as string
+  }))
+  return {
+    memberId,
+    member,
+    role: roleRow ? toRole(roleRow) : { id: member.roleId },
+    assignments,
+    currentMandate: latest?.mandateText ?? null,
+    requirementText: spec?.requirementText ?? null,
+    inputBindings: spec?.inputs ?? [],
+    outputs: spec?.outputs ?? [],
+    settlementPolicy: spec?.settlementPolicy ?? null,
+    peers
   }
 }

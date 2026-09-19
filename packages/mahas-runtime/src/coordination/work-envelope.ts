@@ -203,7 +203,8 @@ export function buildTaskEnvelope(
     )
   }
   const inputs = pinInputs(db, (specField(spec, 'inputs', 'inputBindings') as unknown[]) ?? [], {
-    overrides: input.inputOverrides
+    overrides: input.inputOverrides,
+    consumerRunId: task!.runId as string
   })
   const peers = input.peers ?? []
   const reportContract = {

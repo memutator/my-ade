@@ -16,11 +16,17 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
 import type { DiscoveryDeps } from './deps.ts'
 import {
+  loadContainsTree,
+  resolveTerritory,
+  type BoundaryPathRow as TerritoryPathRow
+} from '../model/territory.ts'
+import {
   ancestorsOf,
   claimantsForPath,
   eventHighWater,
   getBoundary,
   listRoles,
+  projectRepositoryRoot,
   resolveModelVersion,
   roleSummary,
   tryNormalizeRepoPath,
@@ -54,38 +60,40 @@ interface VisibleClaim extends PathClaim {
   boundaryName: string
 }
 
+export interface VisibleTerritory {
+  status: 'resolved' | 'ambiguous' | 'unassigned'
+  winnerId?: string
+  /** non-ancestor overlapping claimants — never deepest-wins */
+  ambiguousBoundaryIds: string[]
+}
+
 /**
- * Pick the deepest owning boundary among visible claims.
- * Returns the winner, or the tied winners when the deepest claim is held
- * by several boundaries that are NOT in an ancestor relation (territory
- * overlap → ambiguous, never silently tie-broken).
+ * Territory decision for one normalized path, using IMP-05 resolveTerritory
+ * over the caller's visible claims. Non-ancestor overlap is always
+ * ambiguous — a deeper claim never silently wins.
  */
-function resolveDeepest(
+export function resolveVisibleTerritory(
   db: DatabaseSync,
   modelVersion: string,
-  owners: VisibleClaim[]
-): { winner?: VisibleClaim; tied: VisibleClaim[] } {
-  if (owners.length === 0) return { tied: [] }
-  const maxDepth = Math.max(...owners.map((c) => c.depth))
-  const deepest = owners.filter((c) => c.depth === maxDepth)
-  if (deepest.length === 1) return { winner: deepest[0], tied: [] }
-
-  // ancestor-related ties resolve to the tree-descendant (more specific
-  // responsibility); only non-ancestor overlap is ambiguous
-  const ancestorCache = new Map<string, Set<string>>()
-  const anc = (id: string): Set<string> => {
-    let s = ancestorCache.get(id)
-    if (s === undefined) {
-      s = new Set(ancestorsOf(db, modelVersion, id))
-      ancestorCache.set(id, s)
-    }
-    return s
+  np: NormalizedPath,
+  visibleBoundary: (id: string) => boolean
+): VisibleTerritory {
+  const pathRows = db
+    .prepare('SELECT boundary_id, path, kind FROM boundary_paths WHERE model_version = ?')
+    .all(modelVersion) as unknown as TerritoryPathRow[]
+  const visibleRows = pathRows.filter((r) => visibleBoundary(r.boundary_id))
+  const tree = loadContainsTree(db, modelVersion as never)
+  const lookup = resolveTerritory(tree, visibleRows, np.path)
+  if (lookup.status === 'assigned' && lookup.boundaryId !== undefined) {
+    return { status: 'resolved', winnerId: lookup.boundaryId as string, ambiguousBoundaryIds: [] }
   }
-  const descendants = deepest.filter((d) =>
-    deepest.every((o) => o === d || anc(d.boundaryId).has(o.boundaryId))
-  )
-  if (descendants.length === 1) return { winner: descendants[0], tied: [] }
-  return { tied: deepest }
+  if (lookup.status === 'ambiguous') {
+    return {
+      status: 'ambiguous',
+      ambiguousBoundaryIds: (lookup.ambiguousBoundaryIds ?? []).map(String)
+    }
+  }
+  return { status: 'unassigned', ambiguousBoundaryIds: [] }
 }
 
 export function responsibilityLocate(
@@ -102,10 +110,11 @@ export function responsibilityLocate(
   ])
   vis.require()
 
+  const repoRoot = projectRepositoryRoot(db, req.projectId)
   const items: LocatedPath[] = []
   for (const rawPath of req.paths) {
     const np: NormalizedPath | null =
-      typeof rawPath === 'string' ? tryNormalizeRepoPath(rawPath) : null
+      typeof rawPath === 'string' ? tryNormalizeRepoPath(rawPath, repoRoot) : null
     if (np === null) {
       items.push({
         path: String(rawPath),
@@ -128,7 +137,18 @@ export function responsibilityLocate(
 
     const owners = visible.filter((c) => c.claim === 'owns')
     const covers = visible.filter((c) => c.claim === 'covers')
-    const { winner, tied } = resolveDeepest(db, mv.id, owners)
+    const territory = resolveVisibleTerritory(db, mv.id, np, (id) => vis.boundaryVisible(id))
+    const winner =
+      territory.status === 'resolved'
+        ? (visible.find((c) => c.boundaryId === territory.winnerId) ??
+          owners.find((c) => c.boundaryId === territory.winnerId))
+        : undefined
+    const tied =
+      territory.status === 'ambiguous'
+        ? visible.filter(
+            (c) => c.claim === 'owns' && territory.ambiguousBoundaryIds.includes(c.boundaryId)
+          )
+        : []
 
     // deepest first, then stable id order — the shared claim listing
     const sorted = [...visible].sort(

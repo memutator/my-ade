@@ -30,7 +30,9 @@ Error {code, message, retry: none|same-operation|reconcile|replan, details?}
 
 ## 3. idempotency와 admission
 
-mutation은 `(principalScope,operation,operationId)` unique + canonical payload fingerprint를 가진다. 동일 key·동일 payload는 저장된 receipt, 동일 key·다른 payload는 `OPERATION_CONFLICT`다. 기존 receipt 반환에도 현재 읽기 권한을 확인한다. `expectedRevisions`는 authorization 후 actual target을 확인한 같은 write transaction에서 비교한다. side effect 직전에는 현재 grant를 다시 확인하며 이미 시작한 effect는 폐기로 되돌아갔다고 간주하지 않는다.
+mutation은 `(principalScope,operation,operationId)` unique + canonical payload fingerprint를 가진다. 동일 key·동일 payload는 저장된 receipt, 동일 key·다른 payload는 `OPERATION_CONFLICT`다. 기존 receipt 반환에도 현재 읽기 권한을 확인한다. `expectedRevisions`는 authorization 후 actual target을 확인한 같은 write transaction에서 비교한다. 엔티티 키는 그 operation의 `resolveRevisions`가 아는 id다. coordination write의 plan CAS는 payload `expectedPlanRevision`이 정본이며, envelope `expectedRevisions.plan`은 서버가 같은 값으로 번역한다. side effect 직전에는 현재 grant를 다시 확인하며 이미 시작한 effect는 폐기로 되돌아갔다고 간주하지 않는다.
+
+별칭 규칙: 한 필드의 정본 이름은 해당 D-*/C-* 스키마에 한 번만 적는다. 서버는 문서에 나열한 별칭만 정본으로 번역하고, 나열되지 않은 키는 `MODEL_INVALID`로 거절한다. 저장 JSON은 번역 후의 정본 형태다.
 
 원자 단위는 객체 revision 변경 + receipt + domain event + effect intent/outbox다. side effect 실행은 별도다. query는 지정 모델 snapshot과 권한 필터에 묶여 cursor를 이어가며 그 사이 active model이 바뀌어도 한 결과집합을 섞지 않는다. 전체 workflow exactly-once 주장을 하지 않는다.
 
