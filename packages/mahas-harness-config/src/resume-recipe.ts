@@ -18,6 +18,8 @@ export interface HarnessResumeRecipe {
   args?: string[]
 }
 
+export type { HarnessDescriptor } from '../../mahas-contracts/src/harness-descriptor.ts'
+
 /**
  * `<executable> <args…> '<sessionId>'` for a shell. Accepts the Pack recipe and
  * the legacy manifest shape (`cmd`/`args` with the id appended); single-quote

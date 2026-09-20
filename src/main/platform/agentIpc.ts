@@ -15,6 +15,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { appendCapped, decisionsFilePath } from '../eventsFile'
+import type { HarnessDescriptor } from '../../../packages/mahas-contracts/src/index.ts'
 
 export interface AgentIpcDeps {
   /** OS-notification click target */
@@ -29,7 +30,7 @@ const agentsDir = (): string =>
   is.dev ? join(app.getAppPath(), 'resources', 'agents') : join(process.resourcesPath, 'agents')
 
 /** read + parse the agent manifest; {} when it is missing or malformed */
-function readManifest(): Record<string, { domain?: string; match?: string[] }> {
+function readManifest(): Record<string, HarnessDescriptor> {
   try {
     return JSON.parse(readFileSync(join(agentsDir(), 'manifest.json'), 'utf8'))
   } catch {

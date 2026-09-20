@@ -18,7 +18,9 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { SupportAttestation } from '../../../mahas-contracts/src/observation.ts'
-import { authorize } from '../access/authorize.ts'
+import type { HarnessProfileInspectResult } from '../../../mahas-contracts/src/operations/inspector.ts'
+import type { AuthenticatedContext } from '../../../mahas-contracts/src/common.ts'
+import { authorize as defaultAuthorize, type TargetRef } from '../access/authorize.ts'
 import type { TxnContext } from '../api/registry.ts'
 import { appendDomainEvent } from '../storage/db.ts'
 import { COMPONENT_KINDS, type ComponentKind } from './component-graph.ts'
@@ -190,7 +192,8 @@ function validateRoutes(routes: string[]): void {
  */
 export function harnessProfileRegister(
   txn: TxnContext,
-  payload: unknown
+  payload: unknown,
+  deps: RealizationDeps = {}
 ): HarnessProfileRegisterResult {
   const p = asRecord(payload, 'harness.profile.register payload')
   const requestedId = optString(p, 'profileId')
@@ -216,7 +219,7 @@ export function harnessProfileRegister(
   validateRoutes(routes)
 
   const profileId = requestedId ?? mintId('hp')
-  authorize(txn.ctx, 'harness.profile.register', [{ kind: 'harnessProfile', id: profileId }])
+  allow(deps)(txn.ctx, 'harness.profile.register', [{ kind: 'harnessProfile', id: profileId }])
 
   if (loadProfile(txn.db, profileId) !== undefined) {
     fail(
@@ -292,6 +295,13 @@ export type InstallationProbe = (
 
 export interface RealizationDeps {
   probeInstallation?: InstallationProbe
+  authorize?: (ctx: AuthenticatedContext, operation: string, targets: TargetRef[]) => void
+}
+
+function allow(
+  deps: RealizationDeps
+): (ctx: AuthenticatedContext, operation: string, targets: TargetRef[]) => void {
+  return deps.authorize ?? defaultAuthorize
 }
 
 const SECRETISH = /secret|token|credential|password|api[-_]?key|private[-_]?key/i
@@ -315,25 +325,7 @@ export interface HarnessProfileInspectInput {
   hostId?: string
 }
 
-export interface HarnessProfileInspectResult {
-  profileId: string
-  revision: number
-  admissionState: ProfileAdmissionState
-  /** declared identity — what registration claimed, not what was observed */
-  executableIdentity: ExecutableIdentity
-  capabilities: ProfileCapabilities
-  /** recipe capability summary — routes/flags; secret fields scrubbed */
-  recipeSummary: {
-    recipeVersion: number
-    injectionRoutes: string[]
-    hasResumeRecipe: boolean
-    hasWakeRecipe: boolean
-    settingsPolicy: unknown
-  }
-  attestations: SupportAttestation[]
-  /** present ONLY when a probe actually ran on hostId — never fabricated */
-  installationObservation: InstallationObservation | null
-}
+export type { HarnessProfileInspectResult }
 
 export async function harnessProfileInspect(
   txn: TxnContext,
@@ -345,7 +337,7 @@ export async function harnessProfileInspect(
   const revision = p['revision'] === undefined ? undefined : reqInteger(p, 'revision')
   const hostId = optString(p, 'hostId')
 
-  authorize(txn.ctx, 'harness.profile.inspect', [{ kind: 'harnessProfile', id: profileId }])
+  allow(deps)(txn.ctx, 'harness.profile.inspect', [{ kind: 'harnessProfile', id: profileId }])
 
   const profile = loadProfile(txn.db, profileId, revision)
   if (profile === undefined) {
@@ -434,7 +426,11 @@ export const EVIDENCE_KINDS: readonly string[] = [
  * describe a documented-in-verification-run profile, which lands as
  * 'documented', never as verified (instruction §4.5).
  */
-export function harnessProfileAdmit(txn: TxnContext, payload: unknown): HarnessProfileAdmitResult {
+export function harnessProfileAdmit(
+  txn: TxnContext,
+  payload: unknown,
+  deps: RealizationDeps = {}
+): HarnessProfileAdmitResult {
   const p = asRecord(payload, 'harness.profile.admit payload')
   const profileId = reqString(p, 'profileId')
   const profileRevision = reqInteger(p, 'profileRevision')
@@ -445,7 +441,7 @@ export function harnessProfileAdmit(txn: TxnContext, payload: unknown): HarnessP
   }
   const expectedIdentity = asRecord(p['expectedExecutableIdentity'], 'expectedExecutableIdentity')
 
-  authorize(txn.ctx, 'harness.profile.admit', [{ kind: 'harnessProfile', id: profileId }])
+  allow(deps)(txn.ctx, 'harness.profile.admit', [{ kind: 'harnessProfile', id: profileId }])
 
   const source = loadProfile(txn.db, profileId, profileRevision)
   if (source === undefined) {

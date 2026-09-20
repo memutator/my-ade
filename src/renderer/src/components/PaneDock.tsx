@@ -48,8 +48,23 @@ export default function PaneDock(): React.JSX.Element | null {
     if (pane.detached) window.mahas.win.focusDetached(ws.id, pane.id)
     else if (pane.minimized) restorePane(pane.id, ws.id)
   }
-  // mirrors LeafPane.applyTabs — an emptied leaf dies with its last tab
+  // same last-tab rule as LeafPane.applyTabs, including exec unbind/detach
   const closeTab = (pane: PaneState, tabId: string): void => {
+    const tab = pane.tabs.find((x) => x.id === tabId)
+    if (tab?.kind === 'term' && tab.binding) {
+      const viewId = `${ws.id}:${pane.id}:${tabId}`
+      void window.mahas.exec.unbindView({
+        operationId: crypto.randomUUID(),
+        viewId,
+        expectedRevision: tab.binding.revision
+      })
+      if (tab.binding.terminalId) {
+        void window.mahas.exec.op({
+          operation: 'terminal.detach',
+          payload: { terminalId: tab.binding.terminalId, viewId }
+        })
+      }
+    }
     const next = pane.tabs.filter((x) => x.id !== tabId)
     if (!next.length) {
       closePane(pane.id, ws.id)

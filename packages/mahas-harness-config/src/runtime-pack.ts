@@ -18,14 +18,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export interface HarnessResumeRecipe {
-  /** the CLI that reopens a session, e.g. claude */
-  executable: string
-  /** args placed before the session id; SESSION_SLOT marks the slot */
-  args?: string[]
-}
 export { EVENT_SLOT, SESSION_SLOT, resumeCommandText } from './resume-recipe.ts'
-import { SESSION_SLOT } from './resume-recipe.ts'
+export type { HarnessDescriptor, HarnessResumeRecipe } from './resume-recipe.ts'
+import { SESSION_SLOT, type HarnessDescriptor, type HarnessResumeRecipe } from './resume-recipe.ts'
+export type HarnessManifestEntry = HarnessDescriptor
 
 export interface HarnessRuntimeHarness {
   label: string
@@ -388,21 +384,6 @@ export function installerPlan(
 }
 
 /* -------------------------------------------------------------- manifest */
-
-export interface HarnessManifestEntry {
-  match: string[]
-  label: string
-  domain?: string
-  color?: string
-  /** legacy pair; the session id is appended by the caller */
-  resume?: { cmd: string; args: string[] }
-  /** Pack recipe with the SESSION_SLOT placeholder */
-  recipe?: { executable: string; args: string[] }
-  hooks?: string
-  maintenance?: string[]
-  publisher?: string
-  testOnly?: boolean
-}
 
 /**
  * Legacy descriptor shape read by the desktop's agents:manifest IPC and the

@@ -1,4 +1,4 @@
-import type { AgentProviderInfo } from './types'
+import type { AgentProviderInfo, HarnessDescriptor } from './types'
 
 // Harness descriptors come from the builtin.harness-runtime Pack (projected to
 // resources/agents/manifest.json, which the main process reads). The Pack's
@@ -10,18 +10,8 @@ import type { AgentProviderInfo } from './types'
 // function lives in packages/mahas-harness-config (resumeCommandText) and the
 // Pack fixture asserts the projected descriptor carries the same session slot.
 
-interface AgentRecipe {
-  executable?: string
-  args?: string[]
-}
-
-type AgentDescriptor = AgentProviderInfo & {
-  recipe?: AgentRecipe
-  hooks?: string
-  maintenance?: string[]
-  publisher?: string
-  testOnly?: boolean
-}
+type AgentDescriptor = HarnessDescriptor
+type AgentRecipe = NonNullable<HarnessDescriptor['recipe']>
 
 let manifest: Record<string, AgentDescriptor> = {}
 

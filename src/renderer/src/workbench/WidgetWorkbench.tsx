@@ -18,12 +18,13 @@
 //   import WidgetWorkbench, { isWorkbenchWidget } from '../workbench/WidgetWorkbench'
 //   ...
 //   isWorkbenchWidget(tab.widget) ? (
-//     <WidgetWorkbench widget={tab.widget} projectId={projectId} />
+//     <WidgetWorkbench widget={tab.widget} projectId={tab.domainProjectId} onProjectId={…} />
 //   ) : ( …other widget kinds… )
 //
-// `modelVersion` and `runId` are deliberately not props: the 팀장 edits those
-// pins in the view's own context bar, and a hosting component must not pin
-// them. The mount change is written out for the parent in
+// `projectId` is a daemon projects.id (or '' while unconnected). The hosting
+// workspace folder uid must not be passed through. `modelVersion` and `runId`
+// stay unpinned by the host: the 팀장 edits those in the view's own context
+// bar. The mount change is written out for the parent in
 // docs/plans/workbench-scope-mount.md.
 
 import type { WidgetTab } from '../types'
@@ -42,14 +43,16 @@ export function isWorkbenchWidget(kind: WidgetTab['widget']): kind is WorkbenchW
 
 export default function WidgetWorkbench({
   widget,
-  projectId
+  projectId,
+  onProjectId
 }: {
   widget: WorkbenchWidgetKind
-  /** the hosting workspace's desktop project id ('' while unresolved) */
+  /** daemon projects.id; '' / undefined = unconnected */
   projectId: string | undefined
+  onProjectId?: (id: string) => void
 }): React.JSX.Element {
   return (
-    <WorkbenchScopeProvider projectId={projectId ?? ''}>
+    <WorkbenchScopeProvider projectId={projectId ?? ''} onProjectId={onProjectId}>
       {widget === 'responsibility' ? (
         <ResponsibilityView />
       ) : widget === 'team' ? (

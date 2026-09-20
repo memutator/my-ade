@@ -18,7 +18,6 @@
 // Run directly:  node packages/mahas-runtime/src/main.ts [--config-dir DIR]
 //                [--endpoint PATH] [--db PATH]
 
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
@@ -74,7 +73,7 @@ import {
   authenticateWorkerCredential,
   bindingToContextFields
 } from './launch/bootstrap-credential.ts'
-import { mahasdWorkerEndpoint } from './rpc/endpoints.ts'
+import { mahasdWorkerEndpoint, resolveMahasConfigDir } from './rpc/endpoints.ts'
 
 // ---------------------------------------------------------------------------
 // injectable dependency surface — IMP-30 wires the real implementations
@@ -199,10 +198,7 @@ async function lazyDefault<T>(label: string, importer: () => Promise<T>): Promis
 
 export async function startMahasd(opts: MahasdOptions = {}): Promise<MahasdHandle> {
   const log = opts.log ?? defaultLog
-  const configDir =
-    opts.configDir ??
-    process.env.MAHAS_CONFIG_DIR ??
-    join(process.env.HOME ?? '/', '.config', 'mahas')
+  const configDir = opts.configDir ?? resolveMahasConfigDir()
   const paths = lifecyclePaths(configDir)
   const dbPath = opts.dbPath ?? paths.db
   const socketPath = opts.endpoint ?? paths.socket

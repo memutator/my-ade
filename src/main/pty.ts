@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn, spawnSync, ChildProcess } from 'child_process'
+import { spawn, ChildProcess } from 'child_process'
 import { createInterface } from 'readline'
-import { existsSync, readdirSync } from 'fs'
-import { homedir } from 'os'
+import { existsSync } from 'fs'
 import { join } from 'path'
+import { findNodeBinary } from './platform/nodeBinary.ts'
 import { is } from '@electron-toolkit/utils'
 import { scheduleDevinLockSweep } from './devinLocks'
 
@@ -20,51 +20,7 @@ function hostScriptPath(): string {
 // version-manager installs (nvm/volta/fnm/mise/…) disappear. Probe PATH first,
 // then scan well-known install locations.
 function nodeBinary(): string {
-  if (process.env.MAHAS_NODE) return process.env.MAHAS_NODE
-  if (process.env.NODE_BINARY) return process.env.NODE_BINARY
-  if (!spawnSync('node', ['--version'], { stdio: 'ignore' }).error) return 'node'
-  const home = homedir()
-  for (const p of [
-    '/usr/bin/node',
-    '/usr/local/bin/node',
-    '/snap/bin/node',
-    '/home/linuxbrew/.linuxbrew/bin/node',
-    join(home, '.volta/bin/node'),
-    join(home, '.local/bin/node'),
-    join(home, '.asdf/shims/node')
-  ]) {
-    if (existsSync(p)) return p
-  }
-  for (const base of [
-    join(home, '.nvm/versions/node'),
-    join(home, '.local/share/mise/installs/node'),
-    join(home, '.local/share/fnm/node-versions'),
-    join(home, '.asdf/installs/nodejs')
-  ]) {
-    const found = newestNodeUnder(base)
-    if (found) return found
-  }
-  return 'node'
-}
-
-function newestNodeUnder(base: string): string | null {
-  try {
-    const dirs = readdirSync(base)
-      .map((v) => ({ v, m: v.match(/^v?(\d+)\.(\d+)\.(\d+)/) }))
-      .filter((x): x is { v: string; m: RegExpMatchArray } => !!x.m)
-      .sort((a, b) => [1, 2, 3].reduce((d, i) => d || Number(b.m[i]) - Number(a.m[i]), 0))
-    for (const { v } of dirs) {
-      for (const c of [
-        join(base, v, 'bin', 'node'),
-        join(base, v, 'installation', 'bin', 'node')
-      ]) {
-        if (existsSync(c)) return c
-      }
-    }
-  } catch {
-    /* dir absent */
-  }
-  return null
+  return findNodeBinary() ?? 'node'
 }
 
 function sendToHost(msg: object): void {

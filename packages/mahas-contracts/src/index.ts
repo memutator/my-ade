@@ -40,6 +40,8 @@ export type {
   ClientViewBinding
 } from './binding.ts'
 
+export type { HarnessDescriptor } from './harness-descriptor.ts'
+
 export type {
   ControlErrorCode,
   ControlError,

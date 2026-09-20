@@ -26,8 +26,8 @@
 // reproduces that one derivation here and nowhere else.
 
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { app } from 'electron'
+import { mahasConfigDir } from '../eventsFile'
 import { AUTH_CHANNEL_PROTOCOL, responseFrom } from './authResponse.ts'
 import { connectRpc, resolveOperatorConnection } from '../../../packages/mahas-client/src/index.ts'
 import type { RpcClient } from '../../../packages/mahas-client/src/index.ts'
@@ -84,7 +84,7 @@ export interface AuthChannelCall {
 }
 
 function configDir(): string {
-  return process.env.MAHAS_CONFIG_DIR ?? join(homedir(), '.config', 'mahas')
+  return mahasConfigDir()
 }
 
 export function authChannelEndpoint(): string {

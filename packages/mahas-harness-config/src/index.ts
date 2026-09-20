@@ -179,7 +179,7 @@ export type {
 } from './runtime-pack.ts'
 export type { HarnessResumeSupport } from './runtime-pack.ts'
 export { SESSION_SLOT as SESSION_SLOT_TEXT } from './resume-recipe.ts'
-export type { HarnessResumeRecipe } from './resume-recipe.ts'
+export type { HarnessDescriptor, HarnessResumeRecipe } from './resume-recipe.ts'
 
 // Session-lock safety core — pure decision rules with injected IO.
 export { decideSessionLock, sweepSessionLocks } from './session-locks.ts'

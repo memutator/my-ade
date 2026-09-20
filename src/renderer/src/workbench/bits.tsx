@@ -138,6 +138,7 @@ export function ContextBar(): React.JSX.Element {
           label="project"
           value={projectId}
           onChange={(v) => setContext({ projectId: v })}
+          placeholder="domain project id"
           mono
         />
         <Field
@@ -149,7 +150,9 @@ export function ContextBar(): React.JSX.Element {
         <Field label="run" value={runId} onChange={(v) => setContext({ runId: v })} mono />
       </div>
       <div className="wb-note">
-        {head ? (
+        {!projectId
+          ? 'unconnected — paste a domain project id; the desktop folder id is not a project'
+          : head ? (
           <>
             server current model: <span className="mono">{head.modelVersion}</span>
             {head.snapshotRevision !== undefined

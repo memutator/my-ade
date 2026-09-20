@@ -92,6 +92,13 @@ function form(overrides: Partial<AssignmentForm> = {}): AssignmentForm {
 
 // ── 1. scope isolation ────────────────────────────────────────────────────
 
+await scenario('unconnected — a mount without a domain project id stays empty', () => {
+  const scope = createWorkbenchScope()
+  check('default projectId is empty, not a desktop folder uid', () => {
+    assert.equal(scope.store.getState().context.projectId, '')
+  })
+})
+
 await scenario('isolation — one mounted widget never rewrites another mount', () => {
   const queues = new WorkbenchQueueRegistry()
   const a = createWorkbenchScope({ projectId: 'proj-a', runId: 'run-1', queues })

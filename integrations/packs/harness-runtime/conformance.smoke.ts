@@ -181,7 +181,7 @@ const actionEnvelope = (
   )
   assert.equal(launch.status, 'success')
   const payload = (
-    launch as {
+    launch as unknown as {
       payload: {
         support: { pin: Record<string, unknown>; profileRevision: number }
         recipe: { preconditions: string[] }
@@ -299,7 +299,7 @@ const actionEnvelope = (
   )
   assert.equal(install.status, 'success')
   const payload = (
-    install as {
+    install as unknown as {
       payload: {
         applicable: boolean
         effects: { neverAutoInstalls: boolean; installer: { kind: string } }[]
@@ -324,9 +324,9 @@ const actionEnvelope = (
       'maint-2'
     )
   )
-  assert.equal((devin as { payload: { applicable: boolean } }).payload.applicable, true)
+  assert.equal((devin as unknown as { payload: { applicable: boolean } }).payload.applicable, true)
   assert.deepEqual(
-    (devin as { payload: { effects: { safety: string[] }[] } }).payload.effects[0]!.safety,
+    (devin as unknown as { payload: { effects: { safety: string[] }[] } }).payload.effects[0]!.safety,
     ['flock-absent', 'recorded-pid-dead-or-not-harness']
   )
 
@@ -467,10 +467,10 @@ assert.ok(failure, 'the rate-limit banner classifies as error')
 
 // attention projection reproduces the previous user-facing behavior, while the
 // durable line keeps the identity it was built from
-const projectedChild = attentionProjection(subagent as never) as Record<string, unknown>
+const projectedChild = attentionProjection(subagent as never) as unknown as Record<string, unknown>
 assert.equal(projectedChild.sessionId, undefined, 'child runs never claim a resume record')
 assert.equal(projectedChild.event, 'other')
-const projectedTurn = attentionProjection(byNative('Stop', 'sess-A') as never) as Record<
+const projectedTurn = attentionProjection(byNative('Stop', 'sess-A') as never) as unknown as Record<
   string,
   unknown
 >

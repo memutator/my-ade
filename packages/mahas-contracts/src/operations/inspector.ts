@@ -21,7 +21,6 @@ import type { ExecutionId, ExecutionLiveness, HostId, MemberId } from '../identi
 import type {
   ContextRequirement,
   CoverageBinding,
-  HarnessProfile,
   ImplementationComponent,
   InterfaceMaintenanceRef,
   RoleImplementation,
@@ -175,11 +174,37 @@ export interface ImplementationRetireResult {
   referencingExecutions: (ExecutionId | string)[]
 }
 
+/** Wire shape of `harness.profile.inspect` — a summary, not the aggregate row. */
 export interface HarnessProfileInspectResult {
-  profile: HarnessProfile
-  admissionState?: string
-  observedExecutableIdentity?: string
-  capabilities?: unknown
+  profileId: string
+  revision: number
+  admissionState: string
+  executableIdentity: {
+    locator?: string
+    versionRange?: string
+    osRange?: string
+  }
+  capabilities: {
+    supportedComponents?: string[]
+    injectionRoutes?: string[]
+    resume?: boolean
+    wake?: boolean
+  }
+  recipeSummary: {
+    recipeVersion: number
+    injectionRoutes: string[]
+    hasResumeRecipe: boolean
+    hasWakeRecipe: boolean
+    settingsPolicy: unknown
+  }
+  attestations: unknown[]
+  installationObservation: {
+    executablePath?: string
+    resolvedVersion?: string
+    matchesDeclaredIdentity: boolean
+    detail?: unknown
+    observedAt: number
+  } | null
 }
 
 /** one component the bundle manifest declares — intent, not delivery */

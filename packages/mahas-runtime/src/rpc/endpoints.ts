@@ -5,7 +5,21 @@
 // fallback-admin path. mahasd binds both sockets; every collaborator picks
 // exactly one side by which connection file it was issued.
 
+import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+/**
+ * Profile directory for sockets, hook events, operator connection file.
+ * MAHAS_CONFIG_DIR wins; otherwise XDG_CONFIG_HOME/mahas; otherwise ~/.config/mahas.
+ */
+export function resolveMahasConfigDir(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = env.HOME || env.USERPROFILE || homedir()
+): string {
+  if (env.MAHAS_CONFIG_DIR) return env.MAHAS_CONFIG_DIR
+  const base = env.XDG_CONFIG_HOME || join(home, '.config')
+  return join(base, 'mahas')
+}
 
 /**
  * Operator control socket — same path IMP-01's defaultMahasdEndpoint

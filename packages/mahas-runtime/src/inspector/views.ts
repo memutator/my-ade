@@ -258,14 +258,14 @@ export function projectInterface(
   impls: ImplementationOffer[] | undefined,
   profile: HarnessProfileInspectResult | undefined
 ): InterfaceEditorView {
-  const kinds = supportedKindsOf(profile?.profile)
+  const kinds = supportedKindsOf(profile?.capabilities)
   return {
     iface: ifaceRes.interface,
     requirements: ifaceRes.contextRequirements,
     digest: String(ifaceRes.digest),
     maintenanceRefs: ifaceRes.maintenanceRefs,
     offers: impls ?? [],
-    profile: profile?.profile ?? null,
+    profile: null,
     admissionState: profile?.admissionState,
     supportedKinds: kinds ? [...kinds] : null
   }
@@ -640,21 +640,25 @@ export function projectImplementationRetire(
 }
 
 export interface HarnessProfileView {
-  profile: HarnessProfile
+  profileId: string
+  revision: number
   supportedKinds: string[] | null
   admissionState?: string
-  observedExecutableIdentity?: string
+  executableIdentity?: HarnessProfileInspectResult['executableIdentity']
   capabilities?: unknown
+  recipeSummary?: HarnessProfileInspectResult['recipeSummary']
 }
 
 export function projectHarnessProfile(res: HarnessProfileInspectResult): HarnessProfileView {
-  const kinds = supportedKindsOf(res.profile)
+  const kinds = supportedKindsOf(res.capabilities)
   return {
-    profile: res.profile,
+    profileId: res.profileId,
+    revision: res.revision,
     supportedKinds: kinds ? [...kinds] : null,
-    admissionState: res.admissionState ?? str(rec(res.profile)?.['admissionState']),
-    observedExecutableIdentity: res.observedExecutableIdentity,
-    capabilities: res.capabilities
+    admissionState: res.admissionState,
+    executableIdentity: res.executableIdentity,
+    capabilities: res.capabilities,
+    recipeSummary: res.recipeSummary
   }
 }
 

@@ -4,15 +4,17 @@
 // the hooks that read it live in scope.ts so this file stays a component-only
 // module (Fast Refresh).
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { workbenchCaller, type OpCaller } from './client.ts'
 import type { WorkbenchQueueRegistry } from './queues.ts'
-import { createWorkbenchScope } from './store.ts'
+import { createWorkbenchScope, type WorkbenchScope } from './store.ts'
 import { WorkbenchScopeContext } from './scope.ts'
 
 export interface WorkbenchScopeProviderProps {
-  /** the hosting workspace's desktop project id */
+  /** daemon projects.id; empty means the widget is not bound to a domain Project */
   projectId: string
+  /** persist a 팀장-typed domain id on the host tab (never a desktop folder uid) */
+  onProjectId?: (id: string) => void
   /** optional initial pins; the ContextBar edits them afterwards */
   modelVersion?: string
   runId?: string
@@ -25,6 +27,7 @@ export interface WorkbenchScopeProviderProps {
 
 export default function WorkbenchScopeProvider({
   projectId,
+  onProjectId,
   modelVersion,
   runId,
   caller,
@@ -40,6 +43,19 @@ export default function WorkbenchScopeProvider({
       queues
     })
   )
+  const mounted: WorkbenchScope = useMemo(() => {
+    if (!onProjectId) return scope
+    return {
+      ...scope,
+      actions: {
+        ...scope.actions,
+        setContext: (patch) => {
+          scope.actions.setContext(patch)
+          if (patch.projectId !== undefined) onProjectId(patch.projectId)
+        }
+      }
+    }
+  }, [scope, onProjectId])
 
   // Props are this mount's own facts. A changed project is an incompatible
   // context: setContext drops the previous project's pins instead of
@@ -54,5 +70,7 @@ export default function WorkbenchScopeProvider({
     if (runId !== undefined) scope.actions.setContext({ runId })
   }, [scope, runId])
 
-  return <WorkbenchScopeContext.Provider value={scope}>{children}</WorkbenchScopeContext.Provider>
+  return (
+    <WorkbenchScopeContext.Provider value={mounted}>{children}</WorkbenchScopeContext.Provider>
+  )
 }

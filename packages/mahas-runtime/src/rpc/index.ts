@@ -47,7 +47,8 @@ export {
   defaultOperatorConnectionFile,
   defaultWorkerConnectionFile,
   mahasdOperatorEndpoint,
-  mahasdWorkerEndpoint
+  mahasdWorkerEndpoint,
+  resolveMahasConfigDir
 } from './endpoints.ts'
 
 export { readWorkerConnectionFile, redactCredential, workerConnectionPath } from './worker-auth.ts'

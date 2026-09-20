@@ -88,6 +88,11 @@ export interface WidgetTab {
   provider?: string
   /** usage widget: harnesses whose quotas are on the dashboard */
   providers?: string[]
+  /**
+   * Workbench widgets only: daemon `projects.id`. Empty/absent means unconnected.
+   * Never the desktop folder uid from `Project.id` / `addProject()`.
+   */
+  domainProjectId?: string
 }
 
 /** one tab inside a leaf — the block */
@@ -245,7 +250,7 @@ export interface AgentProviderInfo {
 
 // the hook-stream wire type is a contract (mahas-contracts operations/hooks.ts);
 // the renderer re-exports it instead of keeping a drifting copy
-export type { AgentHookEvent } from '../../../packages/mahas-contracts/src/index.ts'
+export type { AgentHookEvent, HarnessDescriptor } from '../../../packages/mahas-contracts/src/index.ts'
 
 /**
  * A live agent session worth offering to resume after an app restart. One per

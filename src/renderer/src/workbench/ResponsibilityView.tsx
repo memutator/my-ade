@@ -191,7 +191,7 @@ function InspectDrawer({ boundaryId }: { boundaryId: string }): React.JSX.Elemen
   useEffect(() => {
     // inspect takes a modelVersion, not "whatever model we saw last":
     // resolve it from the server-declared head when no pin is set
-    if (!resolvedModel) return
+    if (!projectId || !resolvedModel) return
     let live = true
     inspectResponsibility(call, {
       projectId,

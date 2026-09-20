@@ -7,13 +7,13 @@
 // never printed; they arrive only via the approved connection file or
 // environment.
 
-import { join } from 'node:path'
 import {
   mahasError,
   mahasdOperatorEndpoint,
   operatorConnectionPath,
   readOperatorConnectionFile,
   readWorkerConnectionFile,
+  resolveMahasConfigDir,
   workerConnectionPath,
   MAHAS_CONNECTION_FILE_ENV,
   MAHAS_ROLE_ENV,
@@ -125,5 +125,5 @@ export async function resolveConnection(opts: ResolveOptions): Promise<ResolvedC
 }
 
 export function defaultConfigDir(env: NodeJS.ProcessEnv): string {
-  return env.MAHAS_CONFIG_DIR ?? join(env.HOME ?? '/', '.config', 'mahas')
+  return resolveMahasConfigDir(env)
 }

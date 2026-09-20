@@ -482,7 +482,7 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   seedLocalOperator(db)
   // the access kernel must be bound to THIS control DB before any handler
   // calls authorize()/decide() (authorize.ts refuses unbound: CONTROL_UNAVAILABLE)
-  accessBoundary.bindAccessDb(db)
+  const accessKernel = accessBoundary.bindAccessDb(db)
   const registry = await createOperationRegistry(db)
   const serviceCtx = (): AuthenticatedContext => ({
     principalId: SERVICE_PRINCIPAL_ID as never,
@@ -552,12 +552,14 @@ export async function composeRuntime(opts: ComposeOptions): Promise<ComposedRunt
   registerModelOps(registry)
   const token = selectionTokenSecret(configDir)
   registerDiscoveryOps(registry, {
-    authorize: (ctx, operation, targets) => accessBoundary.authorize(ctx, operation, targets),
-    decide: (ctx, operation, targets) => accessBoundary.decide(ctx, operation, targets),
+    authorize: (ctx, operation, targets) => accessKernel.authorize(ctx, operation, targets),
+    decide: (ctx, operation, targets) => accessKernel.decide(ctx, operation, targets),
     tokenSecret: token.secret,
     tokenKeyId: token.keyId
   })
-  registerRealizationOps(registry)
+  registerRealizationOps(registry, {
+    authorize: (ctx, operation, targets) => accessKernel.authorize(ctx, operation, targets)
+  })
   registerContextOps(registry)
   registerMaterializeOps(registry, {
     caller: (operation, payload, expectedRevisions) =>

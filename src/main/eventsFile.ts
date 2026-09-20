@@ -30,6 +30,7 @@ import type {
   AgentHookEvent,
   AgentHookIngestRecord
 } from '../../packages/mahas-contracts/src/index.ts'
+import { resolveMahasConfigDir } from '../../packages/mahas-runtime/src/rpc/endpoints.ts'
 
 // the wire type is a contract now — main, preload and renderer re-export it
 export type {
@@ -38,8 +39,7 @@ export type {
 } from '../../packages/mahas-contracts/src/index.ts'
 
 export function mahasConfigDir(home: string = os.homedir()): string {
-  const base = process.env.XDG_CONFIG_HOME || path.join(home, '.config')
-  return process.env.MAHAS_CONFIG_DIR || path.join(base, 'mahas')
+  return resolveMahasConfigDir(process.env, home)
 }
 
 export function eventsFilePath(home?: string): string {

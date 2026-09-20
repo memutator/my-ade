@@ -55,7 +55,23 @@ export default function WidgetTabView({
     },
     [wsId, paneId, tabId]
   )
-  const projectId = useStore((s) => s.workspaces.find((w) => w.id === wsId)?.projectId)
+  const onDomainProjectId = useCallback(
+    (id: string): void => {
+      const store = useStore.getState()
+      const pane = store.workspaces.find((workspace) => workspace.id === wsId)?.panes[paneId]
+      if (!pane) return
+      store.updatePane(
+        paneId,
+        {
+          tabs: pane.tabs.map((entry) =>
+            entry.id === tabId ? ({ ...entry, domainProjectId: id } as typeof entry) : entry
+          )
+        },
+        wsId
+      )
+    },
+    [wsId, paneId, tabId]
+  )
 
   return (
     <div className="widget">
@@ -64,9 +80,12 @@ export default function WidgetTabView({
       ) : tab.widget === 'tokens' ? (
         <TokensWidget />
       ) : isWorkbenchWidget(tab.widget) ? (
-        // each workbench widget opens its own scope (project/model/run pins and
-        // op queue are per-mount) instead of writing one module-level context
-        <WidgetWorkbench widget={tab.widget} projectId={projectId} />
+        // domain Project id only — the workspace folder uid is a different model
+        <WidgetWorkbench
+          widget={tab.widget}
+          projectId={tab.domainProjectId}
+          onProjectId={onDomainProjectId}
+        />
       ) : (
         <AgentsPanel wsId={wsId} />
       )}

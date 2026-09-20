@@ -22,8 +22,6 @@
 // remain service responsibilities reached through the operation registry.
 
 import { app, ipcMain } from 'electron'
-import { join } from 'path'
-import { homedir } from 'os'
 import { bootstrapRuntime, receiptToControl } from '../../packages/mahas-client/src/index.ts'
 import type { RuntimeHandle } from '../../packages/mahas-client/src/index.ts'
 import type {
@@ -46,6 +44,7 @@ import {
   spawnControlPlane
 } from './runtime/serviceBootstrap.ts'
 import { LEGACY_USAGE_ACCOUNTS_ROOT_ENV, legacyUsageAccountsRoot } from './runtime/authClient.ts'
+import { mahasConfigDir } from './eventsFile'
 
 let handle: RuntimeHandle | null = null
 
@@ -64,8 +63,7 @@ let handle: RuntimeHandle | null = null
 // read events from another. MAHAS_CONFIG_DIR still wins (dev runs set it to
 // mahas-dev; the e2e harness sets it to its scratch dir).
 function runtimeConfigDir(): string {
-  const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return process.env.MAHAS_CONFIG_DIR || join(base, 'mahas')
+  return mahasConfigDir()
 }
 
 function offline(detail: string): ServiceStatus {

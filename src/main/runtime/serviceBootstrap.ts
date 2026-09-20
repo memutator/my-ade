@@ -1,7 +1,7 @@
-import { spawn, spawnSync } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, appendFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { closeSync, existsSync, mkdirSync, openSync, appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { findNodeBinary } from '../platform/nodeBinary.ts'
 
 export interface ServiceBootstrapPaths {
   node: string
@@ -33,37 +33,11 @@ export interface ResolveServiceBootstrapOptions {
   legacyUsageAccountsRoot?: string
 }
 
-function nodeCandidates(env: NodeJS.ProcessEnv): string[] {
-  const candidates = [env.MAHAS_NODE, env.NODE_BINARY]
-  for (const directory of (env.PATH ?? '').split(delimiter)) {
-    if (directory)
-      candidates.push(join(directory, process.platform === 'win32' ? 'node.exe' : 'node'))
-  }
-  candidates.push('/usr/bin/node', '/usr/local/bin/node', '/opt/homebrew/bin/node')
-  const nvmRoot = env.NVM_DIR ?? join(homedir(), '.nvm')
-  const versions = join(nvmRoot, 'versions', 'node')
-  try {
-    for (const version of readdirSync(versions).sort().reverse()) {
-      candidates.push(join(versions, version, 'bin', 'node'))
-    }
-  } catch {
-    // nvm is optional
-  }
-  return [...new Set(candidates.filter((value): value is string => Boolean(value)))]
-}
-
-function usableNode(candidate: string): boolean {
-  if (!existsSync(candidate)) return false
-  const result = spawnSync(candidate, ['--version'], { encoding: 'utf8', timeout: 2_000 })
-  const major = /^v(\d+)/.exec(result.stdout.trim())?.[1]
-  return result.status === 0 && major !== undefined && Number(major) >= 24
-}
-
 export function resolveServiceBootstrapPaths(
   options: ResolveServiceBootstrapOptions
 ): ServiceBootstrapPaths | null {
   const env = options.env ?? process.env
-  const node = nodeCandidates(env).find(usableNode)
+  const node = findNodeBinary(env, { minMajor: 24 })
   if (!node) return null
   const mahasd = options.packaged
     ? join(options.resourcesPath, 'services', 'mahasd.mjs')

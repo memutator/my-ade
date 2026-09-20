@@ -52,7 +52,7 @@ export function registerRealizationOps(
   )
   registry.register(
     { name: 'harness.profile.register', visibility: 'operator', mutation: true },
-    harnessProfileRegister
+    (txn, payload) => harnessProfileRegister(txn, payload, deps)
   )
   registry.register(
     { name: 'harness.profile.inspect', visibility: 'member', mutation: true },
@@ -60,7 +60,7 @@ export function registerRealizationOps(
   )
   registry.register(
     { name: 'harness.profile.admit', visibility: 'operator', mutation: true },
-    harnessProfileAdmit
+    (txn, payload) => harnessProfileAdmit(txn, payload, deps)
   )
 }
 
