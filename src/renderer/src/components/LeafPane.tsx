@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { BlockKind, EditorTab, PaneState, PaneTab, TerminalTab, WidgetKind } from '../types'
 import { useStore, patchTerminalTab } from '../store'
+import { planCloseTab } from '../shell/tabs'
 import { useT } from '../i18n'
 import { isDetachedWin } from '../detached'
 import { startTabDrag } from '../paneDnd'
@@ -168,6 +169,7 @@ export default function LeafPane({
 }): React.JSX.Element {
   const updatePane = useStore((s) => s.updatePane)
   const closePane = useStore((s) => s.closePane)
+  const closeTabAction = useStore((s) => s.closeTab)
   const notify = useStore((s) => s.notify)
   const openFile = useStore((s) => s.openFile)
   const notifications = useStore((s) => s.notifications)
@@ -220,22 +222,26 @@ export default function LeafPane({
     updatePane(pane.id, { tabs: next, activeTabId: keep }, wsId)
   }
   const closeTab = (tabId: string): void => {
-    const tab = tabs.find((x) => x.id === tabId)
-    if (tab?.kind === 'term' && tab.binding) {
-      const viewId = `${wsId}:${pane.id}:${tabId}`
-      void window.mahas.exec.unbindView({
-        operationId: crypto.randomUUID(),
-        viewId,
-        expectedRevision: tab.binding.revision
-      })
-      if (tab.binding.terminalId) {
-        void window.mahas.exec.op({
-          operation: 'terminal.detach',
-          payload: { terminalId: tab.binding.terminalId, viewId }
+    if (isDetachedWin) {
+      const plan = planCloseTab({ wsId, paneId: pane.id, pane, tabId })
+      if (plan.unbind) {
+        void window.mahas.exec.unbindView({
+          operationId: crypto.randomUUID(),
+          viewId: plan.unbind.viewId,
+          expectedRevision: plan.unbind.expectedRevision
         })
+        if (plan.unbind.terminalId) {
+          void window.mahas.exec.op({
+            operation: 'terminal.detach',
+            payload: { terminalId: plan.unbind.terminalId, viewId: plan.unbind.viewId }
+          })
+        }
       }
+      if (plan.closePane) applyTabs([])
+      else applyTabs(plan.nextTabs, plan.activeTabId)
+      return
     }
-    applyTabs(tabs.filter((x) => x.id !== tabId))
+    closeTabAction(pane.id, tabId, wsId)
   }
   const reorderTabs = (from: number, to: number): void => {
     // the strip shows visible tabs only — translate its indices back into the

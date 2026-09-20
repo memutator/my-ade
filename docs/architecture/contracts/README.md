@@ -32,10 +32,12 @@ would drift from the type or schema.
   `mahas-runtime`, and `mahas-client`; `src/preload` and `src/renderer` may import
   `mahas-contracts` **type-only**. Relative `.ts` specifiers with explicit
   extensions are the convention across boundaries; see [packages/README.md](../../../packages/README.md).
-- **Shared wire types have one definition.** `AgentHookEvent` comes from
-  `mahas-contracts`; `workbench/contracts.ts` re-exports the canonical operation
-  DTOs, and `workbench/view-model.ts` owns explicit UI projections. Legacy
-  `TokenUse`, `UsageResult`, and ledger wire types are defined in
+- **Shared wire types have one definition.** `AgentHookEvent` and
+  `HarnessDescriptor` come from `mahas-contracts`. `harness.profile.inspect`
+  returns the flat summary in `operations/inspector.ts` (not a nested
+  `HarnessProfile` aggregate). `workbench/contracts.ts` re-exports canonical
+  operation DTOs, and `workbench/view-model.ts` owns explicit UI projections.
+  Legacy `TokenUse`, `UsageResult`, and ledger wire types are defined in
   `src/preload/index.ts` and reused by main and renderer. They remain compatibility
   transports over stored domain data. The desktop `ResumeSession` record owns
   placement and migration metadata; it is distinct from the canonical stored

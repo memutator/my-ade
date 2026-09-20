@@ -24,6 +24,7 @@ export default function PaneDock(): React.JSX.Element | null {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId))
   const restorePane = useStore((s) => s.restorePane)
   const closePane = useStore((s) => s.closePane)
+  const closeTabAction = useStore((s) => s.closeTab)
   const updatePane = useStore((s) => s.updatePane)
   const notifications = useStore((s) => s.notifications)
   const language = useStore((s) => s.settings.language)
@@ -48,33 +49,8 @@ export default function PaneDock(): React.JSX.Element | null {
     if (pane.detached) window.mahas.win.focusDetached(ws.id, pane.id)
     else if (pane.minimized) restorePane(pane.id, ws.id)
   }
-  // same last-tab rule as LeafPane.applyTabs, including exec unbind/detach
   const closeTab = (pane: PaneState, tabId: string): void => {
-    const tab = pane.tabs.find((x) => x.id === tabId)
-    if (tab?.kind === 'term' && tab.binding) {
-      const viewId = `${ws.id}:${pane.id}:${tabId}`
-      void window.mahas.exec.unbindView({
-        operationId: crypto.randomUUID(),
-        viewId,
-        expectedRevision: tab.binding.revision
-      })
-      if (tab.binding.terminalId) {
-        void window.mahas.exec.op({
-          operation: 'terminal.detach',
-          payload: { terminalId: tab.binding.terminalId, viewId }
-        })
-      }
-    }
-    const next = pane.tabs.filter((x) => x.id !== tabId)
-    if (!next.length) {
-      closePane(pane.id, ws.id)
-      return
-    }
-    const keep =
-      pane.activeTabId && next.some((x) => x.id === pane.activeTabId && !x.minimized)
-        ? pane.activeTabId
-        : (next.filter((x) => !x.minimized).at(-1)?.id ?? next.at(-1)!.id)
-    updatePane(pane.id, { tabs: next, activeTabId: keep }, ws.id)
+    closeTabAction(pane.id, tabId, ws.id)
   }
 
   const chipTitle = (p: PaneState, tab: PaneTab | undefined): string =>

@@ -24,6 +24,12 @@ export interface ShellEffects {
   closeDetachedWindow: (wsId: string, paneId: string) => void
   /** raise a detached pane's window without moving focus in the main one */
   focusDetachedWindow: (wsId: string, paneId: string) => void
+  /** unbind a managed execution view (tab close). no-op without exec: */
+  unbindManagedTab: (u: {
+    viewId: string
+    expectedRevision?: number
+    terminalId?: string
+  }) => void
   /** relay a pane-scoped command to the renderer that owns the shell state */
   relayPaneCommand: (cmd: {
     action: string
@@ -43,6 +49,20 @@ export function shellEffects(): ShellEffects {
     },
     closeDetachedWindow: (wsId, paneId) => window.mahas.win.closeDetached?.(wsId, paneId),
     focusDetachedWindow: (wsId, paneId) => window.mahas.win.focusDetached(wsId, paneId),
+    unbindManagedTab: (u) => {
+      if (!window.mahas?.exec) return
+      void window.mahas.exec.unbindView({
+        operationId: crypto.randomUUID(),
+        viewId: u.viewId,
+        expectedRevision: u.expectedRevision
+      })
+      if (u.terminalId) {
+        void window.mahas.exec.op({
+          operation: 'terminal.detach',
+          payload: { terminalId: u.terminalId, viewId: u.viewId }
+        })
+      }
+    },
     relayPaneCommand: (cmd) => window.mahas.win.paneCmd(cmd)
   }
 }

@@ -245,6 +245,7 @@ export {
   advanceDispatchPhase,
   acceptDispatch,
   fenceDispatch,
+  revokeDispatchAuthority,
   settleDispatch,
   checkAttemptAuthority
 } from './dispatch-authority.ts'

@@ -12,7 +12,7 @@
 // own fixtures (a Pack whose collector is wrong can still register).
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +20,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createCanonicalContractRegistry } from './contracts.ts'
 import { discoverPackRoots, registerCanonicalCollectorPacks } from './index.ts'
 import { INTEGRATION_SCHEMA_SQL } from './migration.ts'
-import { PackRegistry, packEntrypoint } from './registry.ts'
+import { PackRegistry, isPackIdentityFile, packEntrypoint } from './registry.ts'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
 const packsRoot = join(repoRoot, 'integrations', 'packs')
@@ -39,6 +39,10 @@ try {
 
   const contracts = createCanonicalContractRegistry()
   const rows: string[] = []
+  assert.equal(isPackIdentityFile('README.md'), false)
+  assert.equal(isPackIdentityFile('conformance.smoke.ts'), false)
+  assert.equal(isPackIdentityFile('collector.mjs'), true)
+  assert.equal(isPackIdentityFile('hooks/mahas-hook.cjs'), true)
   for (const revision of revisions) {
     const implementations = revision.manifest.revision.implementations
     assert.ok(implementations.length > 0, `${revision.packId} declares no capability`)
@@ -63,6 +67,16 @@ try {
         packEntrypoint(revision, implementation.entrypoint.resource)
       }
     }
+    assert.equal(
+      existsSync(join(revision.snapshotPath, 'README.md')),
+      false,
+      `${revision.packId} snapshot must not include README.md`
+    )
+    assert.equal(
+      existsSync(join(revision.snapshotPath, 'conformance.smoke.ts')),
+      false,
+      `${revision.packId} snapshot must not include conformance.smoke.ts`
+    )
     rows.push(
       `  ${revision.packId}@${revision.revision} ${revision.contentDigest.slice(0, 12)} ` +
         implementations.map((i) => i.capability).join(',')

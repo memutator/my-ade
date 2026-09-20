@@ -59,7 +59,8 @@ export class StatePersistence {
 }
 
 /** Main, at beforeunload, records which app run is about to close these PTYs.
- * This evidence distinguishes app-induced session-end from an earlier user exit. */
+ * This evidence distinguishes app-induced session-end from an earlier user exit.
+ * Keep in sync with renderer `stampResumeShutdown` (main cannot import that module). */
 export function withShutdownEvidence(state: unknown, runId: string, at = Date.now()): unknown {
   if (!state || typeof state !== 'object') return state
   const snapshot = state as Record<string, unknown>

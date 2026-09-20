@@ -12,13 +12,13 @@ is [docs/architecture/domains/README.md](../docs/architecture/domains/README.md)
 | package | role | may import |
 | --- | --- | --- |
 | `mahas-contracts` | shared contract port — pure types/constants only, no I/O, no Node | nothing (no sibling packages, no `src/`) |
-| `mahas-harness-config` | harness profile registry (detection patterns, resume recipes) — data, not provider adapters | contracts |
+| `mahas-harness-config` | Pack-owned harness data (detection, resume, hook installers); public entry `.` plus `./runtime-pack` and `./session-locks` | contracts |
 | `mahas-execution-host` | reattachable daemon owning PTY/process incarnations — `src/main.ts` is the service entrypoint | contracts |
 | `mahas-runtime` | the control plane: composition root, storage + migrations, domain services (catalog, inventory, integration/Packs, sessions, observation/collection, metering, access, coordination, discovery, launch, recovery, resources, artifacts, maintenance, inspector), RPC server | contracts, harness-config, client (facades/tests only) |
 | `mahas-client` | shared authenticated mahasd RPC client used by the desktop and the CLI | contracts |
 | `mahas-cli` | `mahas` operator/agent CLI — collaboration-API client | contracts, runtime, harness-config |
 | `src/main` (desktop) | composition seam — `src/main/runtimeClient.ts` owns the app's runtime attachment + `exec:*`/`runtime:*` IPC | contracts, runtime, harness-config (spawns execution-host by path, never imports it) |
-| `src/preload`, `src/renderer` | UI client surface — `window.mahas.exec`/`runtime` + type imports | contracts (**type imports only**), never runtime/execution-host/cli/harness-config internals |
+| `src/preload`, `src/renderer` | UI client surface — `window.mahas.exec`/`runtime` + type imports (`HarnessDescriptor` lives in contracts) | contracts (**type imports only**), never runtime/execution-host/cli/harness-config internals |
 
 The direction is enforced twice from one policy
 (`tools/boundary-policy.mjs`): `npm run check:boundaries` resolves every import

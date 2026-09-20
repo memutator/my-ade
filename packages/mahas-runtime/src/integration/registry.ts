@@ -228,7 +228,23 @@ interface SourceFile {
   bytes: Uint8Array
 }
 
-function sourceFiles(root: string): SourceFile[] {
+/**
+ * Install/run identity: hooks, recipes, collectors, declared fixtures.
+ * Conformance tests, generator scripts and README are not product content.
+ */
+export function isPackIdentityFile(relativePath: string): boolean {
+  const posix = relativePath.split(sep).join('/')
+  const segments = posix.split('/').filter(Boolean)
+  if (segments.includes('__fixture__')) return false
+  const base = segments.at(-1) ?? ''
+  if (base.toLowerCase() === 'readme.md') return false
+  if (base === 'project.mjs') return false
+  if (base.endsWith('.smoke.ts') || base.endsWith('.manual.ts')) return false
+  if (/\.test\.(mjs|cjs|js|ts)$/.test(base)) return false
+  return true
+}
+
+function sourceFiles(root: string, identityOnly = false): SourceFile[] {
   const files: SourceFile[] = []
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
@@ -240,9 +256,15 @@ function sourceFiles(root: string): SourceFile[] {
           'INVALID_MANIFEST',
           `pack contains a symbolic link: ${relative(root, path)}`
         )
-      if (entry.isDirectory()) walk(path)
-      else if (entry.isFile())
-        files.push({ path: relative(root, path).split(sep).join('/'), bytes: readFileSync(path) })
+      if (entry.isDirectory()) {
+        if (identityOnly && entry.name === '__fixture__') continue
+        walk(path)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const rel = relative(root, path).split(sep).join('/')
+      if (identityOnly && !isPackIdentityFile(rel)) continue
+      files.push({ path: rel, bytes: readFileSync(path) })
     }
   }
   walk(root)
@@ -355,7 +377,7 @@ export class PackRegistry {
       )
     }
     const manifest = parseManifest(rawManifest)
-    const files = sourceFiles(root)
+    const files = sourceFiles(root, true)
     const digest = digestFiles(files, manifest)
     if (manifest.revision.contentDigest !== '' && manifest.revision.contentDigest !== digest)
       throw new PackRegistryError(

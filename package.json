@@ -29,7 +29,7 @@
     "mahas": "node packages/mahas-cli/src/main.ts",
     "start": "electron-vite preview",
     "dev": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
-    "build": "npm run typecheck && npm run check:boundaries && npm run check:docs && node integrations/packs/harness-runtime/project.mjs --check && electron-vite build",
+    "build": "npm run typecheck && npm run check:boundaries && npm run check:docs && node integrations/packs/harness-runtime/project.mjs --check && node tools/check-catalog-roster.mjs && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",

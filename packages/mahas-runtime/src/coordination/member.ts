@@ -58,7 +58,7 @@ import {
 } from './internal.ts'
 import { edgeSettlementSatisfied } from './eligibility.ts'
 import { createDispatch } from './dispatch-ops.ts'
-import { advanceDispatchPhase } from './dispatch-authority.ts'
+import { advanceDispatchPhase, revokeDispatchAuthority } from './dispatch-authority.ts'
 import type { VerifySelectionToken, SelectionTokenPins } from './index.ts'
 import type { TargetRef } from '../access/authorize.ts'
 import {
@@ -788,19 +788,7 @@ export function teamRetire(txn: TxnContext, payload: unknown): TeamRetireResult 
     for (const e of liveExecs) {
       const ad = activeDispatchForExecution(txn.db, e.id as string)
       if (ad) {
-        exec(
-          txn.db,
-          "UPDATE dispatches SET authority_state='revoked', revision=revision+1 WHERE id=?",
-          ad.id as string
-        )
-        appendDomainEvent(
-          txn.db,
-          ad.id as string,
-          0,
-          'dispatch.revoked',
-          { runId: member.runId },
-          { by: op }
-        )
+        revokeDispatchAuthority(txn.db, ad.id as string, { eventBy: op, runId: member.runId as string })
       }
     }
   }

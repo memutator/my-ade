@@ -255,6 +255,8 @@ const mahas = {
    *  spawning renderers; TopBar shows the badge so dev/prod stay visually
    *  distinct */
   dev: process.env.MAHAS_DEV === '1',
+  /** e2e / domain-ui smoke — renderer may install the narrow __mahasTest handle */
+  test: process.env.MAHAS_TEST === '1' || process.env.MAHAS_TEST === 'true',
   pty: {
     spawn: (opts: PtySpawnOpts): Promise<void> => ipcRenderer.invoke('pty:spawn', opts),
     // attach to an existing session (remount / detached window): host replies

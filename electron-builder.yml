@@ -18,6 +18,16 @@ extraResources:
       - '**/*.mjs'
   - from: integrations/packs
     to: integrations/packs
+    filter:
+      - '**/*'
+      - '!**/*.smoke.ts'
+      - '!**/*.manual.ts'
+      - '!**/*.test.mjs'
+      - '!**/*.test.js'
+      - '!**/*.test.ts'
+      - '!**/README.md'
+      - '!**/project.mjs'
+      - '!**/__fixture__/**'
   - from: resources/pty-host.cjs
     to: pty-host.cjs
   - from: resources/webview-preload.cjs

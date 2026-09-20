@@ -1,5 +1,5 @@
 /** Integration-domain assembly. Only this composition boundary joins domain implementations. */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,8 +15,9 @@ import { appendInstallationRevision, ensureHarnessInstallation, ensureLocalMachi
 import { createAuthDomain, type AuthDomain } from './inventory/auth/domain.ts'
 import { registerAuthOperations } from './inventory/auth/operations.ts'
 import {
-  createCanonicalContractRegistry, discoverPackRoots, PackRegistry, registerIntegrationOperations,
-  runPack, canonicalJson, type RegisteredPackRevision, type PackRunRequest
+  createCanonicalContractRegistry, discoverPackRoots, PackRegistry, PackRegistryError,
+  registerIntegrationOperations, runPack, canonicalJson, type RegisteredPackRevision,
+  type PackRunRequest
 } from './integration/index.ts'
 import { CollectionScheduler } from './observation/collection/scheduler.ts'
 import { registerCollectionOperations } from './observation/collection/operations.ts'
@@ -61,6 +62,21 @@ export function builtinPacksRoot(): string {
   return process.env.MAHAS_BUILTIN_PACKS_DIR ?? resolve(dirname(fileURLToPath(import.meta.url)), '../../../integrations/packs')
 }
 
+function builtinPackIdentity(directory: string): { packId?: string; revision?: number } {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const pack = (parsed as { pack?: { id?: unknown } }).pack
+    const revision = (parsed as { revision?: { revision?: unknown } }).revision
+    return {
+      packId: typeof pack?.id === 'string' ? pack.id : undefined,
+      revision: typeof revision?.revision === 'number' ? revision.revision : undefined
+    }
+  } catch {
+    return {}
+  }
+}
+
 export async function composeIntegrationDomains(options: IntegrationDomainOptions): Promise<IntegrationDomainRuntime> {
   const { db, registry, configDir } = options
   const log = options.log ?? (() => {})
@@ -79,8 +95,16 @@ export async function composeIntegrationDomains(options: IntegrationDomainOption
       try { packs.registerDirectory(directory) }
       catch (error) {
         // One failed vendor must not hide working integrations. No capability is fabricated.
-        log({ t: 'integration.builtin-registration-failed', directory,
+        const code = error instanceof PackRegistryError ? error.code : undefined
+        const identity = builtinPackIdentity(directory)
+        log({ t: 'integration.builtin-registration-failed', directory, code,
+          packId: identity.packId, revision: identity.revision,
           error: error instanceof Error ? error.message : String(error) })
+        if (code === 'IMMUTABLE_REVISION') {
+          log({ t: 'integration.builtin-revision-held', directory,
+            packId: identity.packId, revision: identity.revision,
+            detail: 'source digest drifted under a registered revision; the previous snapshot stays. bump the pack revision to publish product edits' })
+        }
       }
     }
   } else log({ t: 'integration.packs-unavailable', root })

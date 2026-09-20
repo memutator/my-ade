@@ -3,9 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Harness profile registry port — per-harness knowledge (detection patterns, resume recipes, hook capability) owned as data, not provider adapters. Loads the existing resources/agents/manifest.json shape; role/component materialization builds on this in later tasks.",
+  "description": "Harness profile registry port — Pack-owned vendor knowledge (detection, resume recipes, hook installers). The desktop projection is resources/agents/manifest.json; this package reads integrations/packs/harness-runtime.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./runtime-pack": "./src/runtime-pack.ts",
+    "./session-locks": "./src/session-locks.ts"
   },
   "dependencies": {
     "mahas-contracts": "*"

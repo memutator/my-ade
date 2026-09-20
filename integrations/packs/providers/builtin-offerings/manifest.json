@@ -10,7 +10,7 @@
   },
   "revision": {
     "packId": "pack.provider.builtin-offerings",
-    "revision": 1,
+    "revision": 2,
     "contentDigest": "",
     "runnerProtocol": "1",
     "conformanceContracts": [

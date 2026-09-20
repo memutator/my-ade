@@ -115,6 +115,8 @@ persist 필드 목록을 `shell/hydration.ts` 쪽으로 모은다. 새 snapshot 
 
 S1–S4에서 검증된 경계가 있는 영역을 제품 이유로 건드릴 때만 파일을 옮긴다. host 내부 분리, artifact 명세 모듈, 공유 read-model adapter, runtime 내부 public path 강제, renderer `features/` 일괄 이동은 기본 잔여 과제가 아니다.
 
+한 일: 검증된 소유권을 [code-map](../development/code-map.md)·[domains](domains/README.md)·[contracts](contracts/README.md)에 적었고, `mahas-harness-config`에 `./runtime-pack`·`./session-locks` 공개 subpath를 선언했다. `modules/*/domain|application|adapters` 트리와 renderer `features/` 일괄 이동은 하지 않았다.
+
 ---
 
 <a id="r01"></a>

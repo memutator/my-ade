@@ -61,6 +61,7 @@ import {
 } from './shell/layout'
 import { normalizeWorkspace, DEFAULT_SETTINGS, type PersistedState } from './shell/hydration'
 import { panePtySessionIds, shellEffects, type ShellEffects } from './shell/effects'
+import { planCloseTab } from './shell/tabs'
 import { uid } from './shell/ids'
 
 export { linkTargetPane, leafPaneIds, visibleLeafIds } from './shell/layout'
@@ -148,6 +149,7 @@ export const useStore = create<MahasState>((set, get) => {
         activeWorkspaceId: s.activeWorkspaceId ?? s.workspaces?.[0]?.id ?? null,
         settings: { ...DEFAULT_SETTINGS, ...s.settings },
         sidebarOpen: s.sidebarOpen ?? false,
+        treeOverlayOpen: s.treeOverlayOpen ?? false,
         bookmarks: s.bookmarks ?? [],
         agentSessions: s.agentSessions ?? {},
         resumeSessions,
@@ -322,6 +324,28 @@ export const useStore = create<MahasState>((set, get) => {
         effects.killPtys(panePtySessionIds(pane))
         effects.closeDetachedWindow(wsId0, paneId)
       }
+    },
+
+    closeTab: (paneId, tabId, wsIdArg) => {
+      const wsId0 = wid(wsIdArg)
+      if (!wsId0) return
+      const pane = get().workspaces.find((w) => w.id === wsId0)?.panes[paneId]
+      if (!pane) return
+      const plan = planCloseTab({ wsId: wsId0, paneId, pane, tabId })
+      if (plan.unbind) effects.unbindManagedTab(plan.unbind)
+      if (plan.closePane) {
+        get().closePane(paneId, wsId0)
+        return
+      }
+      set((s) => ({
+        workspaces: updWs(s.workspaces, wsId0, (w) => ({
+          ...w,
+          panes: {
+            ...w.panes,
+            [paneId]: { ...w.panes[paneId]!, tabs: plan.nextTabs, activeTabId: plan.activeTabId }
+          }
+        }))
+      }))
     },
 
     // Dock the pane: flag it minimized (the leaf stays in the layout so the
@@ -1265,6 +1289,7 @@ interface MahasState extends PersistedState {
   /** explicit split — only user gestures reach this */
   splitPane: (paneId: string, dir: 'row' | 'col', kind: BlockKind, wsId?: string) => void
   closePane: (paneId: string, wsId?: string) => void
+  closeTab: (paneId: string, tabId: string, wsId?: string) => void
   minimizePane: (paneId: string, wsId?: string) => void
   restorePane: (paneId: string, wsId?: string) => void
   floatPane: (paneId: string, wsId?: string) => void

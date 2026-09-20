@@ -278,7 +278,7 @@ async function boot(tag, opts = {}) {
   const deadline = Date.now() + 20000
   for (;;) {
     const ready = await ev(
-      `!!(window.__mahas && window.mahas && window.mahas.pty)`
+      `!!(window.__mahasTest && window.mahas && window.mahas.pty)`
     ).catch(() => false)
     if (ready) break
     if (Date.now() > deadline) throw new Error('renderer never came up')
@@ -287,7 +287,7 @@ async function boot(tag, opts = {}) {
   await sleep(800) // manifest load + initial settle
   // keep verdicts quiet — 'away' verdicts must not pop a real OS banner on
   // the developer's desktop
-  await ev(`window.__mahas.getState().updateSettings({ osNotifications: false })`).catch(() => {})
+  await ev(`window.__mahasTest.getState().updateSettings({ osNotifications: false })`).catch(() => {})
 
   const waitFor = async (expr, label, timeout = 12000) => {
     const dl = Date.now() + timeout
@@ -322,7 +322,7 @@ async function boot(tag, opts = {}) {
   const term = async () =>
     waitFor(
       `(() => {
-        const s = window.__mahas.getState()
+        const s = window.__mahasTest.getState()
         for (const w of s.workspaces)
           for (const p of Object.values(w.panes))
             for (const t of p.tabs)
@@ -363,10 +363,10 @@ async function boot(tag, opts = {}) {
 // ---------- helpers shared by scenarios ----------
 
 const mkws = async (h) => {
-  const pid = await h.ev(`window.__mahas.getState().addProject(${JSON.stringify(ROOT)}).id`)
+  const pid = await h.ev(`window.__mahasTest.getState().addProject(${JSON.stringify(ROOT)}).id`)
   const wsId = await h.ev(`(() => {
-    window.__mahas.getState().createWorkspace(${JSON.stringify(pid)})
-    const s = window.__mahas.getState()
+    window.__mahasTest.getState().createWorkspace(${JSON.stringify(pid)})
+    const s = window.__mahasTest.getState()
     const w = s.workspaces.at(-1)
     s.activateWorkspace(w.id)
     s.newBlock('term', w.id)
@@ -377,7 +377,7 @@ const mkws = async (h) => {
 
 const addTermTab = (h, wsId, paneId) =>
   h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const w = s.workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
     const p = w.panes[${JSON.stringify(paneId)}]
     const t = { id: crypto.randomUUID(), kind: 'term' }
@@ -388,7 +388,7 @@ const addTermTab = (h, wsId, paneId) =>
 const ptyForTab = (h, tabId) =>
   h.waitFor(
     `(() => {
-      const s = window.__mahas.getState()
+      const s = window.__mahasTest.getState()
       for (const w of s.workspaces)
         for (const p of Object.values(w.panes))
           for (const t of p.tabs)
@@ -432,7 +432,7 @@ const dragTab = async (h, tabId, toExpr) => {
 
 const paneTabIds = (h, wsId, paneId) =>
   h.ev(`(() => {
-    const w = window.__mahas.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    const w = window.__mahasTest.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
     return w?.panes[${JSON.stringify(paneId)}]?.tabs.map((t) => t.id) ?? null
   })()`)
 
@@ -459,11 +459,11 @@ async function scLifetime() {
   const h = await boot('lifetime')
   const { wsId } = await mkws(h)
   const terminal = await h.term()
-  const pane = `window.__mahas.getState().workspaces.find(w => w.id === ${JSON.stringify(wsId)}).panes[${JSON.stringify(terminal.paneId)}]`
+  const pane = `window.__mahasTest.getState().workspaces.find(w => w.id === ${JSON.stringify(wsId)}).panes[${JSON.stringify(terminal.paneId)}]`
   await h.type(terminal.pty, `${FAKE} --session-id lifetime-session\n`)
-  await h.waitFor(`window.__mahas.getState().resumeSessions['lifetime-session']`, 'lifetime agent started')
+  await h.waitFor(`window.__mahasTest.getState().resumeSessions['lifetime-session']`, 'lifetime agent started')
   await h.ev(`window.__lifetimeMount = document.querySelector('.xterm')`)
-  const action = name => h.ev(`window.__mahas.getState()[${JSON.stringify(name)}](${JSON.stringify(terminal.paneId)}, ${JSON.stringify(wsId)})`)
+  const action = name => h.ev(`window.__mahasTest.getState()[${JSON.stringify(name)}](${JSON.stringify(terminal.paneId)}, ${JSON.stringify(wsId)})`)
   const stillLive = async label => {
     const before = readEvents(h.cfg).filter(e => e.sessionId === 'lifetime-session' && e.event === 'idle').length
     await h.type(terminal.pty, 'i')
@@ -507,13 +507,13 @@ async function scResume() {
 
   await h.waitFor(
     `(() => {
-      const r = window.__mahas.getState().resumeSessions
+      const r = window.__mahasTest.getState().resumeSessions
       return r['sess-A'] && r['sess-B'] ? r : null
     })()`,
     'both sessions registered'
   )
   const recs = await h.ev(
-    `(() => { const r = window.__mahas.getState().resumeSessions; return {A: r['sess-A'].tabId, B: r['sess-B'].tabId} })()`
+    `(() => { const r = window.__mahasTest.getState().resumeSessions; return {A: r['sess-A'].tabId, B: r['sess-B'].tabId} })()`
   )
   ok(recs.A === t1.tabId, 'sess-A attributed to tab 1 (env-stamped)')
   ok(recs.B === tabB, 'sess-B attributed to tab 2 (env-stamped)')
@@ -549,8 +549,8 @@ async function scResume() {
   const livePtyB = await ptyForTab(h2, tabB)
   await h2.type(livePtyA, 'x')
   await h2.type(livePtyB, 'x')
-  await h2.waitFor(`!window.__mahas.getState().resumeSessions['sess-A'] &&
-    !window.__mahas.getState().resumeSessions['sess-B']`, 'explicit exits clear resume records')
+  await h2.waitFor(`!window.__mahasTest.getState().resumeSessions['sess-A'] &&
+    !window.__mahasTest.getState().resumeSessions['sess-B']`, 'explicit exits clear resume records')
   await h2.quit()
   const h3 = await boot('resume')
   await h3.waitFor(`window.mahas.domain.sessions({rootsOnly:true}).then(r => r.ok && r.value.items.length > 0)`,
@@ -570,9 +570,9 @@ async function scAttention() {
   const t1 = await h.term()
   await h.type(t1.pty, `${FAKE} --session-id s-att\n`)
   const ws2 = await h.ev(`(() => {
-    let s = window.__mahas.getState()
+    let s = window.__mahasTest.getState()
     s.createWorkspace(s.projects[0].id)
-    s = window.__mahas.getState()
+    s = window.__mahasTest.getState()
     const w = s.workspaces.at(-1)
     s.newBlock('term', w.id)
     s.activateWorkspace(${JSON.stringify(ws1)})
@@ -580,7 +580,7 @@ async function scAttention() {
   })()`)
   const t2 = await h.waitFor(
     `(() => {
-      const w = window.__mahas.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
+      const w = window.__mahasTest.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
       const p = Object.values(w.panes).find((p) => p.tabs.some((t) => t.kind === 'term'))
       const t = p?.tabs?.find((t) => t.kind === 'term')
       return t?.pty ? { paneId: p.id, tabId: t.id, pty: t.pty } : null
@@ -595,7 +595,7 @@ async function scAttention() {
   const dAtt = await h.decisionFor('s-att', 'turn-complete')
   ok(dAtt?.reason?.startsWith('attended'), `on-screen turn-complete judged attended (${dAtt?.reason})`)
   const attNotif = await h.ev(
-    `window.__mahas.getState().notifications.find((n) => n.sessionId === 's-att')`
+    `window.__mahasTest.getState().notifications.find((n) => n.sessionId === 's-att')`
   )
   ok(attNotif?.read === true, 'attended event recorded pre-read')
 
@@ -604,22 +604,22 @@ async function scAttention() {
   const dAmb = await h.decisionFor('s-amb', 'needs-input')
   ok(dAmb?.reason?.startsWith('ambient'), `off-screen needs-input judged ambient (${dAmb?.reason})`)
   const toasted = await h
-    .waitFor(`window.__mahas.getState().toasts.length > 0`, 'ambient toast', 8000)
+    .waitFor(`window.__mahasTest.getState().toasts.length > 0`, 'ambient toast', 8000)
     .then(() => true)
     .catch(() => false)
   ok(toasted, 'ambient needs-input produced an in-app toast')
   const unread = await h.ev(
-    `window.__mahas.getState().notifications.filter((n) => !n.read && n.sessionId === 's-amb').length`
+    `window.__mahasTest.getState().notifications.filter((n) => !n.read && n.sessionId === 's-amb').length`
   )
   ok(unread > 0, 'ambient notification is unread')
 
   // read-on-view: hidden window never holds DOM focus — stub it so the sweep
   // runs, then activate ws2 → the pending ping settles to read
   await h.ev(`document.hasFocus = () => true`)
-  await h.ev(`window.__mahas.getState().activateWorkspace(${JSON.stringify(ws2)})`)
+  await h.ev(`window.__mahasTest.getState().activateWorkspace(${JSON.stringify(ws2)})`)
   await sleep(600)
   const stillUnread = await h.ev(
-    `window.__mahas.getState().notifications.filter((n) => !n.read && n.tabId === ${JSON.stringify(t2.tabId)}).length`
+    `window.__mahasTest.getState().notifications.filter((n) => !n.read && n.tabId === ${JSON.stringify(t2.tabId)}).length`
   )
   ok(stillUnread === 0, 'viewing the tab clears its unread ping')
   await h.quit()
@@ -668,13 +668,13 @@ async function scAdopt() {
   // a previous-run orphan: foreign mahasSession but exact pane/tab stamps
   emit('sess-orph', { MAHAS_PANE: t.paneId, MAHAS_TAB: t.tabId })
   const got = await h
-    .waitFor(`window.__mahas.getState().resumeSessions['sess-orph']`, 'orphan re-registered', 8000)
+    .waitFor(`window.__mahasTest.getState().resumeSessions['sess-orph']`, 'orphan re-registered', 8000)
     .catch(() => null)
   ok(got?.tabId === t.tabId, 'orphan event adopted → session re-registered to its tab')
   // an unstamped foreign event must still be dropped
   emit('sess-foreign')
   await sleep(800)
-  const foreign = await h.ev(`window.__mahas.getState().resumeSessions['sess-foreign'] ?? null`)
+  const foreign = await h.ev(`window.__mahasTest.getState().resumeSessions['sess-foreign'] ?? null`)
   ok(!foreign, 'unstamped foreign event still dropped')
   await h.quit()
 }
@@ -685,27 +685,27 @@ async function scProjectRm() {
   const { pid: pidA } = await mkws(h)
   const t = await h.term()
   await h.type(t.pty, `${FAKE} --session-id s-prm\n`)
-  await h.waitFor(`window.__mahas.getState().resumeSessions['s-prm']`, 'session registered')
+  await h.waitFor(`window.__mahasTest.getState().resumeSessions['s-prm']`, 'session registered')
 
   // a second project+ws (distinct path — addProject dedupes on path) so
   // removing A exercises the active-workspace fallback
   const { pid: pidB, wsId: wsB } = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const p = s.addProject('/tmp')
     s.createWorkspace(p.id)
-    const w = window.__mahas.getState().workspaces.at(-1)
+    const w = window.__mahasTest.getState().workspaces.at(-1)
     s.activateWorkspace(w.id)
     return { pid: p.id, wsId: w.id }
   })()`)
   // re-activate A's workspace — deleting must fix a dangling activeWorkspaceId
   const wsA = await h.ev(
-    `(() => { const w = window.__mahas.getState().workspaces.find((x) => x.projectId === ${JSON.stringify(pidA)}); window.__mahas.getState().activateWorkspace(w.id); return w.id })()`
+    `(() => { const w = window.__mahasTest.getState().workspaces.find((x) => x.projectId === ${JSON.stringify(pidA)}); window.__mahasTest.getState().activateWorkspace(w.id); return w.id })()`
   )
 
-  await h.ev(`window.__mahas.getState().removeProject(${JSON.stringify(pidA)})`)
+  await h.ev(`window.__mahasTest.getState().removeProject(${JSON.stringify(pidA)})`)
   await sleep(300)
   const after = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     return {
       projGone: !s.projects.some((p) => p.id === ${JSON.stringify(pidA)}),
       wsLeft: s.workspaces.filter((w) => w.projectId === ${JSON.stringify(pidA)}).length,
@@ -725,10 +725,10 @@ async function scProjectRm() {
   )
 
   // removing the last project must leave a valid empty state
-  await h.ev(`window.__mahas.getState().removeProject(${JSON.stringify(pidB)})`)
+  await h.ev(`window.__mahasTest.getState().removeProject(${JSON.stringify(pidB)})`)
   await sleep(300)
   const empty = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     return { ws: s.workspaces.length, active: s.activeWorkspaceId, dom: !!document.querySelector('.empty-state') }
   })()`)
   ok(empty.ws === 0 && empty.active === null, 'last project removed → no workspaces, no active id')
@@ -747,9 +747,9 @@ async function scBrowserFile() {
 
   // a fresh workspace has one leaf — the single-leaf exception splits it
   // right and the web block lands in the new pane instead of stacking
-  await h.ev(`window.__mahas.getState().openUrlInBrowser(${JSON.stringify(f1)}, undefined, true)`)
+  await h.ev(`window.__mahasTest.getState().openUrlInBrowser(${JSON.stringify(f1)}, undefined, true)`)
   const first = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const w = s.workspaces[0]
     const leaf = Object.values(w.panes).find((p) =>
       p.tabs.some((t) => t.kind === 'web'))
@@ -772,9 +772,9 @@ async function scBrowserFile() {
 
   // two leaves now — a second file open stacks into the focused leaf and
   // the loaded page must not be clobbered
-  await h.ev(`window.__mahas.getState().openUrlInBrowser(${JSON.stringify(f2)}, undefined, true)`)
+  await h.ev(`window.__mahasTest.getState().openUrlInBrowser(${JSON.stringify(f2)}, undefined, true)`)
   const after = await h.ev(`(() => {
-    const leaf = Object.values(window.__mahas.getState().workspaces[0].panes)
+    const leaf = Object.values(window.__mahasTest.getState().workspaces[0].panes)
       .find((p) => p.tabs.some((t) => t.kind === 'web'))
     const wts = leaf.tabs.filter((t) => t.kind === 'web')
     return { urls: wts.map((t) => t.url), active: wts.at(-1).id === leaf.activeTabId }
@@ -829,7 +829,7 @@ async function scTabDnd() {
     })()`
   )
   const split = await h.ev(`(() => {
-    const w = window.__mahas.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    const w = window.__mahasTest.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
     const panes = Object.values(w.panes)
     const host = panes.find((p) => p.tabs.some((t) => t.id === ${JSON.stringify(tabB)}))
     return { leaves: panes.length, host: host?.id, srcTabs: w.panes[${JSON.stringify(paneA)}]?.tabs.length }
@@ -842,7 +842,7 @@ async function scTabDnd() {
   // 3) stack: drag tab B's tab back onto the source pane's strip → rejoin
   await dragTab(h, tabB, center(`'.pane[data-pane-id="${paneA}"] .tstrip'`))
   const restacked = await h.ev(`(() => {
-    const w = window.__mahas.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
+    const w = window.__mahasTest.getState().workspaces.find((x) => x.id === ${JSON.stringify(wsId)})
     const p = w.panes[${JSON.stringify(paneA)}]
     return { panes: Object.keys(w.panes).length, tabs: p?.tabs.map((t) => t.id), active: p?.activeTabId }
   })()`)
@@ -854,14 +854,14 @@ async function scTabDnd() {
 
   // 4) cross-workspace: drag tab C onto ws2's workspace tab → new leaf there
   const ws2 = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     s.createWorkspace(s.projects[0].id)
     return s.workspaces.at(-1).id
   })()`)
-  await h.ev(`window.__mahas.getState().activateWorkspace(${JSON.stringify(wsId)})`)
+  await h.ev(`window.__mahasTest.getState().activateWorkspace(${JSON.stringify(wsId)})`)
   await dragTab(h, tabC, center(`'.ws-strip .ctab[data-tab-id="${ws2}"]'`))
   const moved = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const w2 = s.workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
     const host = Object.values(w2.panes).find((p) =>
       p.tabs.some((t) => t.id === ${JSON.stringify(tabC)}))
@@ -879,7 +879,7 @@ async function scTabDnd() {
 
   // 5) moved terminals keep their live pty sessions — no respawn
   const ptys = await h.ev(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const find = (id) => {
       for (const w of s.workspaces)
         for (const p of Object.values(w.panes)) {
@@ -911,7 +911,7 @@ async function scStatus() {
     return b ? (b.dataset.st ?? null) : 'NO-BUTTON'
   })()`
   const tabWorking = (tabId) => `(() => {
-    for (const w of window.__mahas.getState().workspaces)
+    for (const w of window.__mahasTest.getState().workspaces)
       for (const p of Object.values(w.panes)) {
         const t = p.tabs.find((x) => x.id === ${JSON.stringify(tabId)})
         if (t) return t.working === true
@@ -940,9 +940,9 @@ async function scStatus() {
   // (attended would still badge but read-on-view sweeps it instantly, so the
   // stable observable case is ambient)
   const ws2 = await h.ev(`(() => {
-    let s = window.__mahas.getState()
+    let s = window.__mahasTest.getState()
     s.createWorkspace(s.projects[0].id)
-    s = window.__mahas.getState()
+    s = window.__mahasTest.getState()
     const w = s.workspaces.at(-1)
     s.newBlock('term', w.id)
     s.activateWorkspace(${JSON.stringify(ws1)})
@@ -950,7 +950,7 @@ async function scStatus() {
   })()`)
   const t2 = await h.waitFor(
     `(() => {
-      const w = window.__mahas.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
+      const w = window.__mahasTest.getState().workspaces.find((x) => x.id === ${JSON.stringify(ws2)})
       const p = Object.values(w.panes).find((p) => p.tabs.some((t) => t.kind === 'term'))
       const t = p?.tabs?.find((t) => t.kind === 'term')
       return t?.pty ? { paneId: p.id, tabId: t.id, pty: t.pty } : null
@@ -977,7 +977,7 @@ async function scStatus() {
   // checking it (read-on-view) returns the close slot to the plain X — the
   // working flag also falls once the fake goes quiet (~1.6 s silence)
   await h.ev(`document.hasFocus = () => true`)
-  await h.ev(`window.__mahas.getState().activateWorkspace(${JSON.stringify(ws2)})`)
+  await h.ev(`window.__mahasTest.getState().activateWorkspace(${JSON.stringify(ws2)})`)
   await h.waitFor(`${stOf(t2.tabId)} === null`, 'status cleared after attending', 10000)
   ok(true, 'seen state restores the plain close X')
   await h.quit()

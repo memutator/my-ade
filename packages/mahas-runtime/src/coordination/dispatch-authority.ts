@@ -317,6 +317,43 @@ export function acceptDispatch(
 }
 
 /**
+ * Withdraw attempt authority without fencing the attempt row.
+ * `team.retire` revoke-dispatch uses this: late accept/report still fail
+ * because authority is no longer active, but `phase` and
+ * `tasks.current_dispatch_id` stay. Distinct from fenceDispatch.
+ */
+export function revokeDispatchAuthority(
+  db: DatabaseSync,
+  dispatchId: string,
+  input?: { eventBy?: string; runId?: string }
+): Dispatch {
+  const d = mustGet(db, dispatchId)
+  if (d.authorityState === 'revoked') return d
+  if (d.authorityState === 'settled') {
+    fail(
+      'INVALID_TRANSITION',
+      `dispatch ${dispatchId} is settled and cannot have authority revoked`,
+      'none',
+      { dispatchId }
+    )
+  }
+  run(
+    db,
+    "UPDATE dispatches SET authority_state='revoked', revision=revision+1 WHERE id=?",
+    dispatchId
+  )
+  appendDomainEvent(
+    db,
+    dispatchId,
+    0,
+    'dispatch.revoked',
+    { runId: input?.runId },
+    { by: input?.eventBy ?? 'revoke-dispatch' }
+  )
+  return getDispatch(db, dispatchId)!
+}
+
+/**
  * Fence an attempt: authority leaves 'active', phase → 'revoked', the task's
  * current_dispatch_id is cleared if it still points here. Idempotent on an
  * already-revoked dispatch (a fence is a safety net, not a transition);

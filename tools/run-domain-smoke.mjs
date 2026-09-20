@@ -48,6 +48,8 @@ const SUITES = {
     [`${RUNTIME}/sessions/desktop-import.smoke.ts`, []],
     // inspector wire contract against the runtime's canonical responses
     [`${RUNTIME}/inspector/inspector-contract.smoke.ts`, []],
+    [`${RUNTIME}/coordination/dispatch-revoke.smoke.ts`, []],
+    [`${RUNTIME}/lifecycle/recovery-map.smoke.ts`, []],
     // mahas-client connector: operator connection file, reconnect, receipt
     // mapping — pure client side, no daemon or database
     ['packages/mahas-client/src/client.smoke.ts', []]
@@ -107,6 +109,8 @@ const SUITES = {
   // Renderer-side pure logic (no control plane, no database, no provider API).
   renderer: [
     ['src/renderer/src/workbench/store.smoke.ts', []],
+    ['src/renderer/src/shell/tabs.smoke.ts', []],
+    ['src/renderer/src/shell/hydration.smoke.ts', []],
     ['src/main/agentEventIngest.smoke.ts', []],
     ['src/main/state/persistence.smoke.ts', []],
     ['src/main/runtime/serviceBootstrap.smoke.ts', []],

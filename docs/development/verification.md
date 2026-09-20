@@ -17,7 +17,9 @@ These passes are not a whole-milestone completion verdict; the separate
 | `npm run typecheck:node` | main + preload (`tsconfig.node.json`) | ~5 s |
 | `npm run typecheck:web` | renderer (`tsconfig.web.json`) | ~15 s |
 | `npm run typecheck:packages` | each package entrypoint **and every file under `packages/*/src`** participates in that package tsconfig program, then each program typechecks | ~10 s |
-| `npm run typecheck` | all three projects, in that order | ~30 s |
+| `npm run typecheck:integrations` | Pack and fixture TypeScript under `integrations/**/*.ts` | ~5 s |
+| `npm run typecheck` | node + web + packages + `tsconfig.integrations.json` (`integrations/**/*.ts`) | ~30 s |
+| `node tools/check-catalog-roster.mjs` | Pack `harnesses.json` / `providers.json` ids match `BUILTIN_HARNESSES` / `BUILTIN_PROVIDERS` | ~0.1 s |
 | `npm run lint` | ESLint (with cache), including the `mahas-boundaries/resolved-package-imports` rule | ~10 s |
 | `npm run build:services` | bundles `mahasd`, `execution-host`, and the `mahas` CLI into `out/services/*.mjs`, parses each artifact with `node --check`, then boots each one in a throwaway config dir | ~15 s |
 | `npm run test:domain` | synthetic domain smokes: unit + pipeline suites (21 scripts) | ~1 min |
@@ -25,7 +27,7 @@ These passes are not a whole-milestone completion verdict; the separate
 | `npm run test:packs` | the packs suite alone: registry smokes, 8 conformance fixtures, 3 provider-Pack tests, all-Pack acceptance (14 scripts) | ~10 s |
 | `npm run test:launch` | the launch/access suite on its own | ~10 s |
 | `npx electron-vite build` | main/preload/renderer bundles into `out/`, and runs the service bundler as its `closeBundle` step | ~6 s |
-| `npm run build` | `typecheck` + `check:boundaries` + `check:docs` + `electron-vite build` | ~40 s |
+| `npm run build` | `typecheck` + `check:boundaries` + `check:docs` + Pack projection `--check` + catalog roster check + `electron-vite build` | ~40 s |
 | `node tools/e2e.mjs [scenario]` | CDP-driven end-to-end run against `out/` with `tools/mahas-fake.mjs`; needs a prior build | minutes |
 | `node tools/domain-ui-smoke.mjs` | real Electron + real mahasd end-to-end: synthetic Codex file → auto collection → stored ledger → preload/UI | minutes |
 

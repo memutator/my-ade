@@ -201,10 +201,10 @@ async function stored(method, request) {
 
 async function openWidget(widget) {
   return evaluate(`(() => {
-    const store = window.__mahas.getState()
+    const store = window.__mahasTest.getState()
     const wsId = store.activeWorkspaceId
     store.newBlock('widget', wsId, ${JSON.stringify(widget)})
-    const workspace = window.__mahas.getState().workspaces.find(w => w.id === wsId)
+    const workspace = window.__mahasTest.getState().workspaces.find(w => w.id === wsId)
     const pane = Object.values(workspace.panes).find(p => p.tabs.some(t => t.widget === ${JSON.stringify(widget)}))
     return pane.tabs.find(t => t.widget === ${JSON.stringify(widget)}).id
   })()`)
@@ -293,8 +293,8 @@ async function run() {
     }
   }
   await send('Runtime.enable')
-  await until(() => evaluate('!!(window.__mahas && window.mahas?.domain)'), 'domain preload and hydrated store')
-  await evaluate(`window.__mahas.getState().updateSettings({language:'en', osNotifications:false})`)
+  await until(() => evaluate('!!(window.__mahasTest && window.mahas?.domain)'), 'domain preload and hydrated store')
+  await evaluate(`window.__mahasTest.getState().updateSettings({language:'en', osNotifications:false})`)
 
   // These are read operations only: discovery/collection must happen on the
   // daemon's automatic timer before any widget/refresh button is mounted.
@@ -347,7 +347,7 @@ async function run() {
   for (const [name, identity] of services) console.log(`    ${name}: pid=${identity.pid} birth=${identity.birth}`)
 
   await evaluate(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const project = s.addProject(${JSON.stringify(project)})
     s.createWorkspace(project.id, 'Domain fixture')
   })()`)
@@ -417,13 +417,13 @@ async function run() {
   // callback. Identity/namespace collision cases are covered by the pure join
   // fixture; this checks its consumer restores the target workspace/pane/tab.
   const navigationTarget = await evaluate(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const original = s.activeWorkspaceId
     const projectId = s.workspaces.find(w => w.id === original).projectId
     s.createWorkspace(projectId, 'Session target')
-    const w = window.__mahas.getState().workspaces.find(w => w.id === window.__mahas.getState().activeWorkspaceId)
+    const w = window.__mahasTest.getState().workspaces.find(w => w.id === window.__mahasTest.getState().activeWorkspaceId)
     s.newBlock('term', w.id)
-    const next = window.__mahas.getState().workspaces.find(ws => ws.id === w.id)
+    const next = window.__mahasTest.getState().workspaces.find(ws => ws.id === w.id)
     const pane = Object.values(next.panes).find(p => p.tabs.some(t => t.kind === 'term'))
     const tab = pane.tabs.find(t => t.kind === 'term')
     s.updatePane(pane.id, { tabs: pane.tabs.map(t => t.id === tab.id ? { ...t, minimized: true } : t) }, w.id)
@@ -436,15 +436,15 @@ async function run() {
     'canonical stored row joined with qualified native live entry')
   await evaluate(`document.querySelector('.dash-sess').click()`)
   const jumped = await evaluate(`(() => {
-    const s = window.__mahas.getState(), target = ${JSON.stringify(navigationTarget)}
+    const s = window.__mahasTest.getState(), target = ${JSON.stringify(navigationTarget)}
     const p = s.workspaces.find(w => w.id === target.wsId)?.panes[target.paneId]
     return s.activeWorkspaceId === target.wsId && p && !p.minimized &&
       p.activeTabId === target.tabId && !p.tabs.find(t => t.id === target.tabId).minimized
   })()`)
   check(jumped, 'stored session click restores the correct workspace, minimized pane and native tab')
   await evaluate(`(() => {
-    window.__mahas.setState({agentSessions:{}})
-    window.__mahas.getState().activateWorkspace(${JSON.stringify(navigationTarget.original)})
+    window.__mahasTest.setState({agentSessions:{}})
+    window.__mahasTest.getState().activateWorkspace(${JSON.stringify(navigationTarget.original)})
   })()`)
 
   // The shell's separate live-session widget is named "agents"; canonical
@@ -488,7 +488,7 @@ async function run() {
   check(unboundSource && !unboundSource.harnessId && unboundSource.offeringId === 'openai/chatgpt',
     'unbound stored connection remains visible without an invented harness')
   await evaluate(`(() => {
-    const s = window.__mahas.getState()
+    const s = window.__mahasTest.getState()
     const w = s.workspaces.find(w => w.id === s.activeWorkspaceId)
     for (const p of Object.values(w.panes)) {
       if (p.tabs.some(t => t.widget === 'usage')) s.closePane(p.id, w.id)
@@ -549,9 +549,9 @@ try {
   if (ws?.readyState === WebSocket.OPEN) {
     try {
       console.error('Rendered UI:', await evaluate('document.body.innerText.slice(-9000)'))
-      console.error('Widget state:', await evaluate(`window.__mahas && JSON.stringify({
-        active: window.__mahas.getState().activeWorkspaceId,
-        workspaces: window.__mahas.getState().workspaces
+      console.error('Widget state:', await evaluate(`window.__mahasTest && JSON.stringify({
+        active: window.__mahasTest.getState().activeWorkspaceId,
+        workspaces: window.__mahasTest.getState().workspaces
       })`))
     } catch { /* a renderer crash can make diagnostics unavailable */ }
   }

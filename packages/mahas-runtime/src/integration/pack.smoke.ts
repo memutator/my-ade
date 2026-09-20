@@ -235,6 +235,12 @@ async function main(): Promise<void> {
   assert.equal(registry.list().length, 1)
   ok('a different payload for the same revision is IMMUTABLE_REVISION')
 
+  writeFileSync(join(packsRoot, 'alpha', 'README.md'), '# not identity\n')
+  writeFileSync(join(packsRoot, 'alpha', 'conformance.smoke.ts'), '// not identity\n')
+  const afterDocs = registry.registerDirectory(join(packsRoot, 'alpha'))
+  assert.equal(afterDocs.contentDigest, alpha.contentDigest)
+  ok('README and conformance.smoke.ts are not pack identity')
+
   const tampered = join(alpha.snapshotPath, 'collector.mjs')
   const original = readFileSync(tampered, 'utf8')
   writeFileSync(tampered, `${original}\n// tampered\n`)

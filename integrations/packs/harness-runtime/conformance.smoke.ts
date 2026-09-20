@@ -91,7 +91,7 @@ const registry = new PackRegistry({
 })
 const revision = registry.registerDirectory(PACK_DIR)
 assert.equal(revision.packId, 'builtin.harness-runtime')
-assert.equal(revision.revision, 2, 'pack revision')
+assert.equal(revision.revision, 3, 'pack revision')
 assert.ok(revision.contentDigest.length === 64, 'digest recorded')
 
 const target = { kind: 'installation', installationId: 'fixture' } as const

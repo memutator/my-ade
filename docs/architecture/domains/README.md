@@ -29,7 +29,7 @@ operations on the common `OperationRegistry`.
 | --- | --- | --- | --- | --- |
 | catalog | Organization, Harness, Provider, Offering, and Model identities are independent; the built-in seed maps harnesses to provider/offering IDs | `packages/mahas-contracts/src/catalog/` | `packages/mahas-runtime/src/catalog/` (SQL, repository, seed) | current — seeded at boot, operations registered |
 | inventory | Machine, HarnessInstallation/Revision, ProviderCredential (secret reference), ProviderConnection, and time-bounded Installation–Connection Binding | `packages/mahas-contracts/src/inventory/` | `packages/mahas-runtime/src/inventory/` (SQL, repository, local machine identity) | current — the scheduler upserts discovered installations and executable-identity revisions |
-| integration (AdapterPack) | Packs observe a harness/provider through declared capabilities; revisions are immutable and digest-pinned | `packages/mahas-contracts/src/integration/` (schema is the machine authority) | `packages/mahas-runtime/src/integration/` (registry, runner, conformance, contract registry, SQL) plus Packs under `integrations/packs/` | current — built-in Packs register at boot via a nested manifest walk; runtime registration of a new Pack goes through `integration.pack.register` on the deferred-admission path (effects outside the transaction, atomic commit) |
+| integration (AdapterPack) | Packs observe a harness/provider through declared capabilities; revisions are immutable and digest-pinned | `packages/mahas-contracts/src/integration/` (schema is the machine authority) | `packages/mahas-runtime/src/integration/` (registry, runner, conformance, contract registry, SQL) plus Packs under `integrations/packs/` | current — built-in Packs register at boot via a nested manifest walk; source identity hashes product files only (`isPackIdentityFile`); same-revision digest drift logs `integration.builtin-revision-held` and keeps the old snapshot; runtime registration of a new Pack goes through `integration.pack.register` on the deferred-admission path |
 | sessions | Harness session records, including child and foreign sessions; discovery alone never creates a Task or Execution | `packages/mahas-contracts/src/sessions/` | `packages/mahas-runtime/src/sessions/` (store, queries, hook ingest, hook stream reader, desktop import) | current — durable ingest, stream checkpointing, and legacy-record import all commit through operations |
 | observation / collection | Sources, opaque cursors, batches, readings, coverage gaps; a reading and its ledger effects commit atomically | `packages/mahas-contracts/src/observation.ts` | `packages/mahas-runtime/src/observation/collection/` | current — the daemon scheduler owns discovery, bounded collection, and atomic batch/cursor commit on its own timer |
 | metering / usage | Usage ledger entries with per-item attribution, revisions, corrections, and stable-ID cursor scans | `packages/mahas-contracts/src/metering/` | `packages/mahas-runtime/src/metering/usage/` | current — dedup, cumulative baseline/epoch, overlap, and correction rules are stored-ledger behavior |
@@ -43,8 +43,11 @@ operations on the common `OperationRegistry`.
 These are shipped and are **not** moving into the control plane:
 
 - Layout and pane/tab records — `src/renderer/src/store.ts`,
-  `src/renderer/src/shell/`, rendered by
+  `src/renderer/src/shell/` (`persist.ts` is the on-disk field list,
+  `tabs.ts` is close-tab policy including exec unbind), rendered by
   [SplitView.tsx](../../../src/renderer/src/components/SplitView.tsx).
+- Workbench domain project pin — widget tab `domainProjectId` is a daemon
+  `projects.id` (empty = unconnected). It is never the desktop folder uid.
 - Notification/attention policy — [attention.ts](../../../src/renderer/src/attention.ts),
   spec [notifications](../../user/notifications.md). Policy stays with the window
   that can judge attention; events arrive from the hook channel after the

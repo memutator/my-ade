@@ -96,7 +96,7 @@ export type {
 export { INTEGRATION_SCHEMA_SQL } from './migration.ts'
 export { INTEGRATION_OPERATION_NAMES, registerIntegrationOperations } from './operations.ts'
 export type { IntegrationOperationDeps, IntegrationOperationRegistry } from './operations.ts'
-export { PackRegistry, PackRegistryError, packEntrypoint } from './registry.ts'
+export { PackRegistry, PackRegistryError, isPackIdentityFile, packEntrypoint } from './registry.ts'
 export { runPack, PackRunnerError } from './runner.ts'
 export type {
   PackActionResultIdentity,

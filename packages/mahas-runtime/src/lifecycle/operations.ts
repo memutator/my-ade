@@ -20,6 +20,7 @@ import type { OperationHandler, OperationSpec, TargetRef, TxnContext } from '../
 import type { MahasdLifecycle } from './lifecycle.ts'
 import { fail } from './readiness.ts'
 import type { ReconcileScope } from './reconcile.ts'
+import { mapRecoveryReconcileDecision } from './recovery-map.ts'
 import type { RuntimeStatusReport, ReconcileReport } from './types.ts'
 
 export interface RuntimeOpsDeps {
@@ -155,14 +156,7 @@ export function registerRuntimeOps(registry: RuntimeOpRegistry, deps: RuntimeOps
         mapped.push({
           targetKind: 'execution',
           targetId: d.executionId,
-          decision:
-            d.decision === 'reattached'
-              ? 'reattached'
-              : d.decision === 'exited'
-                ? 'confirmed-exited'
-                : d.decision === 'conflict'
-                  ? 'quarantined'
-                  : 'left-unknown',
+          decision: mapRecoveryReconcileDecision(d.decision),
           evidence: d.basis ?? d.decision ?? ''
         })
       }

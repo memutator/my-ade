@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { TerminalSquare, Globe, Code2 } from 'lucide-react'
 import { useStore, visibleLeafIds } from './store'
+import { snapshotPersistedState } from './shell/persist'
 import { applyShortcut } from './shortcuts'
 import { useT } from './i18n'
 import { agentProviders } from './agents'
@@ -89,22 +90,9 @@ export default function App(): React.JSX.Element {
   // debounce dies with the window, so without it the final snapshot (last
   // session events, resume records) silently never reaches disk
   useEffect(() => {
-    const snapshot = (s: ReturnType<typeof useStore.getState>): Record<string, unknown> => ({
-      stateVersion: 3,
-      projects: s.projects,
-      workspaces: s.workspaces,
-      activeWorkspaceId: s.activeWorkspaceId,
-      settings: s.settings,
-      sidebarOpen: s.sidebarOpen,
-      bookmarks: s.bookmarks,
-      agentSessions: s.agentSessions,
-      resumeSessions: s.resumeSessions,
-      treeRoots: s.treeRoots,
-      sidebarRoots: s.sidebarRoots,
-      sideAgentsCollapsed: s.sideAgentsCollapsed,
-      sideAgentsFrac: s.sideAgentsFrac,
-      agentsScope: s.agentsScope
-    })
+    const snapshot = (s: ReturnType<typeof useStore.getState>): ReturnType<
+      typeof snapshotPersistedState
+    > => snapshotPersistedState(s)
     const flush = (): void => {
       window.mahas.state.saveNow?.(snapshot(useStore.getState()))
     }

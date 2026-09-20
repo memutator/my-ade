@@ -16,18 +16,14 @@
 // Pure: input is the raw parsed file (possibly from a much older build),
 // output is what hydrate() should set. No IPC, no side effects.
 
-import type {
-  AgentSessionInfo,
-  BlockKind,
-  Bookmark,
-  PaneState,
-  PaneTab,
-  Project,
-  ResumeSession,
-  Settings,
-  TerminalTab,
-  Workspace
-} from '../types'
+import type { BlockKind, PaneState, PaneTab, TerminalTab, Workspace } from '../types'
+export {
+  DEFAULT_SETTINGS,
+  STATE_VERSION,
+  snapshotPersistedState,
+  stampResumeShutdown
+} from './persist'
+export type { PersistedState } from './persist'
 import { removeLeaf, visibleLeafIds, leafPaneIds } from './layout'
 import { uid } from './ids'
 
@@ -118,47 +114,4 @@ export function normalizeWorkspace(w: Workspace): Workspace {
     changed = true
   }
   return changed ? { ...w, panes, focusedPaneId, root } : w
-}
-
-export const DEFAULT_SETTINGS: Settings = {
-  homeUrl: '',
-  theme: 'dark',
-  accent: '#7aa2f7',
-  uiFont: "'Inter', system-ui, sans-serif",
-  termFont: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
-  termFontSize: 12.5,
-  editorFont: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
-  language: 'system',
-  osNotifications: true,
-  providers: {}
-}
-
-export interface PersistedState {
-  /** bump when persisted semantics change — v2 = resume records carry
-   *  env-stamped exact pane/tab attribution; v3 = type-less panes hold
-   *  kind-tagged tabs (todo panes dropped) */
-  stateVersion?: number
-  projects: Project[]
-  workspaces: Workspace[]
-  activeWorkspaceId: string | null
-  settings: Settings
-  sidebarOpen: boolean
-  treeOverlayOpen: boolean
-  bookmarks: Bookmark[]
-  /** harness sessionId → observed info (name set via session-rename) */
-  agentSessions: Record<string, AgentSessionInfo>
-  /** live agent sessions → offered for resume after a restart (see
-   *  ResumeSession — a current set, not a history) */
-  resumeSessions: Record<string, ResumeSession>
-  /** most-recently-picked file-tree roots (any host: sidebar, overlay, pane) */
-  treeRoots: string[]
-  /** per-project sidebar tree root overrides — sidebar trees can point
-   *  somewhere other than the project dir */
-  sidebarRoots: Record<string, string>
-  /** sidebar agents section — collapsed flag + fraction of sidebar height */
-  sideAgentsCollapsed: boolean
-  sideAgentsFrac: number
-  /** agents list scope — 'ws' shows the active workspace's sessions,
-   *  'all' groups every workspace's */
-  agentsScope: 'ws' | 'all'
 }
